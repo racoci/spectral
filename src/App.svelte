@@ -6,7 +6,7 @@
   <header class="app-header">
     <div class="logo-area">
       <span class="icon-brand">🎨🔊</span>
-      <h1>Audio2Image</h1>
+      <h1>Spectral</h1>
       <span class="badge-tag">Lossless Sandbox v0.1</span>
     </div>
     <p class="tagline">

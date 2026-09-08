@@ -1,4 +1,4 @@
-# Plano de Arquitetura: Audio2Image
+# Plano de Arquitetura: Spectral
 
 ## 1. Objetivo
 Criar uma aplicação web estática (hospedada no GitHub Pages) capaz de converter arquivos de áudio em imagens bidimensionais e vice-versa de forma **100% reversível e sem perdas (lossless)**. A interface funcionará inicialmente como um visualizador, mas sua arquitetura deve suportar a evolução para um editor de imagens que, na prática, manipula o áudio resultante.

@@ -3,13 +3,26 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches:
-      - master
+      - main
+  # Permite executar este workflow manualmente pela aba Actions do GitHub
+  workflow_dispatch:
 
+# Define as permissões do GITHUB_TOKEN para permitir o deploy direto para o GitHub Pages
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
+
+# Garante apenas um deploy concorrente por vez para evitar condições de corrida
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -35,8 +48,14 @@ jobs:
       - name: Build Application
         run: npm run build
 
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./dist
+          path: './dist'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,47 +1,133 @@
-# Svelte + TS + Vite
+# 🎨🔊 Spectral
 
-This template should help get you started developing with Svelte and TypeScript in Vite.
+[![Deploy to GitHub Pages](https://github.com/racoci/spectral/actions/workflows/deploy.yml/badge.svg)](https://github.com/racoci/spectral/actions/workflows/deploy.yml)
+[![Svelte](https://img.shields.io/badge/Svelte-5-ff3e00?logo=svelte&logoColor=white)](https://svelte.dev/)
+[![Rust](https://img.shields.io/badge/Rust-1.97%2B-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
+[![WebAssembly](https://img.shields.io/badge/WebAssembly-Wasm--Pack-654ff0?logo=webassembly&logoColor=white)](https://rustwasm.github.io/wasm-pack/)
 
-## Recommended IDE Setup
+**Spectral** é um laboratório interativo de processamento digital de sinais para conversão de áudio em imagens bidimensionais (e vice-versa) de forma **100% reversível e sem perdas (lossless / bit-perfect)**.
 
-[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode).
+A aplicação é executada inteiramente no lado do cliente (client-side) como uma aplicação SPA de alta performance, projetada para ser hospedada estaticamente no **GitHub Pages**. O motor matemático é implementado em **Rust (WebAssembly)** para garantir precisão e determinismo bit-a-bit, enquanto o visualizador interativo utiliza **HTML5 Canvas / WebGL** para renderização a 60 FPS com controles de zoom e translação.
 
-## Need an official Svelte framework?
+---
 
-Check out [SvelteKit](https://github.com/sveltejs/kit#readme), which is also powered by Vite. Deploy anywhere with its serverless-first approach and adapt to various platforms, with out of the box support for TypeScript, SCSS, and Less, and easily-added support for mdsvex, GraphQL, PostCSS, Tailwind CSS, and more.
+## 🗺️ Visão Geral da Arquitetura
 
-## Technical considerations
+O sistema é baseado em **Validação Cruzada Simétrica (Symmetrical Cross-Validation)**. Qualquer operação de codificação $f(x)$ deve ser perfeitamente invertível por seu decodificador correspondente $f^{-1}(y)$, de modo que o áudio de saída seja binariamente idêntico ao áudio de entrada: $f^{-1}(f(x)) \equiv x$.
 
-**Why use this over SvelteKit?**
+### Pipeline Simétrico
 
-- It brings its own routing solution which might not be preferable for some users.
-- It is first and foremost a framework that just happens to use Vite under the hood, not a Vite app.
-
-This template contains as little as possible to get started with Vite + TypeScript + Svelte, while taking into account the developer experience with regards to HMR and intellisense. It demonstrates capabilities on par with the other `create-vite` templates and is a good starting point for beginners dipping their toes into a Vite + Svelte project.
-
-Should you later need the extended capabilities and extensibility provided by SvelteKit, the template has been structured similarly to SvelteKit so that it is easy to migrate.
-
-**Why `global.d.ts` instead of `compilerOptions.types` inside `jsconfig.json` or `tsconfig.json`?**
-
-Setting `compilerOptions.types` shuts out all other types not explicitly listed in the configuration. Using triple-slash references keeps the default TypeScript setting of accepting type information from the entire workspace, while also adding `svelte` and `vite/client` type information.
-
-**Why include `.vscode/extensions.json`?**
-
-Other templates indirectly recommend extensions via the README, but this file allows VS Code to prompt the user to install the recommended extension upon opening the project.
-
-**Why enable `allowJs` in the TS template?**
-
-While `allowJs: false` would indeed prevent the use of `.js` files in the project, it does not prevent the use of JavaScript syntax in `.svelte` files. In addition, it would force `checkJs: false`, bringing the worst of both worlds: not being able to guarantee the entire codebase is TypeScript, and also having worse typechecking for the existing JavaScript. In addition, there are valid use cases in which a mixed codebase may be relevant.
-
-**Why is HMR not preserving my local component state?**
-
-HMR state preservation comes with a number of gotchas! It has been disabled by default in both `svelte-hmr` and `@sveltejs/vite-plugin-svelte` due to its often surprising behavior. You can read the details [here](https://github.com/rixo/svelte-hmr#svelte-hmr).
-
-If you have state that's important to retain within a component, consider creating an external store which would not be replaced by HMR.
-
-```ts
-// store.ts
-// An extremely simple external store
-import { writable } from 'svelte/store'
-export default writable(0)
+```text
+                                  [ FWD PIPELINE ]
+                                  
++-------------------+        Codificação WASM        +--------------------+
+|    Áudio WAV      | -----------------------------> |   Matriz Pixels    |
+| (16-bit / Stereo) |                                |    (RGBA bytes)    |
++-------------------+                                +--------------------+
+          ^                                                     |
+          |                  Decodificação WASM                 |
+          +-----------------------------------------------------+
+                                  [ INV PIPELINE ]
 ```
+
+```mermaid
+graph LR
+    subgraph ForwardPipeline [Forward Pipeline]
+        A[Áudio WAV Stereo 16-bit] -->|Wasm: encode_naive| B[Matriz RGBA de 32-bits]
+        B -->|Svelte: Offscreen Canvas| C[Grade de Pixels Visível]
+    end
+    subgraph InversePipeline [Inverse Pipeline]
+        C -->|Wasm: decode_naive| D[Recuperação de WAV Bruto]
+        D -->|Svelte: Web Audio API| E[Áudio Reconstruído]
+    end
+    E -->|Validação SHA-256| A
+    style A fill:#0369a1,stroke:#334155,stroke-width:2px,color:#fff
+    style C fill:#0f766e,stroke:#334155,stroke-width:2px,color:#fff
+    style E fill:#be185d,stroke:#334155,stroke-width:2px,color:#fff
+```
+
+---
+
+## 🛠️ Stack Tecnológica
+
+*   **Linguagem & Matemática**: [Rust](https://www.rust-lang.org/) compilado para **WebAssembly (Wasm)**. Garante determinismo matemático (evitando divergências de ponto flutuante de GPUs entre navegadores) e performance de CPU nativa.
+*   **Interface Reativa**: [Svelte 5](https://svelte.dev/) com TypeScript. Compilação ultra-leve sem sobrecarga de Virtual DOM.
+*   **Visualização Gráfica**: HTML5 Canvas interativo em modo *No-Smoothing* para inspecionar e transladar pixel por pixel de dados de áudio.
+*   **Pipeline de Builds**: [Vite](https://vite.dev/) configurado com roteamento de caminhos relativos para compatibilidade com o GitHub Pages.
+*   **CI/CD**: GitHub Actions para compilação automatizada do Rust/Wasm e publicação dos ativos no branch `gh-pages`.
+
+---
+
+## ⚡ Guia de Inicialização Local
+
+### Pré-requisitos
+
+Certifique-se de ter as ferramentas abaixo instaladas no sistema:
+*   [Rust & Cargo](https://www.rust-lang.org/tools/install) (Edição 2024 ou superior)
+*   [Node.js](https://nodejs.org/) (Versão 20 ou superior)
+*   `wasm-pack` (Incluso automaticamente via npx na execução do build)
+
+### Comandos de Desenvolvimento
+
+Instale as dependências e inicie o servidor local reativo:
+
+```bash
+# 1. Instalar as dependências do Node.js
+npm install
+
+# 2. Executar os testes unitários matemáticos do Rust
+cargo test --manifest-path core-wasm/Cargo.toml
+
+# 3. Compilar o Rust para WebAssembly e iniciar o Vite Dev Server
+npm run dev
+```
+
+Abra o navegador em `http://localhost:5173/`. Qualquer modificação no Rust ou Svelte atualizará a tela automaticamente através de HMR (Hot Module Replacement).
+
+---
+
+## 🚀 Como Hospedar no GitHub Pages (Repositório `spectral`)
+
+Caso queira hospedar este projeto sob o nome **`spectral`** na sua conta pessoal do GitHub:
+
+### 1. Inicialize e Faça o Push do Código
+
+```bash
+# Inicialize o repositório git local (se ainda não estiver inicializado)
+git init -b master
+
+# Vincule o repositório remoto do GitHub (Substitua <seu-usuario> pelo seu nickname)
+git remote add origin https://github.com/<seu-usuario>/spectral.git
+
+# Adicione todos os arquivos ao controle de versão
+git add .
+
+# Crie o commit inicial das funcionalidades
+git commit -m "feat: initial commit of spectral lossless conversion pipeline"
+
+# Envie as alterações para o GitHub
+git push -u origin master
+```
+
+### 2. Configure a Branch do GitHub Pages no GitHub
+Após realizar o primeiro push para o ramo `master`, o fluxo de integração contínua (GitHub Actions) configurado em `.github/workflows/deploy.yml` compilará o Rust/Svelte automaticamente e criará um ramo chamado **`gh-pages`** no seu repositório.
+
+1.  Acesse o repositório no site do GitHub (`https://github.com/<seu-usuario>/spectral`).
+2.  Clique na aba **Settings** no topo.
+3.  No menu lateral, selecione **Pages**.
+4.  Na seção **Build and deployment** $\rightarrow$ **Source**, garanta que esteja selecionado **Deploy from a branch**.
+5.  Em **Branch**, altere de `None` para **`gh-pages`** (mantenha a pasta `/ (root)`).
+6.  Clique em **Save**.
+
+Sua ferramenta estará online no link:
+👉 `https://<seu-usuario>.github.io/spectral/`
+
+---
+
+## 📊 Propriedades de Integridade Bit-Perfect
+
+A integridade do pipeline é comprovada computando-se a hash criptográfica **SHA-256** do arquivo de áudio de entrada e comparando-a de forma síncrona com o áudio decodificado resultante:
+
+$$\text{SHA256}(Audio_{\text{Original}}) \equiv \text{SHA256}(Audio_{\text{Reconstruido}})$$
+
+Se qualquer bit for alterado por arredondamento, truncamento ou quantização errônea, as hashes divergirão imediatamente e a interface acusará erro. O sandbox atual garante **0.00 dB de ruído / 100% de integridade binária**.
