@@ -131,3 +131,70 @@ A integridade do pipeline é comprovada computando-se a hash criptográfica **SH
 $$\text{SHA256}(Audio_{\text{Original}}) \equiv \text{SHA256}(Audio_{\text{Reconstruido}})$$
 
 Se qualquer bit for alterado por arredondamento, truncamento ou quantização errônea, as hashes divergirão imediatamente e a interface acusará erro. O sandbox atual garante **0.00 dB de ruído / 100% de integridade binária**.
+
+---
+
+## 🖥️ Spectral CLI (Linha de Comando)
+
+Além da interface gráfica web reativa, o **Spectral** fornece uma ferramenta robusta de linha de comando (CLI) permanente para conversões em lote e integrações automatizadas.
+
+A CLI utiliza o mesmo motor matemático de alta performance compilado em **Rust/WebAssembly**, integrado com um wrapper em **TypeScript/Node.js** para leitura/gravação de arquivos PNG de forma super eficiente e sem perdas.
+
+### ⚙️ Instalação e Compilação
+
+Para configurar e utilizar a CLI localmente:
+
+1.  Certifique-se de que as dependências do projeto estão instaladas e o motor em Rust está compilado para WASM:
+    ```bash
+    npm install
+    npm run build:wasm
+    ```
+2.  Torne o script executável (caso queira usá-lo diretamente):
+    ```bash
+    chmod +x bin/spectral.ts
+    ```
+
+### 🚀 Instruções de Uso
+
+A CLI suporta detecção automática baseada no cabeçalho de bytes (magic bytes) e extensão do arquivo.
+
+```bash
+# Executando via npm run
+npm run spectral -- <arquivo_de_entrada> [arquivo_de_saida]
+
+# Executando diretamente via npx
+npx spectral <arquivo_de_entrada> [arquivo_de_saida]
+```
+
+#### Parâmetros:
+- `<arquivo_de_entrada>`: Caminho para o arquivo que deseja converter (pode ser áudio como `.wav` ou uma imagem `.png`).
+- `[arquivo_de_saida]` (Opcional): Caminho onde o arquivo convertido será salvo. Se omitido, ele salvará no mesmo diretório com a extensão apropriada (.png para áudio ou .wav para imagem).
+
+#### Exemplos Práticos:
+
+1.  **Codificar Áudio para Imagem PNG (Transformada Wavelet 2D CDF 5/3)**:
+    ```bash
+    npm run spectral -- tests/temp-samples/voice.wav tests/temp-samples/voice.png
+    ```
+    *Resultado*: Gera um arquivo PNG sem perdas contendo a representação visual exata dos coeficientes de wavelet.
+
+2.  **Decodificar Imagem PNG para Áudio WAV (Transformada Wavelet Inversa 2D CDF 5/3)**:
+    ```bash
+    npm run spectral -- tests/temp-samples/voice.png tests/temp-samples/voice_reconstructed.wav
+    ```
+    *Resultado*: Recupera perfeitamente o áudio original.
+
+### 🧪 Comprovando o Funcionamento Bit-Perfect
+
+A CLI preserva todos os dados binários do áudio original de forma impecável. Você pode validar a integridade comparando as hashes SHA-256 do arquivo original e do arquivo reconstruído:
+
+```bash
+# 1. Calcule a hash do arquivo original
+sha256sum tests/temp-samples/voice.wav
+
+# 2. Calcule a hash do arquivo reconstruído
+sha256sum tests/temp-samples/voice_reconstructed.wav
+```
+
+As duas hashes serão **idênticas**, provando que o processo de ida e volta (roundtrip) pela imagem física PNG é **100% simétrico, lossless e sem perda de um único bit**.
+

@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
+import { PNG } from 'pngjs';
 
 // Resolve directory name in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -74,6 +75,29 @@ function arraysEqual(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
+// Helper to save RGBA bytes buffer as a physical PNG image
+function savePng(rgbaBytes: Uint8Array, outputPath: string): void {
+  const pixelCount = rgbaBytes.length / 4;
+  const width = Math.floor(Math.sqrt(pixelCount));
+  const height = Math.ceil(pixelCount / width);
+
+  const png = new PNG({ width, height });
+  const targetLen = width * height * 4;
+  const buf = Buffer.alloc(targetLen);
+  buf.set(rgbaBytes);
+  png.data = buf;
+
+  const buffer = PNG.sync.write(png);
+  fs.writeFileSync(outputPath, buffer);
+}
+
+// Helper to read RGBA bytes from a physical PNG image
+function readPng(inputPath: string): Uint8Array {
+  const fileBuffer = fs.readFileSync(inputPath);
+  const png = PNG.sync.read(fileBuffer);
+  return new Uint8Array(png.data);
+}
+
 async function run(): Promise<void> {
   const results: TestResult[] = [];
   let allPassed = true;
@@ -115,10 +139,19 @@ async function run(): Promise<void> {
     console.log(`  Encoded size: ${encodedRGBA.length} bytes`);
     console.log(`  Encoding time: ${encodeTime.toFixed(3)} ms`);
 
+    // Save physical PNG file to tests/temp-samples
+    const pngPath = path.join(TARGET_DIR, sample.name.replace(/\.wav$/, '.png'));
+    console.log(`  Saving physical PNG to ${pngPath}...`);
+    savePng(encodedRGBA, pngPath);
+
+    // Read back physical PNG file to verify we can decode from disk
+    console.log(`  Reading back physical PNG for validation...`);
+    const readRgba = readPng(pngPath);
+
     // Decode from Wavelet
     console.log(`  Decoding using inverse 2D CDF 5/3 wavelet...`);
     const decodeStart = performance.now();
-    const decodedBytes = decode_wavelet(encodedRGBA) as Uint8Array;
+    const decodedBytes = decode_wavelet(readRgba) as Uint8Array;
     const decodeEnd = performance.now();
     const decodeTime = decodeEnd - decodeStart;
 

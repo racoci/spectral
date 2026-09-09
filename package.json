@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "bin": {
+    "spectral": "./bin/spectral.ts"
+  },
   "scripts": {
     "build:wasm": "npx -y wasm-pack build ./core-wasm --target web --out-dir ../src/wasm",
     "predev": "npm run build:wasm",
@@ -11,12 +14,15 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
-    "test:integration": "npx tsx tests/validate-wav.ts"
+    "test:integration": "npx tsx tests/validate-wav.ts",
+    "spectral": "npx tsx bin/spectral.ts"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "@tsconfig/svelte": "^5.0.8",
     "@types/node": "^24.13.3",
+    "@types/pngjs": "^6.0.5",
+    "pngjs": "^7.0.0",
     "svelte": "^5.56.10",
     "svelte-check": "^4.7.6",
     "tsx": "^4.23.13",
