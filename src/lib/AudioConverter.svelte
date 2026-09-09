@@ -51,17 +51,57 @@
   );
   let symmetricalMatch = $derived(sizeMatches && hashMatches);
 
+  // Preloading state for the default sample
+  let isPreloading = $state(false);
+
   onMount(async () => {
     try {
       // Initialize the WebAssembly module
       await init();
       init_panic_hook();
       wasmLoaded = true;
+
+      // Automatically preload the high-fidelity default audio sample on startup
+      await loadDefaultSample();
     } catch (e: any) {
       console.error('Failed to load WASM:', e);
       wasmError = e.message || String(e);
     }
   });
+
+  // Asynchronously fetch and load the default vocal WAV sample
+  async function loadDefaultSample() {
+    isPreloading = true;
+    try {
+      const defaultUrl = 'https://raw.githubusercontent.com/pdx-cs-sound/wavs/main/voice.wav';
+      console.log('Preloading default sample:', defaultUrl);
+      
+      const response = await fetch(defaultUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch default sample: ${response.statusText}`);
+      }
+      
+      const arrayBuffer = await response.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      originalBytes = bytes;
+      originalHash = await computeSHA256(bytes);
+      
+      // Simulate file upload metadata so the UI renders perfectly
+      originalFile = new File([arrayBuffer], 'voice_sample.wav', { type: 'audio/wav' });
+      
+      // Create object URL for comparative audioplayer playback
+      originalUrl = URL.createObjectURL(originalFile);
+      originalAudio = new Audio(originalUrl);
+      originalAudio.onended = () => { isOriginalPlaying = false; };
+      
+      // Compute waveforms
+      parseWavWaveforms(bytes);
+    } catch (err) {
+      console.error('Failed to preload default sample on startup:', err);
+    } finally {
+      isPreloading = false;
+    }
+  }
 
   // Helper: Computes SHA-256 of a byte array using browser's native crypto APIs
   async function computeSHA256(bytes: Uint8Array): Promise<string> {
@@ -352,6 +392,11 @@
             <div class="spinner"></div>
             <p>Carregando motor matemático em Rust...</p>
           {/if}
+        </div>
+      {:else if isPreloading}
+        <div class="loading-state">
+          <div class="spinner"></div>
+          <p>Baixando e processando amostra de áudio padrão...</p>
         </div>
       {:else}
         <label class="file-upload-box">

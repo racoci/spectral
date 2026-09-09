@@ -178,6 +178,25 @@ fn calculate_grid_size(data_len: usize) -> (usize, usize) {
     (w, h)
 }
 
+// =
+// Bijeção 3: Codificação Semântica ZigZag (Sem Ramificação)
+// ==========================================
+
+/// Smoothly folds signed i16 wavelet coefficients into unsigned u16 values.
+/// Small absolute coefficients near 0 (silence/inactive) map to small unsigned values,
+/// aligning acoustic energy directly with pixel brightness (mostly dark/black backgrounds).
+/// 100% bijective, branchless, and handles boundaries with zero performance overhead.
+#[inline]
+pub fn zigzag_encode(val: i16) -> u16 {
+    ((val << 1) ^ (val >> 15)) as u16
+}
+
+/// Decodes unsigned u16 folded values back to their original signed i16 representation.
+#[inline]
+pub fn zigzag_decode(val: u16) -> i16 {
+    ((val >> 1) as i16) ^ (-((val & 1) as i16))
+}
+
 // ==========================================
 // WASM Entrypoints for Semantic CDF 5/3
 // ==========================================
@@ -226,9 +245,9 @@ pub fn encode_wavelet(data: &[u8]) -> Vec<u8> {
     
     // Pack C_M (Mid) and C_S (Side) into RGBA
     for i in 0..grid_size {
-        // Shift signed i16 to unsigned u16 to map naturally to the 0-65535 space of colors
-        let u16_m = (mid_grid[i].wrapping_add(-32768)) as u16;
-        let u16_s = (side_grid[i].wrapping_add(-32768)) as u16;
+        // Apply bitwise ZigZag mapping to align energy smoothly
+        let u16_m = zigzag_encode(mid_grid[i]);
+        let u16_s = zigzag_encode(side_grid[i]);
         
         let r = (u16_m >> 8) as u8;
         let g = (u16_m & 0xFF) as u8;
@@ -288,8 +307,8 @@ pub fn decode_wavelet(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
         let u16_m = ((r as u16) << 8) | (g as u16);
         let u16_s = ((b as u16) << 8) | (a as u16);
         
-        mid_grid[i] = u16_m.wrapping_sub(32768) as i16;
-        side_grid[i] = u16_s.wrapping_sub(32768) as i16;
+        mid_grid[i] = zigzag_decode(u16_m);
+        side_grid[i] = zigzag_decode(u16_s);
     }
     
     // 2. Run inverse 2D CDF 5/3 Wavelet Transform on Mid and Side grids
@@ -368,6 +387,24 @@ mod tests {
     // ------------------------------------------
     // Teste de Invariantes Mid/Side (Bijeção 1)
     // ------------------------------------------
+
+    #[test]
+    fn test_zigzag_bijection() {
+        let test_cases = vec![
+            0,
+            1,
+            -1,
+            32767,
+            -32768,
+            12345,
+            -12345,
+        ];
+        for val in test_cases {
+            let encoded = zigzag_encode(val);
+            let decoded = zigzag_decode(encoded);
+            assert_eq!(val, decoded, "ZigZag failed for {}", val);
+        }
+    }
 
     #[test]
     fn test_ms_lossless_reversibility() {
