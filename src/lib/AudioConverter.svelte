@@ -1,11 +1,20 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import init, { init_panic_hook, encode_naive, decode_naive } from '../wasm/core_wasm.js';
+  import init, { 
+    init_panic_hook, 
+    encode_naive, 
+    decode_naive,
+    encode_wavelet,
+    decode_wavelet
+  } from '../wasm/core_wasm.js';
   import CanvasVisualizer from './CanvasVisualizer.svelte';
 
   // State using Svelte 5 standard runes
   let wasmLoaded = $state(false);
   let wasmError = $state<string | null>(null);
+
+  // Selected conversion algorithm
+  let selectedAlgorithm = $state<'wavelet' | 'naive'>('wavelet');
 
   // Original File State
   let originalFile = $state<File | null>(null);
@@ -82,9 +91,18 @@
     // Compute hash
     originalHash = await computeSHA256(originalBytes);
 
-    // Trigger immediate encoding
-    await runEncoding();
+    // Note: We do not call runEncoding() here manually.
+    // Svelte 5's $effect block below will automatically trigger runEncoding()
+    // in a clean, unified, and sequential manner when originalBytes changes,
+    // avoiding asynchronous race conditions on shared states.
   }
+
+  // Reactive effect to re-run the entire pipeline when the algorithm changes
+  $effect(() => {
+    if (originalBytes && wasmLoaded && selectedAlgorithm) {
+      runEncoding();
+    }
+  });
 
   // Core Forward Process: Audio -> Image
   async function runEncoding() {
@@ -92,7 +110,11 @@
 
     try {
       const start = performance.now();
-      rgbaBytes = encode_naive(originalBytes);
+      if (selectedAlgorithm === 'wavelet') {
+        rgbaBytes = encode_wavelet(originalBytes);
+      } else {
+        rgbaBytes = encode_naive(originalBytes);
+      }
       encodingTimeMs = performance.now() - start;
 
       // Immediately run the inverse process (Image -> Audio) to verify symmetry
@@ -108,7 +130,11 @@
 
     try {
       const start = performance.now();
-      decodedBytes = decode_naive(rgbaBytes);
+      if (selectedAlgorithm === 'wavelet') {
+        decodedBytes = decode_wavelet(rgbaBytes);
+      } else {
+        decodedBytes = decode_naive(rgbaBytes);
+      }
       decodingTimeMs = performance.now() - start;
 
       // Compute hash of reconstructed bytes
@@ -224,6 +250,26 @@
             <span class="file-tip">Recomendável: arquivos .wav pequenos de alta fidelidade</span>
           {/if}
         </label>
+
+        <!-- Algorithm Selector Dropdown -->
+        <div class="algorithm-selector-box">
+          <label for="algorithm-select" class="algorithm-label">Algoritmo de Codificação:</label>
+          <select 
+            id="algorithm-select" 
+            bind:value={selectedAlgorithm}
+            class="algorithm-select-dropdown"
+          >
+            <option value="wavelet">Wavelet Inteira CDF 5/3 (Lossless)</option>
+            <option value="naive">Naive Byte Packing (Lossless Baseline)</option>
+          </select>
+          <p class="algorithm-description">
+            {#if selectedAlgorithm === 'wavelet'}
+              <strong>Wavelet CDF 5/3:</strong> Agrupa as frequências e o envelope de tempo em 2D usando o Lifting Scheme do JPEG 2000 sem perdas. Cada pixel representa um coeficiente de wavelet real.
+            {:else}
+              <strong>Naive Packing:</strong> Mapeia os bytes binários brutos do arquivo diretamente nos canais de cor RGBA. Parecido com estática analógica.
+            {/if}
+          </p>
+        </div>
       {/if}
     </div>
 
@@ -615,5 +661,53 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+  }
+
+  /* Algorithm selector styling */
+  .algorithm-selector-box {
+    margin-top: 1.25rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid #334155;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .algorithm-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .algorithm-select-dropdown {
+    width: 100%;
+    background-color: #0f172a;
+    border: 1px solid #475569;
+    color: #f1f5f9;
+    padding: 0.6rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    outline: none;
+    cursor: pointer;
+    transition: all 0.15s ease-in-out;
+  }
+
+  .algorithm-select-dropdown:focus {
+    border-color: #38bdf8;
+    box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.15);
+  }
+
+  .algorithm-description {
+    margin: 0;
+    font-size: 0.8rem;
+    color: #94a3b8;
+    line-height: 1.4;
+  }
+
+  .algorithm-description strong {
+    color: #38bdf8;
   }
 </style>

@@ -45,6 +45,12 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
+      - name: Compile WebAssembly
+        run: npm run build:wasm
+
+      - name: Run Symmetrical Wavelet Integration Tests
+        run: npm run test:integration
+
       - name: Build Application
         run: npm run build
 
