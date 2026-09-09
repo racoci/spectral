@@ -57,27 +57,55 @@
     }
   });
 
-  // 2. Perform pixel channel filtering and render when bytes or visualMode changes
+  // Calculate canvas dimensions and reset view ONLY when the raw bytes change
+  $effect(() => {
+    if (rgbaBytes && rgbaBytes.length > 0) {
+      const pixelCount = rgbaBytes.length / 4;
+      width = Math.floor(Math.sqrt(pixelCount));
+      if (width < 1) width = 1;
+      height = Math.ceil(pixelCount / width);
+
+      if (!offscreenCanvas) {
+        offscreenCanvas = document.createElement('canvas');
+      }
+      offscreenCanvas.width = width;
+      offscreenCanvas.height = height;
+      offscreenCtx = offscreenCanvas.getContext('2d');
+
+      resetView();
+    } else {
+      width = 0;
+      height = 0;
+      offscreenCanvas = null;
+      offscreenCtx = null;
+      resetView();
+    }
+  });
+
+  // 2. Perform raw pixel channel filtering and render when bytes or visualMode changes
   $effect(() => {
     if (rgbaBytes && rgbaBytes.length > 0 && offscreenCtx) {
       const imageData = offscreenCtx.createImageData(width, height);
       
-      if (visualMode === 'full') {
-        imageData.data.set(rgbaBytes);
-      } else {
-        // Isolate specific frequency/energy planes
-        for (let i = 0; i < rgbaBytes.length; i += 4) {
-          if (visualMode === 'mid') {
-            imageData.data[i] = rgbaBytes[i];         // Mid high byte (Red)
-            imageData.data[i + 1] = rgbaBytes[i + 1];   // Mid low byte (Green)
-            imageData.data[i + 2] = 128;                // Neutral Blue
-            imageData.data[i + 3] = 255;                // Fully opaque
-          } else {
-            imageData.data[i] = 128;                    // Neutral Red
-            imageData.data[i + 1] = 128;                // Neutral Green
-            imageData.data[i + 2] = rgbaBytes[i + 2];   // Side high byte (Blue)
-            imageData.data[i + 3] = rgbaBytes[i + 3];   // Side low byte (Alpha)
-          }
+      for (let i = 0; i < rgbaBytes.length; i += 4) {
+        if (visualMode === 'full') {
+          // Render raw, physical, lossless RGBA channels directly
+          imageData.data[i] = rgbaBytes[i];         // Mid high byte (Red)
+          imageData.data[i + 1] = rgbaBytes[i + 1];   // Mid low byte (Green)
+          imageData.data[i + 2] = rgbaBytes[i + 2];   // Side high byte (Blue)
+          imageData.data[i + 3] = rgbaBytes[i + 3];   // Side low byte (Alpha/Opacity)
+        } else if (visualMode === 'mid') {
+          // Render only Mono Mid channels (Red and Green are active, Blue and Alpha are neutral)
+          imageData.data[i] = rgbaBytes[i];
+          imageData.data[i + 1] = rgbaBytes[i + 1];
+          imageData.data[i + 2] = 0;
+          imageData.data[i + 3] = 255; // opaque
+        } else {
+          // Render only Stereo Side channels (Blue and Alpha are active, Red and Green are neutral)
+          imageData.data[i] = 0;
+          imageData.data[i + 1] = 0;
+          imageData.data[i + 2] = rgbaBytes[i + 2];
+          imageData.data[i + 3] = rgbaBytes[i + 3];
         }
       }
       offscreenCtx.putImageData(imageData, 0, 0);

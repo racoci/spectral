@@ -104,6 +104,32 @@ function readPng(inputPath: string): Uint8Array {
   return new Uint8Array(png.data);
 }
 
+// Calculate the mathematical sparsity and average energy of the wavelet coefficients.
+// Natural acoustic signals are highly sparse in the wavelet domain, meaning most detail
+// coefficients are near zero (dark pixels), whereas random noise is dense and bright.
+function verifySignalSparsity(rgba: Uint8Array): { sparsityFactor: number, averageEnergy: number } {
+  let zeroCount = 0;
+  let energySum = 0;
+  const pixelCount = (rgba.length - 12) / 4;
+
+  for (let i = 0; i < pixelCount; i++) {
+    const offset = 12 + i * 4;
+    const r = rgba[offset];     // Mid high byte
+    const b = rgba[offset + 2]; // Side high byte
+
+    // Check if both Mid and Side macro energies are near-zero (dark silence pixels)
+    if (r < 15 && b < 15) {
+      zeroCount++;
+    }
+    energySum += r + b;
+  }
+
+  const sparsityFactor = (zeroCount / pixelCount) * 100;
+  const averageEnergy = energySum / (pixelCount * 2);
+
+  return { sparsityFactor, averageEnergy };
+}
+
 async function run(): Promise<void> {
   const results: TestResult[] = [];
   let allPassed = true;
@@ -145,6 +171,21 @@ async function run(): Promise<void> {
     console.log(`  Encoded size: ${encodedRGBA.length} bytes`);
     console.log(`  Encoding time: ${encodeTime.toFixed(3)} ms`);
 
+    // Parse image dimensions from metadata header
+    const w = (encodedRGBA[4] << 24) | (encodedRGBA[5] << 16) | (encodedRGBA[6] << 8) | encodedRGBA[7];
+    const h = (encodedRGBA[8] << 24) | (encodedRGBA[9] << 16) | (encodedRGBA[10] << 8) | encodedRGBA[11];
+    console.log(`  Metadata dimensions: ${w} x ${h} px`);
+
+    // Verify Signal Sparsity & Energy Compactness to protect against random visual noise
+    console.log(`  Calculating wavelet energy sparsity (Anti-Noise Check)...`);
+    const { sparsityFactor, averageEnergy } = verifySignalSparsity(encodedRGBA);
+    console.log(`    Sparsity factor (silence): ${sparsityFactor.toFixed(2)}% (Min Required: 20.0%)`);
+    console.log(`    Average macro-energy: ${averageEnergy.toFixed(2)} (Max Allowed: 55.0)`);
+    
+    // Strictly assert signal sparsity and energy constraints to detect unsemantic random noise
+    const passesAntiNoiseGate = sparsityFactor >= 20.0 && averageEnergy < 55.0;
+    console.log(`    Anti-Noise Spatial Gate: ${passesAntiNoiseGate ? 'PASSED ✅' : 'FAILED ❌'}`);
+
     // Save physical PNG file to the dedicated test-outputs directory
     const pngPath = path.join(OUTPUT_DIR, sample.name.replace(/\.wav$/, '.png'));
     console.log(`  Saving physical PNG to ${pngPath}...`);
@@ -167,12 +208,13 @@ async function run(): Promise<void> {
     const decodedHash = sha256(decodedBytes);
     console.log(`  Decoded SHA-256: ${decodedHash}`);
 
-    // Verify Perfect Match
+    // Verify Perfect Match and Anti-Noise Gate
     const isPerfectMatch = arraysEqual(originalUint8, decodedBytes);
+    const overallSuccess = isPerfectMatch && passesAntiNoiseGate;
     console.log(`  Bit-Perfect Match: ${isPerfectMatch ? 'PASSED ✅' : 'FAILED ❌'}`);
     console.log(`  Total roundtrip time: ${(encodeTime + decodeTime).toFixed(3)} ms\n`);
 
-    if (!isPerfectMatch) {
+    if (!overallSuccess) {
       allPassed = false;
     }
 
@@ -185,7 +227,7 @@ async function run(): Promise<void> {
       roundtripTime: encodeTime + decodeTime,
       originalHash,
       decodedHash,
-      isPerfectMatch
+      isPerfectMatch: overallSuccess
     });
   }
 
