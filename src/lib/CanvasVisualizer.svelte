@@ -24,10 +24,8 @@
   // Hover/Inspection State
   let hoverX = $state(-1);
   let hoverY = $state(-1);
-  let hoverR = $state(0);
-  let hoverG = $state(0);
-  let hoverB = $state(0);
-  let hoverA = $state(0);
+  let hoverR = $state(0); // Holds exact C_M value
+  let hoverG = $state(0); // Holds exact C_S value
 
   // Intermediate Visual Mode: full (Complex), mid (Mono energy), side (Stereo width)
   let visualMode = $state<'full' | 'mid' | 'side'>('full');
@@ -42,10 +40,11 @@
   $effect(() => {
     if (rgbaBytes && rgbaBytes.length > 0) {
       // Read dimensions from the self-contained metadata header (big-endian)
-      const w = (rgbaBytes[4] << 24) | (rgbaBytes[5] << 16) | (rgbaBytes[6] << 8) | rgbaBytes[7];
+      const w_png = (rgbaBytes[4] << 24) | (rgbaBytes[5] << 16) | (rgbaBytes[6] << 8) | rgbaBytes[7];
       const h = (rgbaBytes[8] << 24) | (rgbaBytes[9] << 16) | (rgbaBytes[10] << 8) | rgbaBytes[11];
       
-      width = w;
+      // Since we pack Mid and Side across 2 adjacent pixels, the visual width is exactly half of PNG width!
+      width = w_png / 2;
       height = h;
 
       if (!offscreenCanvas) {
@@ -72,29 +71,47 @@
       
       // Slice out the 16-byte metadata header to render only the actual wavelet coefficients
       const coefOffset = 16;
+      const w_png = width * 2;
       
-      for (let i = 0; i < width * height * 4; i += 4) {
-        const dataIdx = coefOffset + i;
-        if (dataIdx + 3 >= rgbaBytes.length) break;
+      for (let r = 0; r < height; r++) {
+        for (let c = 0; c < width; c++) {
+          // Pixel A is at r * w_png + (c * 2). Pixel B is at offset_a + 4.
+          const idx_a = r * w_png + (c * 2);
+          const offset_a = coefOffset + idx_a * 4;
+          const offset_b = offset_a + 4;
+          
+          if (offset_b + 3 >= rgbaBytes.length) break;
 
-        if (visualMode === 'full') {
-          // Render raw, physical, lossless RGBA channels directly
-          imageData.data[i] = rgbaBytes[dataIdx];         // Mid high byte (Red)
-          imageData.data[i + 1] = rgbaBytes[dataIdx + 1]; // Mid low byte (Green)
-          imageData.data[i + 2] = rgbaBytes[dataIdx + 2]; // Side high byte (Blue)
-          imageData.data[i + 3] = rgbaBytes[dataIdx + 3]; // Side low byte (Alpha/Opacity)
-        } else if (visualMode === 'mid') {
-          // Render only Mono Mid channels (Red and Green are active, Blue and Alpha are neutral)
-          imageData.data[i] = rgbaBytes[dataIdx];
-          imageData.data[i + 1] = rgbaBytes[dataIdx + 1];
-          imageData.data[i + 2] = 0;
-          imageData.data[i + 3] = 255; // opaque
-        } else {
-          // Render only Stereo Side channels (Blue and Alpha are active, Red and Green are neutral)
-          imageData.data[i] = 0;
-          imageData.data[i + 1] = 0;
-          imageData.data[i + 2] = rgbaBytes[dataIdx + 2];
-          imageData.data[i + 3] = rgbaBytes[dataIdx + 3];
+          // Extract high and low bytes of Mid (Pixel A)
+          const mid_high = rgbaBytes[offset_a + 2]; // high byte (B channel of Pixel A)
+          const mid_low  = rgbaBytes[offset_a + 3]; // low byte (A channel of Pixel A)
+          
+          // Extract high and low bytes of Side (Pixel B)
+          const side_high = rgbaBytes[offset_b + 2]; // high byte (B channel of Pixel B)
+          const side_low  = rgbaBytes[offset_b + 3]; // low byte (A channel of Pixel B)
+          
+          // Output pixel coordinate in Svelte's offscreen visual canvas (W x H)
+          const out_idx = (r * width + c) * 4;
+          
+          if (visualMode === 'full') {
+            // Render Mid on Red/Green, and Side on Blue
+            imageData.data[out_idx]     = mid_high; // Mid High (Red)
+            imageData.data[out_idx + 1] = mid_low;  // Mid Low (Green)
+            imageData.data[out_idx + 2] = side_high; // Side High (Blue)
+            imageData.data[out_idx + 3] = 255;      // Fully opaque
+          } else if (visualMode === 'mid') {
+            // Render only Mono Mid channels
+            imageData.data[out_idx]     = mid_high;
+            imageData.data[out_idx + 1] = mid_low;
+            imageData.data[out_idx + 2] = 0;
+            imageData.data[out_idx + 3] = 255;
+          } else {
+            // Render only Stereo Side channels
+            imageData.data[out_idx]     = 0;
+            imageData.data[out_idx + 1] = 0;
+            imageData.data[out_idx + 2] = side_high;
+            imageData.data[out_idx + 3] = 255;
+          }
         }
       }
       offscreenCtx.putImageData(imageData, 0, 0);
@@ -198,17 +215,27 @@
     const imgX = Math.floor((mouseX - offsetX) / (scale * stretchFactor));
     const imgY = Math.floor((mouseY - offsetY) / scale);
 
-    if (imgX >= 0 && imgX < width && imgY >= 0 && imgY < height) {
+    if (imgX >= 0 && imgX < width && imgY >= 0 && imgY < height && rgbaBytes) {
       hoverX = imgX;
       hoverY = imgY;
 
-      // Read pixel value from the offscreen canvas context
-      if (offscreenCtx) {
-        const pixel = offscreenCtx.getImageData(imgX, imgY, 1, 1).data;
-        hoverR = pixel[0];
-        hoverG = pixel[1];
-        hoverB = pixel[2];
-        hoverA = pixel[3];
+      const coefOffset = 16;
+      const w_png = width * 2;
+      const idx_a = imgY * w_png + (imgX * 2);
+      const offset_a = coefOffset + idx_a * 4;
+      const offset_b = offset_a + 4;
+      
+      if (offset_b + 3 < rgbaBytes.length) {
+        // Reconstruct original Mid (C_M) and Side (C_S) u16 values from high and low bytes
+        const u16_m = (rgbaBytes[offset_a + 2] << 8) | rgbaBytes[offset_a + 3];
+        const u16_s = (rgbaBytes[offset_b + 2] << 8) | rgbaBytes[offset_b + 3];
+        
+        // Decode ZigZag to get the exact signed 16-bit coefficients!
+        const m_val = (u16_m >> 1) ^ (-(u16_m & 1));
+        const s_val = (u16_s >> 1) ^ (-(u16_s & 1));
+        
+        hoverR = m_val;
+        hoverG = s_val;
       }
     } else {
       hoverX = -1;
@@ -343,8 +370,7 @@
       <div class="inspector">
         {#if hoverX !== -1}
           <strong>Pixel:</strong> X: {hoverX}, Y: {hoverY} | 
-          <span class="color-badge" style="background-color: rgba({hoverR},{hoverG},{hoverB},{hoverA/255})"></span>
-          <span class="color-text">RGBA({hoverR}, {hoverG}, {hoverB}, {hoverA})</span>
+          <span class="color-text" style="color: #38bdf8;">C_M (Mid): {hoverR} | C_S (Side): {hoverG}</span>
         {:else}
           <em>Passe o mouse sobre os pixels para inspecionar</em>
         {/if}
@@ -417,14 +443,6 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-  }
-
-  .color-badge {
-    display: inline-block;
-    width: 12px;
-    height: 12px;
-    border: 1px solid #f1f5f9;
-    border-radius: 2px;
   }
 
   .color-text {
