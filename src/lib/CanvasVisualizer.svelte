@@ -32,30 +32,11 @@
   // Intermediate Visual Mode: full (Complex), mid (Mono energy), side (Stereo width)
   let visualMode = $state<'full' | 'mid' | 'side'>('full');
 
-  // 1. Calculate canvas dimensions and reset view ONLY when the raw bytes change
-  $effect(() => {
-    if (rgbaBytes && rgbaBytes.length > 0) {
-      const pixelCount = rgbaBytes.length / 4;
-      width = Math.floor(Math.sqrt(pixelCount));
-      if (width < 1) width = 1;
-      height = Math.ceil(pixelCount / width);
+  // Anti-Chaos: Bilinear image smoothing (default true for smooth spectral envelopes)
+  let smoothSpectrogram = $state<boolean>(true);
 
-      if (!offscreenCanvas) {
-        offscreenCanvas = document.createElement('canvas');
-      }
-      offscreenCanvas.width = width;
-      offscreenCanvas.height = height;
-      offscreenCtx = offscreenCanvas.getContext('2d');
-
-      resetView();
-    } else {
-      width = 0;
-      height = 0;
-      offscreenCanvas = null;
-      offscreenCtx = null;
-      resetView();
-    }
-  });
+  // Aspect Ratio Stretching: horizontal stretch factor to format as a wide Melgram (default 4x)
+  let stretchFactor = $state<number>(4);
 
   // 1. Calculate canvas dimensions and reset view ONLY when the raw bytes change
   $effect(() => {
@@ -96,9 +77,6 @@
         const dataIdx = coefOffset + i;
         if (dataIdx + 3 >= rgbaBytes.length) break;
 
-        const mid_val = rgbaBytes[dataIdx];     // Mid high byte (Red) - Macro Mono Energy
-        const side_val = rgbaBytes[dataIdx + 2]; // Side high byte (Blue) - Macro Stereo Width
-        
         if (visualMode === 'full') {
           // Render raw, physical, lossless RGBA channels directly
           imageData.data[i] = rgbaBytes[dataIdx];         // Mid high byte (Red)
@@ -131,14 +109,23 @@
     }
   });
 
+  // Reactive redraw trigger when smoothSpectrogram or stretchFactor changes
+  $effect(() => {
+    if (canvas && offscreenCanvas && smoothSpectrogram !== undefined && stretchFactor !== undefined) {
+      draw();
+    }
+  });
+
   function resetView() {
     scale = 1;
     offsetX = 0;
     offsetY = 0;
     if (canvas && width > 0 && height > 0) {
-      scale = Math.min((canvas.width - 40) / width, (canvas.height - 40) / height, 5);
+      // Scale taking into account the horizontal stretch factor
+      const visualWidth = width * stretchFactor;
+      scale = Math.min((canvas.width - 40) / visualWidth, (canvas.height - 40) / height, 5);
       if (scale < 0.1) scale = 0.1;
-      offsetX = (canvas.width - width * scale) / 2;
+      offsetX = (canvas.width - visualWidth * scale) / 2;
       offsetY = (canvas.height - height * scale) / 2;
     }
   }
@@ -157,10 +144,14 @@
     // Apply transform and draw the offscreen canvas
     ctx.save();
     ctx.translate(offsetX, offsetY);
-    ctx.scale(scale, scale);
+    // Stretch the time-axis (X) by multiplying by stretchFactor
+    ctx.scale(scale * stretchFactor, scale);
     
-    // Disable image smoothing to see crisp individual pixels when zoomed in
-    ctx.imageSmoothingEnabled = false;
+    // Enable bilinear smoothing based on user preference to blend wavelet phases smoothly
+    ctx.imageSmoothingEnabled = smoothSpectrogram;
+    if (smoothSpectrogram) {
+      ctx.imageSmoothingQuality = 'high';
+    }
     
     ctx.drawImage(offscreenCanvas, 0, 0);
     ctx.restore();
@@ -168,10 +159,10 @@
 
   function drawGrid(c: CanvasRenderingContext2D, w: number, h: number) {
     const size = 10;
-    c.fillStyle = '#1e293b'; // Dark background
+    c.fillStyle = '#090d16'; // Extremely dark background
     c.fillRect(0, 0, w, h);
     
-    c.fillStyle = '#334155'; // Slightly lighter squares
+    c.fillStyle = '#111827'; // Subtle grid squares
     for (let x = 0; x < w; x += size * 2) {
       for (let y = 0; y < h; y += size * 2) {
         c.fillRect(x, y, size, size);
@@ -203,8 +194,8 @@
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
 
-    // Convert screen coordinates back to image/pixel space coordinates
-    const imgX = Math.floor((mouseX - offsetX) / scale);
+    // Convert screen coordinates back to image/pixel space coordinates (calibrated for stretchFactor)
+    const imgX = Math.floor((mouseX - offsetX) / (scale * stretchFactor));
     const imgY = Math.floor((mouseY - offsetY) / scale);
 
     if (imgX >= 0 && imgX < width && imgY >= 0 && imgY < height) {
@@ -245,7 +236,7 @@
     // Limit zoom scale between 0.1x and 100x
     if (nextScale < 0.1 || nextScale > 100) return;
 
-    // Zoom centered on mouse cursor
+    // Zoom centered on mouse cursor taking into account independent axis scaling
     offsetX = mouseX - (mouseX - offsetX) * (nextScale / scale);
     offsetY = mouseY - (mouseY - offsetY) * (nextScale / scale);
     scale = nextScale;
@@ -312,6 +303,26 @@
       Centralizar
     </button>
   </div>
+
+  <!-- Semantic Stretching & Anti-Noise Controls -->
+  {#if rgbaBytes}
+    <div class="canvas-controls-bar">
+      <label class="control-checkbox-label">
+        <input type="checkbox" bind:checked={smoothSpectrogram} />
+        <span class="checkbox-text">Suavizar Espectro (Fases GPU)</span>
+      </label>
+
+      <div class="control-stretch-selector">
+        <span class="control-label">Estiramento Horizontal (Tempo):</span>
+        <select bind:value={stretchFactor} class="stretch-dropdown">
+          <option value={1}>1x (Físico/Quadrado)</option>
+          <option value={2}>2x</option>
+          <option value={4}>4x (Estilo Melgram)</option>
+          <option value={8}>8x (Esticado Panorâmico)</option>
+        </select>
+      </div>
+    </div>
+  {/if}
 
   <div class="canvas-wrapper">
     <canvas
@@ -486,5 +497,62 @@
     background-color: #38bdf8;
     color: #0f172a;
     box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  }
+
+  /* Dynamic Controls Bar Styling */
+  .canvas-controls-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .control-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: #cbd5e1;
+    user-select: none;
+  }
+
+  .checkbox-text {
+    font-weight: 600;
+  }
+
+  .control-stretch-selector {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .control-label {
+    font-size: 0.8rem;
+    color: #94a3b8;
+    font-weight: 500;
+  }
+
+  .stretch-dropdown {
+    background-color: #0f172a;
+    border: 1px solid #475569;
+    color: #f1f5f9;
+    border-radius: 4px;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    outline: none;
+    cursor: pointer;
+    transition: border-color 0.15s ease-in-out;
+  }
+
+  .stretch-dropdown:focus {
+    border-color: #38bdf8;
   }
 </style>
