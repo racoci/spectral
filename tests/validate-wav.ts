@@ -22,8 +22,8 @@ if (!fs.existsSync(TARGET_DIR)) {
   fs.mkdirSync(TARGET_DIR, { recursive: true });
 }
 
-// Setup dedicated output directory for test generated images
-const OUTPUT_DIR = path.join(PROJECT_ROOT, 'test-outputs');
+// Setup dedicated output directory for test generated images inside tests/
+const OUTPUT_DIR = path.join(PROJECT_ROOT, 'tests', 'test-outputs');
 if (!fs.existsSync(OUTPUT_DIR)) {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 }
