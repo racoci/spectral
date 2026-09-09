@@ -34,4 +34,7 @@ Cargo.lock
 # Local integration test caches
 tests/temp-samples/
 
+# Dedicated test generated outputs
+test-outputs/
+
 

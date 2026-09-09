@@ -22,6 +22,12 @@ if (!fs.existsSync(TARGET_DIR)) {
   fs.mkdirSync(TARGET_DIR, { recursive: true });
 }
 
+// Setup dedicated output directory for test generated images
+const OUTPUT_DIR = path.join(PROJECT_ROOT, 'test-outputs');
+if (!fs.existsSync(OUTPUT_DIR)) {
+  fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+}
+
 // 1. Load and initialize WASM from binary bytes
 console.log('Initializing core_wasm...');
 const wasmBytes = fs.readFileSync(WASM_BINARY_PATH);
@@ -139,8 +145,8 @@ async function run(): Promise<void> {
     console.log(`  Encoded size: ${encodedRGBA.length} bytes`);
     console.log(`  Encoding time: ${encodeTime.toFixed(3)} ms`);
 
-    // Save physical PNG file to tests/temp-samples
-    const pngPath = path.join(TARGET_DIR, sample.name.replace(/\.wav$/, '.png'));
+    // Save physical PNG file to the dedicated test-outputs directory
+    const pngPath = path.join(OUTPUT_DIR, sample.name.replace(/\.wav$/, '.png'));
     console.log(`  Saving physical PNG to ${pngPath}...`);
     savePng(encodedRGBA, pngPath);
 
