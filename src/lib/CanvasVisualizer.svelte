@@ -29,16 +29,17 @@
   let hoverB = $state(0);
   let hoverA = $state(0);
 
-  // Compute size and draw when the byte array changes
+  // Intermediate Visual Mode: full (Complex), mid (Mono energy), side (Stereo width)
+  let visualMode = $state<'full' | 'mid' | 'side'>('full');
+
+  // 1. Calculate canvas dimensions and reset view ONLY when the raw bytes change
   $effect(() => {
     if (rgbaBytes && rgbaBytes.length > 0) {
       const pixelCount = rgbaBytes.length / 4;
-      // Calculate approximately square dimensions
       width = Math.floor(Math.sqrt(pixelCount));
       if (width < 1) width = 1;
       height = Math.ceil(pixelCount / width);
 
-      // Create or adjust offscreen canvas for rendering the raw pixels
       if (!offscreenCanvas) {
         offscreenCanvas = document.createElement('canvas');
       }
@@ -46,17 +47,6 @@
       offscreenCanvas.height = height;
       offscreenCtx = offscreenCanvas.getContext('2d');
 
-      if (offscreenCtx) {
-        // Create standard ImageData buffer (W x H x 4)
-        const imageData = offscreenCtx.createImageData(width, height);
-        
-        // Copy bytes. If rgbaBytes is smaller than the ImageData buffer,
-        // it leaves the remainder as 0 (fully transparent black), which is perfect.
-        imageData.data.set(rgbaBytes);
-        offscreenCtx.putImageData(imageData, 0, 0);
-      }
-
-      // Reset zoom/pan on new image
       resetView();
     } else {
       width = 0;
@@ -64,6 +54,34 @@
       offscreenCanvas = null;
       offscreenCtx = null;
       resetView();
+    }
+  });
+
+  // 2. Perform pixel channel filtering and render when bytes or visualMode changes
+  $effect(() => {
+    if (rgbaBytes && rgbaBytes.length > 0 && offscreenCtx) {
+      const imageData = offscreenCtx.createImageData(width, height);
+      
+      if (visualMode === 'full') {
+        imageData.data.set(rgbaBytes);
+      } else {
+        // Isolate specific frequency/energy planes
+        for (let i = 0; i < rgbaBytes.length; i += 4) {
+          if (visualMode === 'mid') {
+            imageData.data[i] = rgbaBytes[i];         // Mid high byte (Red)
+            imageData.data[i + 1] = rgbaBytes[i + 1];   // Mid low byte (Green)
+            imageData.data[i + 2] = 128;                // Neutral Blue
+            imageData.data[i + 3] = 255;                // Fully opaque
+          } else {
+            imageData.data[i] = 128;                    // Neutral Red
+            imageData.data[i + 1] = 128;                // Neutral Green
+            imageData.data[i + 2] = rgbaBytes[i + 2];   // Side high byte (Blue)
+            imageData.data[i + 3] = rgbaBytes[i + 3];   // Side low byte (Alpha)
+          }
+        }
+      }
+      offscreenCtx.putImageData(imageData, 0, 0);
+      draw();
     }
   });
 
@@ -79,7 +97,6 @@
     offsetX = 0;
     offsetY = 0;
     if (canvas && width > 0 && height > 0) {
-      // Center the image in the visible canvas
       scale = Math.min((canvas.width - 40) / width, (canvas.height - 40) / height, 5);
       if (scale < 0.1) scale = 0.1;
       offsetX = (canvas.width - width * scale) / 2;
@@ -225,8 +242,35 @@
 <div class="visualizer-container">
   <div class="canvas-header">
     <h3>Imagem Lossless Reversível (Grade de Pixels)</h3>
+    
+    {#if rgbaBytes}
+      <div class="visual-mode-selector">
+        <button 
+          class="btn-toggle {visualMode === 'full' ? 'active' : ''}" 
+          onclick={() => visualMode = 'full'}
+          title="Espectro completo: Mid (L/R soma) mapeado para Vermelho/Verde e Side (L/R diferença) mapeado para Azul/Alfa"
+        >
+          Complexo (Completo)
+        </button>
+        <button 
+          class="btn-toggle {visualMode === 'mid' ? 'active' : ''}" 
+          onclick={() => visualMode = 'mid'}
+          title="Mostra apenas a energia Mid (Mono central) do sinal. O canal Side é fixado no cinza neutro."
+        >
+          Apenas Mid (Mono / R-G)
+        </button>
+        <button 
+          class="btn-toggle {visualMode === 'side' ? 'active' : ''}" 
+          onclick={() => visualMode = 'side'}
+          title="Mostra apenas o sinal Side (Espacialidade / Diferença estéreo). O canal Mid é fixado no cinza neutro."
+        >
+          Apenas Side (Estéreo / B-A)
+        </button>
+      </div>
+    {/if}
+
     <button class="btn-secondary" onclick={resetView} disabled={!rgbaBytes}>
-      Centralizar Visualização
+      Centralizar
     </button>
   </div>
 
@@ -370,5 +414,38 @@
     color: #94a3b8;
     text-align: center;
     font-style: italic;
+  }
+
+  /* Segmented Control Selector for Wavelet Planes */
+  .visual-mode-selector {
+    display: flex;
+    background-color: #0f172a;
+    border: 1px solid #334155;
+    padding: 2px;
+    border-radius: 6px;
+    gap: 2px;
+  }
+
+  .btn-toggle {
+    background: transparent;
+    color: #94a3b8;
+    border: none;
+    padding: 0.35rem 0.65rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s ease-in-out;
+  }
+
+  .btn-toggle:hover:not(.active) {
+    color: #f1f5f9;
+    background-color: #1e293b;
+  }
+
+  .btn-toggle.active {
+    background-color: #38bdf8;
+    color: #0f172a;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
   }
 </style>

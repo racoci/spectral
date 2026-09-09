@@ -36,6 +36,12 @@
   let decodedAudio: HTMLAudioElement | null = null;
   let isDecodedPlaying = $state(false);
 
+  // Waveform Visualizer States (Original L/R and Intermediate M/S)
+  let originalWaveformL = $state<number[]>([]);
+  let originalWaveformR = $state<number[]>([]);
+  let midWaveform = $state<number[]>([]);
+  let sideWaveform = $state<number[]>([]);
+
   // Symmetrical Invariant Matching Status
   let sizeMatches = $derived(
     originalBytes && decodedBytes && originalBytes.length === decodedBytes.length
@@ -68,6 +74,110 @@
     return 'unsupported-buffer-type';
   }
 
+  // Parse 16-bit Stereo PCM WAV file to render wave paths
+  function parseWavWaveforms(bytes: Uint8Array) {
+    originalWaveformL = [];
+    originalWaveformR = [];
+    midWaveform = [];
+    sideWaveform = [];
+
+    if (bytes.length < 44) return;
+    const isRiff = bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46;
+    const isWave = bytes[8] === 0x57 && bytes[9] === 0x41 && bytes[10] === 0x56 && bytes[11] === 0x45;
+    if (!isRiff || !isWave) {
+      generateGenericWaveform(bytes);
+      return;
+    }
+
+    // Search for data chunk
+    let dataOffset = 12;
+    while (dataOffset + 8 < bytes.length) {
+      const chunkId = String.fromCharCode(bytes[dataOffset], bytes[dataOffset + 1], bytes[dataOffset + 2], bytes[dataOffset + 3]);
+      const chunkSize = (bytes[dataOffset + 4]) | (bytes[dataOffset + 5] << 8) | (bytes[dataOffset + 6] << 16) | (bytes[dataOffset + 7] << 24);
+      if (chunkId === 'data') {
+        dataOffset += 8;
+        break;
+      }
+      dataOffset += 8 + chunkSize;
+    }
+
+    if (dataOffset >= bytes.length) {
+      dataOffset = 44;
+    }
+
+    const remainingBytes = bytes.length - dataOffset;
+    const numSamples = Math.floor(remainingBytes / 4);
+    if (numSamples < 10) return;
+
+    const step = Math.max(1, Math.floor(numSamples / 200));
+    const numPoints = Math.min(200, Math.floor(numSamples / step));
+
+    const wavL: number[] = [];
+    const wavR: number[] = [];
+    const wavM: number[] = [];
+    const wavS: number[] = [];
+
+    for (let p = 0; p < numPoints; p++) {
+      const sampleIdx = p * step;
+      const byteOffset = dataOffset + sampleIdx * 4;
+      if (byteOffset + 3 >= bytes.length) break;
+
+      const l_val = (bytes[byteOffset] | (bytes[byteOffset + 1] << 8));
+      const l = l_val >= 32768 ? l_val - 65536 : l_val;
+
+      const r_val = (bytes[byteOffset + 2] | (bytes[byteOffset + 3] << 8));
+      const r = r_val >= 32768 ? r_val - 65536 : r_val;
+
+      const lNorm = l / 32768;
+      const rNorm = r / 32768;
+
+      // S = L - R (Wrapping logic equivalent)
+      // M = R + (S / 2) (Lifting equivalent)
+      const sNorm = lNorm - rNorm;
+      const mNorm = rNorm + (sNorm / 2);
+
+      wavL.push(lNorm);
+      wavR.push(rNorm);
+      wavM.push(mNorm);
+      wavS.push(sNorm);
+    }
+
+    originalWaveformL = wavL;
+    originalWaveformR = wavR;
+    midWaveform = wavM;
+    sideWaveform = wavS;
+  }
+
+  // Fallback wave drawer for arbitrary binary byte payloads
+  function generateGenericWaveform(bytes: Uint8Array) {
+    const numSamples = Math.floor(bytes.length / 2);
+    const step = Math.max(1, Math.floor(numSamples / 200));
+    const numPoints = Math.min(200, Math.floor(numSamples / step));
+
+    const wavL: number[] = [];
+    const wavR: number[] = [];
+    const wavM: number[] = [];
+    const wavS: number[] = [];
+
+    for (let p = 0; p < numPoints; p++) {
+      const idx = p * step * 2;
+      if (idx + 1 >= bytes.length) break;
+      const val = bytes[idx] | (bytes[idx + 1] << 8);
+      const sVal = val >= 32768 ? val - 65536 : val;
+      const norm = sVal / 32768;
+
+      wavL.push(norm);
+      wavR.push(norm * 0.5);
+      wavM.push(norm * 0.75);
+      wavS.push(norm * 0.25);
+    }
+
+    originalWaveformL = wavL;
+    originalWaveformR = wavR;
+    midWaveform = wavM;
+    sideWaveform = wavS;
+  }
+
   // Handle Audio File Selection
   async function handleFileChange(event: Event) {
     const input = event.target as HTMLInputElement;
@@ -90,6 +200,9 @@
 
     // Compute hash
     originalHash = await computeSHA256(originalBytes);
+
+    // Extract and compute waveforms
+    parseWavWaveforms(originalBytes);
 
     // Note: We do not call runEncoding() here manually.
     // Svelte 5's $effect block below will automatically trigger runEncoding()
@@ -217,6 +330,12 @@
     decodedHash = '';
     decodedUrl = '';
     isDecodedPlaying = false;
+
+    // Reset waveforms
+    originalWaveformL = [];
+    originalWaveformR = [];
+    midWaveform = [];
+    sideWaveform = [];
   }
 </script>
 
@@ -275,8 +394,92 @@
 
     <!-- Symmetrical Validation Panel -->
     {#if originalBytes}
+      <!-- Intermediate Pipeline Stages Panel -->
+      {#if originalWaveformL.length > 0}
+        <div class="panel-section">
+          <h2>2. Estágios do Pipeline de Sinais</h2>
+          
+          <div class="pipeline-flow-diagram">
+            <div class="flow-step">
+              <span class="step-num">A</span>
+              <span class="step-name">Sinal L / R</span>
+            </div>
+            <div class="flow-arrow">➡️</div>
+            <div class="flow-step">
+              <span class="step-num">B</span>
+              <span class="step-name">Mid / Side</span>
+            </div>
+            <div class="flow-arrow">➡️</div>
+            <div class="flow-step">
+              <span class="step-num">C</span>
+              <span class="step-name">Ondaletas 2D</span>
+            </div>
+          </div>
+
+          <!-- Waveform Plotter using SVG for Left/Right -->
+          <div class="waveform-stage-box">
+            <div class="stage-info">
+              <strong>Estágio A: Forma de Onda L/R Original</strong>
+              <span class="legend"><span class="legend-color legend-l"></span>L (Esq) <span class="legend-color legend-r"></span>R (Dir)</span>
+            </div>
+            <svg viewBox="0 0 200 60" class="waveform-svg">
+              <!-- Zero line -->
+              <line x1="0" y1="30" x2="200" y2="30" stroke="#334155" stroke-dasharray="2,2" />
+              
+              <!-- Left channel path -->
+              <path 
+                d="M {originalWaveformL.map((y, x) => `${x},${30 + y * 28}`).join(' L ')}" 
+                fill="none" 
+                stroke="#38bdf8" 
+                stroke-width="1" 
+              />
+              <!-- Right channel path -->
+              <path 
+                d="M {originalWaveformR.map((y, x) => `${x},${30 + y * 28}`).join(' L ')}" 
+                fill="none" 
+                stroke="#34d399" 
+                stroke-width="1" 
+                stroke-opacity="0.75"
+              />
+            </svg>
+          </div>
+
+          <!-- Waveform Plotter using SVG for Mid/Side -->
+          <div class="waveform-stage-box">
+            <div class="stage-info">
+              <strong>Estágio B: Decomposição Mid/Side Reversível</strong>
+              <span class="legend"><span class="legend-color legend-m"></span>Mid (Soma) <span class="legend-color legend-s"></span>Side (Diferença)</span>
+            </div>
+            <svg viewBox="0 0 200 60" class="waveform-svg">
+              <!-- Zero line -->
+              <line x1="0" y1="30" x2="200" y2="30" stroke="#334155" stroke-dasharray="2,2" />
+              
+              <!-- Mid channel path -->
+              <path 
+                d="M {midWaveform.map((y, x) => `${x},${30 + y * 28}`).join(' L ')}" 
+                fill="none" 
+                stroke="#facc15" 
+                stroke-width="1" 
+              />
+              <!-- Side channel path -->
+              <path 
+                d="M {sideWaveform.map((y, x) => `${x},${30 + y * 28}`).join(' L ')}" 
+                fill="none" 
+                stroke="#c084fc" 
+                stroke-width="1" 
+                stroke-opacity="0.85"
+              />
+            </svg>
+          </div>
+          
+          <p class="pipeline-tip">
+            💡 Observe como o canal <strong>Side (Roxo)</strong> possui menor amplitude que o canal <strong>Mid (Amarelo)</strong>. Isso possibilita compactar os detalhes estéreo nos canais Blue/Alfa da imagem com imensa eficiência, preservando o brilho das frequências no Red/Green!
+          </p>
+        </div>
+      {/if}
+
       <div class="panel-section">
-        <h2>2. Validação Cruzada Simétrica</h2>
+        <h2>3. Validação Cruzada Simétrica</h2>
         
         <div class="validation-status-badge {symmetricalMatch ? 'status-match' : 'status-mismatch'}">
           {#if symmetricalMatch}
@@ -321,7 +524,7 @@
       </div>
 
       <div class="panel-section">
-        <h2>3. Audição Comparativa</h2>
+        <h2>4. Audição Comparativa</h2>
         <div class="player-controls">
           <button class="btn-play {isOriginalPlaying ? 'playing' : ''}" onclick={toggleOriginalPlay}>
             <span class="btn-indicator"></span>
@@ -709,5 +912,109 @@
 
   .algorithm-description strong {
     color: #38bdf8;
+  }
+
+  /* Intermediate Pipeline Stage Diagrams */
+  .pipeline-flow-diagram {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background-color: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .flow-step {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .step-num {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    background-color: #38bdf8;
+    color: #0f172a;
+    border-radius: 50%;
+    font-size: 0.7rem;
+    font-weight: 800;
+  }
+
+  .step-name {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #e2e8f0;
+  }
+
+  .flow-arrow {
+    color: #475569;
+    font-size: 0.8rem;
+  }
+
+  .waveform-stage-box {
+    background-color: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .stage-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.8rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .stage-info strong {
+    color: #f8fafc;
+  }
+
+  .legend {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.75rem;
+    color: #94a3b8;
+  }
+
+  .legend-color {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 0.15rem;
+  }
+
+  .legend-l { background-color: #38bdf8; }
+  .legend-r { background-color: #34d399; }
+  .legend-m { background-color: #facc15; }
+  .legend-s { background-color: #c084fc; }
+
+  .waveform-svg {
+    display: block;
+    width: 100%;
+    height: 60px;
+    background-color: #1e293b;
+    border-radius: 4px;
+    border: 1px solid #334155;
+  }
+
+  .pipeline-tip {
+    margin: 0;
+    margin-top: 1rem;
+    font-size: 0.8rem;
+    color: #94a3b8;
+    line-height: 1.4;
+    background-color: rgba(56, 189, 248, 0.05);
+    border-left: 2px solid #38bdf8;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0 4px 4px 0;
   }
 </style>
