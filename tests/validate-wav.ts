@@ -83,14 +83,17 @@ function arraysEqual(a: Uint8Array, b: Uint8Array): boolean {
 
 // Helper to save RGBA bytes buffer as a physical PNG image
 function savePng(rgbaBytes: Uint8Array, outputPath: string): void {
-  const pixelCount = rgbaBytes.length / 4;
-  const width = Math.floor(Math.sqrt(pixelCount));
-  const height = Math.ceil(pixelCount / width);
+  // Read dimensions from the metadata header (big-endian)
+  const w = (rgbaBytes[4] << 24) | (rgbaBytes[5] << 16) | (rgbaBytes[6] << 8) | rgbaBytes[7];
+  const h = (rgbaBytes[8] << 24) | (rgbaBytes[9] << 16) | (rgbaBytes[10] << 8) | rgbaBytes[11];
+
+  const width = w;
+  const height = h + 1; // 1 extra row at the top/bottom for metadata padding
 
   const png = new PNG({ width, height });
   const targetLen = width * height * 4;
   const buf = Buffer.alloc(targetLen);
-  buf.set(rgbaBytes);
+  buf.set(rgbaBytes); // copies 16-byte metadata and all W*H*4 coefficients
   png.data = buf;
 
   const buffer = PNG.sync.write(png);
@@ -101,7 +104,14 @@ function savePng(rgbaBytes: Uint8Array, outputPath: string): void {
 function readPng(inputPath: string): Uint8Array {
   const fileBuffer = fs.readFileSync(inputPath);
   const png = PNG.sync.read(fileBuffer);
-  return new Uint8Array(png.data);
+  const rawData = new Uint8Array(png.data);
+
+  // Read W and H from the metadata within the image bytes
+  const w = (rawData[4] << 24) | (rawData[5] << 16) | (rawData[6] << 8) | rawData[7];
+  const h = (rawData[8] << 24) | (rawData[9] << 16) | (rawData[10] << 8) | rawData[11];
+
+  const expectedLen = 16 + w * h * 4;
+  return rawData.slice(0, expectedLen);
 }
 
 // Calculate the mathematical sparsity and average energy of the wavelet coefficients.
@@ -110,10 +120,10 @@ function readPng(inputPath: string): Uint8Array {
 function verifySignalSparsity(rgba: Uint8Array): { sparsityFactor: number, averageEnergy: number } {
   let zeroCount = 0;
   let energySum = 0;
-  const pixelCount = (rgba.length - 12) / 4;
+  const pixelCount = (rgba.length - 16) / 4;
 
   for (let i = 0; i < pixelCount; i++) {
-    const offset = 12 + i * 4;
+    const offset = 16 + i * 4;
     const r = rgba[offset];     // Mid high byte
     const b = rgba[offset + 2]; // Side high byte
 
@@ -162,9 +172,9 @@ async function run(): Promise<void> {
     console.log(`  Original SHA-256: ${originalHash}`);
 
     // Encode to Wavelet
-    console.log(`  Encoding using forward 2D CDF 5/3 wavelet...`);
+    console.log(`  Encoding using forward 1D Wavelet Packet (H=1024, Type=0)...`);
     const encodeStart = performance.now();
-    const encodedRGBA = encode_wavelet(originalUint8) as Uint8Array;
+    const encodedRGBA = encode_wavelet(originalUint8, 1024, 0) as Uint8Array;
     const encodeEnd = performance.now();
     const encodeTime = encodeEnd - encodeStart;
 

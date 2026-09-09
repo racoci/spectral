@@ -60,9 +60,11 @@ function isPngFile(filePath: string, fileBytes: Uint8Array): boolean {
 
 // Helper to save RGBA bytes buffer as a physical PNG image
 function savePng(rgbaBytes: Uint8Array, outputPath: string): { width: number; height: number } {
-  const pixelCount = rgbaBytes.length / 4;
-  const width = Math.floor(Math.sqrt(pixelCount));
-  const height = Math.ceil(pixelCount / width);
+  const w = (rgbaBytes[4] << 24) | (rgbaBytes[5] << 16) | (rgbaBytes[6] << 8) | rgbaBytes[7];
+  const h = (rgbaBytes[8] << 24) | (rgbaBytes[9] << 16) | (rgbaBytes[10] << 8) | rgbaBytes[11];
+
+  const width = w;
+  const height = h + 1; // 1 extra row for metadata padding
 
   const png = new PNG({ width, height });
   const targetLen = width * height * 4;
@@ -79,10 +81,19 @@ function savePng(rgbaBytes: Uint8Array, outputPath: string): { width: number; he
 function readPng(inputPath: string): { rgbaBytes: Uint8Array; width: number; height: number } {
   const fileBuffer = fs.readFileSync(inputPath);
   const png = PNG.sync.read(fileBuffer);
+  const rawData = new Uint8Array(png.data);
+
+  // Read W and H from the metadata within the image bytes
+  const w = (rawData[4] << 24) | (rawData[5] << 16) | (rawData[6] << 8) | rawData[7];
+  const h = (rawData[8] << 24) | (rawData[9] << 16) | (rawData[10] << 8) | rawData[11];
+
+  const expectedLen = 16 + w * h * 4;
+  const rgbaBytes = rawData.slice(0, expectedLen);
+
   return {
-    rgbaBytes: new Uint8Array(png.data),
-    width: png.width,
-    height: png.height
+    rgbaBytes,
+    width: w,
+    height: h
   };
 }
 
@@ -169,9 +180,9 @@ async function main(): Promise<void> {
   } else {
     // AUDIO -> IMAGE (Forward Wavelet)
     try {
-      console.log(`   Performing forward 2D Wavelet CDF 5/3...`);
+      console.log(`   Performing forward 1D Wavelet Packet (H=1024, CDF 5/3)...`);
       const start = performance.now();
-      const encodedRGBA = encode_wavelet(fileUint8) as Uint8Array;
+      const encodedRGBA = encode_wavelet(fileUint8, 1024, 0) as Uint8Array;
       const duration = performance.now() - start;
 
       console.log(`   Saving wavelet image to PNG...`);

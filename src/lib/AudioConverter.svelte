@@ -15,6 +15,8 @@
 
   // Selected conversion algorithm
   let selectedAlgorithm = $state<'wavelet' | 'naive'>('wavelet');
+  let selectedHeight = $state<number>(1024); // default 20 Hz limit (1024 frequency bins)
+  let selectedWaveletType = $state<number>(0); // 0 = CDF 5/3, 1 = Haar (CDF 1/1)
 
   // Original File State
   let originalFile = $state<File | null>(null);
@@ -250,9 +252,9 @@
     // avoiding asynchronous race conditions on shared states.
   }
 
-  // Reactive effect to re-run the entire pipeline when the algorithm changes
+  // Reactive effect to re-run the entire pipeline when any parameter changes
   $effect(() => {
-    if (originalBytes && wasmLoaded && selectedAlgorithm) {
+    if (originalBytes && wasmLoaded && selectedAlgorithm && selectedHeight !== undefined && selectedWaveletType !== undefined) {
       runEncoding();
     }
   });
@@ -264,7 +266,7 @@
     try {
       const start = performance.now();
       if (selectedAlgorithm === 'wavelet') {
-        rgbaBytes = encode_wavelet(originalBytes);
+        rgbaBytes = encode_wavelet(originalBytes, selectedHeight, selectedWaveletType);
       } else {
         rgbaBytes = encode_naive(originalBytes);
       }
@@ -423,14 +425,46 @@
             bind:value={selectedAlgorithm}
             class="algorithm-select-dropdown"
           >
-            <option value="wavelet">Wavelet Inteira CDF 5/3 (Lossless)</option>
+            <option value="wavelet">Wavelet Packet (Melgram Reversível)</option>
             <option value="naive">Naive Byte Packing (Lossless Baseline)</option>
           </select>
+          
+          {#if selectedAlgorithm === 'wavelet'}
+            <!-- Wavelet Family Selector -->
+            <label for="wavelet-type-select" class="algorithm-label" style="margin-top: 0.75rem;">Família Wavelet:</label>
+            <select 
+              id="wavelet-type-select" 
+              bind:value={selectedWaveletType}
+              class="algorithm-select-dropdown"
+            >
+              <option value={0}>Cohen-Daubechies-Feauveau 5/3 (Biorogonal Suave)</option>
+              <option value={1}>Haar (CDF 1/1 / Localização Temporal Máxima)</option>
+            </select>
+
+            <!-- Height / Frequency Resolution Selector -->
+            <label for="height-select" class="algorithm-label" style="margin-top: 0.75rem;">Frequência Mínima (Altura H):</label>
+            <select 
+              id="height-select" 
+              bind:value={selectedHeight}
+              class="algorithm-select-dropdown"
+            >
+              <option value={256}>256 bandas (Frequência Mínima: ~86.1 Hz)</option>
+              <option value={512}>512 bandas (Frequência Mínima: ~43.1 Hz)</option>
+              <option value={1024}>1024 bandas (Frequência Mínima: ~21.5 Hz - Recomendável! 20 Hz)</option>
+              <option value={2048}>2048 bandas (Frequência Mínima: ~10.8 Hz)</option>
+            </select>
+          {/if}
+
           <p class="algorithm-description">
             {#if selectedAlgorithm === 'wavelet'}
-              <strong>Wavelet CDF 5/3:</strong> Agrupa as frequências e o envelope de tempo em 2D usando o Lifting Scheme do JPEG 2000 sem perdas. Cada pixel representa um coeficiente de wavelet real.
+              {#if selectedWaveletType === 0}
+                <strong>Wavelet CDF 5/3:</strong> Oferece excelente isolamento de frequência, suavidade visual nas faixas melódicas e reconstituição bit-perfect via Lifting.
+              {:else}
+                <strong>Wavelet Haar:</strong> Oferece máxima localização temporal (blocos verticais bem definidos para batidas rápidas), porém com maior vazamento de frequência lateral.
+              {/if}
+              A resolução escolhida de {selectedHeight} linhas define uma largura de banda de <strong>{(22050 / selectedHeight).toFixed(2)} Hz</strong> por bin.
             {:else}
-              <strong>Naive Packing:</strong> Mapeia os bytes binários brutos do arquivo diretamente nos canais de cor RGBA. Parecido com estática analógica.
+              <strong>Naive Packing:</strong> Mapeia os bytes binários brutos do arquivo diretamente nos canais de cor RGBA, gerando ruído cinza de TV.
             {/if}
           </p>
         </div>

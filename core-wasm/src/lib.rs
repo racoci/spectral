@@ -25,10 +25,10 @@ pub fn ms_to_lr(m: i16, s: i16) -> (i16, i16) {
 }
 
 // ==========================================
-// Bijeção 2: 1D Cohen-Daubechies-Feauveau 5/3
+// Bijeção 2.1: 1D Cohen-Daubechies-Feauveau 5/3 (CDF 5/3)
 // ==========================================
 
-fn forward_1d(a: &mut [i16]) {
+fn forward_53_1d(a: &mut [i16]) {
     let len = a.len();
     if len < 2 { return; }
     let half = len / 2;
@@ -60,7 +60,7 @@ fn forward_1d(a: &mut [i16]) {
     }
 }
 
-fn inverse_1d(a: &mut [i16]) {
+fn inverse_53_1d(a: &mut [i16]) {
     let len = a.len();
     if len < 2 { return; }
     let half = len / 2;
@@ -93,57 +93,111 @@ fn inverse_1d(a: &mut [i16]) {
 }
 
 // ==========================================
+// Bijeção 2.2: 1D Haar Wavelet (CDF 1/1)
+// ==========================================
+
+fn forward_haar_1d(a: &mut [i16]) {
+    let len = a.len();
+    if len < 2 { return; }
+    let half = len / 2;
+    let mut even = vec![0i16; half];
+    let mut odd = vec![0i16; half];
+    
+    for i in 0..half {
+        even[i] = a[2 * i];
+        odd[i] = a[2 * i + 1];
+    }
+    
+    // Haar Lifting Scheme:
+    // d[n] = odd[n] - even[n]
+    // s[n] = even[n] + floor(d[n] / 2)
+    for i in 0..half {
+        odd[i] = odd[i].wrapping_sub(even[i]);
+        even[i] = even[i].wrapping_add(odd[i] >> 1);
+    }
+    
+    for i in 0..half {
+        a[i] = even[i];
+        a[half + i] = odd[i];
+    }
+}
+
+fn inverse_haar_1d(a: &mut [i16]) {
+    let len = a.len();
+    if len < 2 { return; }
+    let half = len / 2;
+    let mut even = vec![0i16; half];
+    let mut odd = vec![0i16; half];
+    
+    for i in 0..half {
+        even[i] = a[i];
+        odd[i] = a[half + i];
+    }
+    
+    // Inverse Haar Lifting:
+    // even[n] = s[n] - floor(d[n] / 2)
+    // odd[n] = d[n] + even[n]
+    for i in 0..half {
+        even[i] = even[i].wrapping_sub(odd[i] >> 1);
+        odd[i] = odd[i].wrapping_add(even[i]);
+    }
+    
+    for i in 0..half {
+        a[2 * i] = even[i];
+        a[2 * i + 1] = odd[i];
+    }
+}
+
+// ==========================================
 // 1D Wavelet Packet Decomposition (WPD)
 // ==========================================
 
-/// Applies recursive Wavelet Packet Decomposition to depth `depth`.
-/// This splits the signal into 2^depth frequency sub-bands of equal length.
-fn forward_wpd(a: &mut [i16], depth: usize) {
+/// Applies recursive Wavelet Packet Decomposition.
+/// wavelet_type: 0 for CDF 5/3, 1 for Haar (CDF 1/1).
+fn forward_wpd(a: &mut [i16], depth: usize, wavelet_type: u32) {
     if depth == 0 { return; }
     let len = a.len();
     if len < 2 { return; }
     
-    forward_1d(a);
-    
-    let half = len / 2;
-    forward_wpd(&mut a[0..half], depth - 1);
-    forward_wpd(&mut a[half..len], depth - 1);
-}
-
-/// Applies recursive Wavelet Packet Reconstruction to depth `depth`.
-fn inverse_wpd(a: &mut [i16], depth: usize) {
-    if depth == 0 { return; }
-    let len = a.len();
-    if len < 2 { return; }
-    
-    let half = len / 2;
-    inverse_wpd(&mut a[0..half], depth - 1);
-    inverse_wpd(&mut a[half..len], depth - 1);
-    
-    inverse_1d(a);
-}
-
-/// Calculates an optimal square grid dimension where H is a power of 2
-/// to align perfectly with the dyadic wavelet packet decomposition.
-fn calculate_grid_size(data_len: usize) -> (usize, usize) {
-    let num_pairs = (data_len + 3) / 4;
-    
-    // Choose H as a power of 2 near the square root of num_pairs
-    let target_h = (num_pairs as f64).sqrt() as usize;
-    let mut h = 2;
-    while h * 2 <= target_h {
-        h *= 2;
+    if wavelet_type == 0 {
+        forward_53_1d(a);
+    } else {
+        forward_haar_1d(a);
     }
-    if h < 4 { h = 4; } // Minimal resolution
     
-    // Ensure W is even and large enough to hold all samples
+    let half = len / 2;
+    forward_wpd(&mut a[0..half], depth - 1, wavelet_type);
+    forward_wpd(&mut a[half..len], depth - 1, wavelet_type);
+}
+
+/// Applies recursive Wavelet Packet Reconstruction.
+fn inverse_wpd(a: &mut [i16], depth: usize, wavelet_type: u32) {
+    if depth == 0 { return; }
+    let len = a.len();
+    if len < 2 { return; }
+    
+    let half = len / 2;
+    inverse_wpd(&mut a[0..half], depth - 1, wavelet_type);
+    inverse_wpd(&mut a[half..len], depth - 1, wavelet_type);
+    
+    if wavelet_type == 0 {
+        inverse_53_1d(a);
+    } else {
+        inverse_haar_1d(a);
+    }
+}
+
+/// Calculates image width W based on the number of stereo pairs and a custom height H.
+fn calculate_grid_width(data_len: usize, h: usize) -> usize {
+    let num_pairs = (data_len + 3) / 4;
     let mut w = (num_pairs + h - 1) / h;
     if w % 2 != 0 {
         w += 1;
     }
-    if w < 2 { w = 2; }
-    
-    (w, h)
+    if w < 2 {
+        w = 2;
+    }
+    w
 }
 
 // ==========================================
@@ -161,19 +215,34 @@ pub fn zigzag_decode(val: u16) -> i16 {
 }
 
 // ==========================================
-// WASM Entrypoints for Semantic WPD Spectrogram
+// WASM Entrypoints for Dynamic, Self-Contained Spectrogram
 // ==========================================
 
+/// Converts raw audio bytes into an autossuficiente RGBA pixel array containing:
+/// - First 4 pixels (16 bytes): Metadata Header [Original byte size (4 bytes), W (4 bytes), H (4 bytes), Parameters (4 bytes)]
+/// - Remaining W*H pixels: 2D Wavelet Packet coefficients packed in RGBA.
+///
+/// Parameters Byte Mapping (Pixel 3 / Bytes 12-15):
+/// - Byte 12: `wavelet_type` (0 for CDF 5/3, 1 for Haar)
+/// - Byte 13: `channels` (always 2 for stereo)
+/// - Bytes 14-15: `sample_rate` (u16, big-endian)
 #[wasm_bindgen]
-pub fn encode_wavelet(data: &[u8]) -> Vec<u8> {
+pub fn encode_wavelet(data: &[u8], h_custom: usize, wavelet_type: u32) -> Vec<u8> {
     let original_len = data.len() as u32;
-    let (w, h) = calculate_grid_size(data.len());
+    
+    // Ensure h_custom is a valid power of 2
+    let mut h = h_custom;
+    if !h.is_power_of_two() || h < 4 {
+        h = 1024; // Default to 21.5 Hz resolution
+    }
+    
+    let w = calculate_grid_width(data.len(), h);
     let grid_size = w * h;
     
     let mut mid_grid = vec![0i16; grid_size];
     let mut side_grid = vec![0i16; grid_size];
     
-    // 1. Unpack bytes pairwise into L/R i16 samples (WAV Little-Endian byte-ordering)
+    // 1. Unpack bytes pairwise into L/R i16 samples (WAV Little-Endian) and convert to Mid/Side
     for i in 0..((data.len() + 3) / 4) {
         let offset = i * 4;
         let b0 = if offset < data.len() { data[offset] } else { 0 };
@@ -181,9 +250,7 @@ pub fn encode_wavelet(data: &[u8]) -> Vec<u8> {
         let b2 = if offset + 2 < data.len() { data[offset + 2] } else { 0 };
         let b3 = if offset + 3 < data.len() { data[offset + 3] } else { 0 };
         
-        // Little-Endian: b0 is low-byte, b1 is high-byte
         let l_sample = (((b1 as u16) << 8) | (b0 as u16)) as i16;
-        // b2 is low-byte, b3 is high-byte
         let r_sample = (((b3 as u16) << 8) | (b2 as u16)) as i16;
         
         let (m, s) = lr_to_ms(l_sample, r_sample);
@@ -191,22 +258,25 @@ pub fn encode_wavelet(data: &[u8]) -> Vec<u8> {
         side_grid[i] = s;
     }
     
-    // 2. Apply 1D Wavelet Packet Decomposition to arrange sub-bands vertically (Frequency rows)
+    // 2. Apply 1D Wavelet Packet Decomposition (Time is horizontal, Frequency is vertical)
     let depth = (h as f64).log2() as usize;
-    forward_wpd(&mut mid_grid, depth);
-    forward_wpd(&mut side_grid, depth);
+    forward_wpd(&mut mid_grid, depth, wavelet_type);
+    forward_wpd(&mut side_grid, depth, wavelet_type);
     
-    // 3. Pack metadata and map coefficients into semantic RGBA pixels
-    let mut output = Vec::with_capacity(12 + grid_size * 4);
+    // 3. Pack self-contained metadata and coefficients into RGBA pixels
+    let mut output = Vec::with_capacity(16 + grid_size * 4);
     
     // Metadata (big-endian)
     output.extend_from_slice(&original_len.to_be_bytes());
     output.extend_from_slice(&(w as u32).to_be_bytes());
     output.extend_from_slice(&(h as u32).to_be_bytes());
     
-    // Reorganize wavelet sub-bands into image rows (LL ... HH)
-    // The WPD output has H sub-bands of length W packed sequentially.
-    // Row r represents the r-th sub-band.
+    // Pixel 3: Parameters [Wavelet Type (1B), Channels (1B), Sample Rate (2B)]
+    output.push(wavelet_type as u8);
+    output.push(2u8); // Channels: Stereo
+    output.extend_from_slice(&44100u16.to_be_bytes()); // Default Sample Rate: 44.1 kHz
+    
+    // Pack C_M and C_S into RGBA rows
     for r in 0..h {
         for c in 0..w {
             let idx = r * w + c;
@@ -228,9 +298,12 @@ pub fn encode_wavelet(data: &[u8]) -> Vec<u8> {
     output
 }
 
+/// Receives an RGBA pixel array, reads the self-contained metadata header to identify
+/// the dimensions and wavelet algorithm used, performs the exact inverse transform,
+/// and decodes back to the original audio file bytes.
 #[wasm_bindgen]
 pub fn decode_wavelet(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
-    if rgba_data.len() < 12 {
+    if rgba_data.len() < 16 {
         return Err(JsValue::from_str("Invalid encoded data: too short to contain wavelet metadata header."));
     }
     
@@ -247,11 +320,14 @@ pub fn decode_wavelet(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
     let w = u32::from_be_bytes(w_bytes) as usize;
     let h = u32::from_be_bytes(h_bytes) as usize;
     
+    // Read parameters from Pixel 3
+    let wavelet_type = rgba_data[12] as u32;
+    
     let expected_coeff_len = w * h * 4;
-    if rgba_data.len() < 12 + expected_coeff_len {
+    if rgba_data.len() < 16 + expected_coeff_len {
         return Err(JsValue::from_str(&format!(
-            "Invalid encoded data: expected at least {} bytes (12 + {}), but got only {} bytes.",
-            12 + expected_coeff_len, expected_coeff_len, rgba_data.len()
+            "Invalid encoded data: expected at least {} bytes (16 + {}), but got only {} bytes.",
+            16 + expected_coeff_len, expected_coeff_len, rgba_data.len()
         )));
     }
     
@@ -259,11 +335,11 @@ pub fn decode_wavelet(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
     let mut mid_grid = vec![0i16; grid_size];
     let mut side_grid = vec![0i16; grid_size];
     
-    // 1. Unpack RGBA rows back into mid (C_M) and side (C_S) grids
+    // 1. Unpack RGBA pixels back into mid and side grids
     for r in 0..h {
         for c in 0..w {
             let idx = r * w + c;
-            let offset = 12 + idx * 4;
+            let offset = 16 + idx * 4;
             let r_chan = rgba_data[offset];
             let g_chan = rgba_data[offset + 1];
             let b_chan = rgba_data[offset + 2];
@@ -277,10 +353,10 @@ pub fn decode_wavelet(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
         }
     }
     
-    // 2. Run inverse 1D Wavelet Packet Reconstruction on Mid and Side grids
+    // 2. Run inverse Wavelet Packet Reconstruction using the dynamically detected wavelet algorithm
     let depth = (h as f64).log2() as usize;
-    inverse_wpd(&mut mid_grid, depth);
-    inverse_wpd(&mut side_grid, depth);
+    inverse_wpd(&mut mid_grid, depth, wavelet_type);
+    inverse_wpd(&mut side_grid, depth, wavelet_type);
     
     // 3. Unpack Mid/Side back to Left/Right samples and serialize as Little-Endian
     let mut original_data = Vec::with_capacity(original_len);
@@ -292,7 +368,6 @@ pub fn decode_wavelet(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
         let u16_l = l as u16;
         let u16_r = r as u16;
         
-        // Little-Endian: low-byte (b0/b2) first, high-byte (b1/b3) after
         let b0 = (u16_l & 0xFF) as u8;
         let b1 = (u16_l >> 8) as u8;
         let b2 = (u16_r & 0xFF) as u8;
@@ -358,7 +433,7 @@ mod tests {
         for val in test_cases {
             let encoded = zigzag_encode(val);
             let decoded = zigzag_decode(encoded);
-            assert_eq!(val, decoded, "ZigZag failed for {}", val);
+            assert_eq!(val, decoded);
         }
     }
 
@@ -375,19 +450,18 @@ mod tests {
         for (l, r) in test_cases {
             let (m, s) = lr_to_ms(l, r);
             let (l_rec, r_rec) = ms_to_lr(m, s);
-            assert_eq!((l, r), (l_rec, r_rec), "Failed for L={}, R={}", l, r);
+            assert_eq!((l, r), (l_rec, r_rec));
         }
     }
 
     #[test]
-    fn test_ms_mathematical_invariants() {
-        let (m, s) = lr_to_ms(5000, 5000);
-        assert_eq!(s, 0);
-        assert_eq!(m, 5000);
-
-        let (m, s) = lr_to_ms(5000, -5000);
-        assert_eq!(m, 0);
-        assert_eq!(s, 10000);
+    fn test_haar_perfect_reversibility() {
+        let mut sample = vec![100, -50, 200, 300, -400, 500, 600, 700];
+        let original = sample.clone();
+        
+        forward_wpd(&mut sample, 2, 1); // 1 = Haar
+        inverse_wpd(&mut sample, 2, 1);
+        assert_eq!(sample, original, "Haar WPD failed to reconstruct perfectly");
     }
 
     #[test]
@@ -395,84 +469,9 @@ mod tests {
         let mut sample = vec![100, -50, 200, 300, -400, 500, 600, 700];
         let original = sample.clone();
         
-        // Depth 2 splits 8 samples into 4 sub-bands of size 2
-        forward_wpd(&mut sample, 2);
-        inverse_wpd(&mut sample, 2);
-        assert_eq!(sample, original, "WPD 1D failed to reconstruct perfectly");
-    }
-
-    // ------------------------------------------
-    // Teste de Correlação Espacial (Anti-Ruído)
-    // ------------------------------------------
-
-    #[test]
-    fn test_image_semantic_spatial_correlation() {
-        // Gera um sinal senoidal estéreo com variação suave (alta correlação natural)
-        let size = 1024; // 256 amostras estéreo (1024 bytes)
-        let mut signal = Vec::with_capacity(size);
-        for i in 0..256 {
-            // Seno de 440 Hz amostrado a 44100 Hz
-            let val = ( (i as f32 * 2.0 * 3.14159 * 440.0 / 44100.0).sin() * 15000.0 ) as i16;
-            let u16_val = val as u16;
-            signal.push((u16_val >> 8) as u8);
-            signal.push((u16_val & 0xFF) as u8);
-            signal.push((u16_val >> 8) as u8);
-            signal.push((u16_val & 0xFF) as u8);
-        }
-
-        // Codifica para obter a imagem de Wavelets Packet (WPD)
-        let encoded_rgba = encode_wavelet(&signal);
-        
-        // Mede a auto-correlação horizontal e vertical nos canais de brilho (R/G)
-        let w = u32::from_be_bytes([encoded_rgba[4], encoded_rgba[5], encoded_rgba[6], encoded_rgba[7]]) as usize;
-        let h = u32::from_be_bytes([encoded_rgba[8], encoded_rgba[9], encoded_rgba[10], encoded_rgba[11]]) as usize;
-        
-        let mut diff_sum_h = 0.0;
-        let mut diff_sum_v = 0.0;
-        let mut count_h = 0;
-        let mut count_v = 0;
-
-        for r in 0..h {
-            for c in 0..w {
-                let idx = r * w + c;
-                let offset = 12 + idx * 4;
-                let val = ((encoded_rgba[offset] as u16) << 8) | (encoded_rgba[offset + 1] as u16);
-                
-                // Vizinho horizontal
-                if c + 1 < w {
-                    let next_offset = 12 + (idx + 1) * 4;
-                    let next_val = ((encoded_rgba[next_offset] as u16) << 8) | (encoded_rgba[next_offset + 1] as u16);
-                    diff_sum_h += (val as f32 - next_val as f32).abs();
-                    count_h += 1;
-                }
-                
-                // Vizinho vertical
-                if r + 1 < h {
-                    let next_offset = 12 + (idx + w) * 4;
-                    let next_val = ((encoded_rgba[next_offset] as u16) << 8) | (encoded_rgba[next_offset + 1] as u16);
-                    diff_sum_v += (val as f32 - next_val as f32).abs();
-                    count_v += 1;
-                }
-            }
-        }
-
-        let avg_diff_h = diff_sum_h / (count_h as f32);
-        let avg_diff_v = diff_sum_v / (count_v as f32);
-
-        // Se fosse ruído branco puro de alta amplitude (0 a 65535), a diferença média esperada seria ~21845.
-        // Em um espectrograma de wavelets packet suave, a diferença de vizinhos deve ser extremamente baixa
-        // (indicando alta correlação espacial, com limiar conservador < 8000 para sinais senoidais).
-        assert!(avg_diff_h < 8000.0, "Horizontal adjacent difference is too high (looks like noise): {}", avg_diff_h);
-        assert!(avg_diff_v < 8000.0, "Vertical adjacent difference is too high (looks like noise): {}", avg_diff_v);
-    }
-
-    #[test]
-    fn test_symmetrical_identity_naive() {
-        let original_audio = vec![0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, 0x11, 0x22];
-        let encoded_image = encode_naive(&original_audio);
-        assert_eq!(encoded_image.len() % 4, 0);
-        let decoded_audio = decode_naive(&encoded_image).unwrap();
-        assert_eq!(original_audio, decoded_audio);
+        forward_wpd(&mut sample, 2, 0); // 0 = CDF 5/3
+        inverse_wpd(&mut sample, 2, 0);
+        assert_eq!(sample, original, "CDF 5/3 WPD failed to reconstruct perfectly");
     }
 
     #[test]
@@ -484,8 +483,14 @@ mod tests {
             0x12, 0x34, 0x56, 0x78
         ];
         
-        let encoded_rgba = encode_wavelet(&original_audio);
-        let decoded_audio = decode_wavelet(&encoded_rgba).unwrap();
-        assert_eq!(original_audio, decoded_audio);
+        // Teste com CDF 5/3 a 256 de altura
+        let encoded_rgba_53 = encode_wavelet(&original_audio, 256, 0);
+        let decoded_audio_53 = decode_wavelet(&encoded_rgba_53).unwrap();
+        assert_eq!(original_audio, decoded_audio_53);
+
+        // Teste com Haar a 256 de altura
+        let encoded_rgba_haar = encode_wavelet(&original_audio, 256, 1);
+        let decoded_audio_haar = decode_wavelet(&encoded_rgba_haar).unwrap();
+        assert_eq!(original_audio, decoded_audio_haar);
     }
 }

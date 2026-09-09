@@ -57,13 +57,15 @@
     }
   });
 
-  // Calculate canvas dimensions and reset view ONLY when the raw bytes change
+  // 1. Calculate canvas dimensions and reset view ONLY when the raw bytes change
   $effect(() => {
     if (rgbaBytes && rgbaBytes.length > 0) {
-      const pixelCount = rgbaBytes.length / 4;
-      width = Math.floor(Math.sqrt(pixelCount));
-      if (width < 1) width = 1;
-      height = Math.ceil(pixelCount / width);
+      // Read dimensions from the self-contained metadata header (big-endian)
+      const w = (rgbaBytes[4] << 24) | (rgbaBytes[5] << 16) | (rgbaBytes[6] << 8) | rgbaBytes[7];
+      const h = (rgbaBytes[8] << 24) | (rgbaBytes[9] << 16) | (rgbaBytes[10] << 8) | rgbaBytes[11];
+      
+      width = w;
+      height = h;
 
       if (!offscreenCanvas) {
         offscreenCanvas = document.createElement('canvas');
@@ -87,25 +89,34 @@
     if (rgbaBytes && rgbaBytes.length > 0 && offscreenCtx) {
       const imageData = offscreenCtx.createImageData(width, height);
       
-      for (let i = 0; i < rgbaBytes.length; i += 4) {
+      // Slice out the 16-byte metadata header to render only the actual wavelet coefficients
+      const coefOffset = 16;
+      
+      for (let i = 0; i < width * height * 4; i += 4) {
+        const dataIdx = coefOffset + i;
+        if (dataIdx + 3 >= rgbaBytes.length) break;
+
+        const mid_val = rgbaBytes[dataIdx];     // Mid high byte (Red) - Macro Mono Energy
+        const side_val = rgbaBytes[dataIdx + 2]; // Side high byte (Blue) - Macro Stereo Width
+        
         if (visualMode === 'full') {
           // Render raw, physical, lossless RGBA channels directly
-          imageData.data[i] = rgbaBytes[i];         // Mid high byte (Red)
-          imageData.data[i + 1] = rgbaBytes[i + 1];   // Mid low byte (Green)
-          imageData.data[i + 2] = rgbaBytes[i + 2];   // Side high byte (Blue)
-          imageData.data[i + 3] = rgbaBytes[i + 3];   // Side low byte (Alpha/Opacity)
+          imageData.data[i] = rgbaBytes[dataIdx];         // Mid high byte (Red)
+          imageData.data[i + 1] = rgbaBytes[dataIdx + 1]; // Mid low byte (Green)
+          imageData.data[i + 2] = rgbaBytes[dataIdx + 2]; // Side high byte (Blue)
+          imageData.data[i + 3] = rgbaBytes[dataIdx + 3]; // Side low byte (Alpha/Opacity)
         } else if (visualMode === 'mid') {
           // Render only Mono Mid channels (Red and Green are active, Blue and Alpha are neutral)
-          imageData.data[i] = rgbaBytes[i];
-          imageData.data[i + 1] = rgbaBytes[i + 1];
+          imageData.data[i] = rgbaBytes[dataIdx];
+          imageData.data[i + 1] = rgbaBytes[dataIdx + 1];
           imageData.data[i + 2] = 0;
           imageData.data[i + 3] = 255; // opaque
         } else {
           // Render only Stereo Side channels (Blue and Alpha are active, Red and Green are neutral)
           imageData.data[i] = 0;
           imageData.data[i + 1] = 0;
-          imageData.data[i + 2] = rgbaBytes[i + 2];
-          imageData.data[i + 3] = rgbaBytes[i + 3];
+          imageData.data[i + 2] = rgbaBytes[dataIdx + 2];
+          imageData.data[i + 3] = rgbaBytes[dataIdx + 3];
         }
       }
       offscreenCtx.putImageData(imageData, 0, 0);
