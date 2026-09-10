@@ -40,11 +40,10 @@
   $effect(() => {
     if (rgbaBytes && rgbaBytes.length > 0) {
       // Read dimensions from the self-contained metadata header (big-endian)
-      const w_png = (rgbaBytes[4] << 24) | (rgbaBytes[5] << 16) | (rgbaBytes[6] << 8) | rgbaBytes[7];
+      const w = (rgbaBytes[4] << 24) | (rgbaBytes[5] << 16) | (rgbaBytes[6] << 8) | rgbaBytes[7];
       const h = (rgbaBytes[8] << 24) | (rgbaBytes[9] << 16) | (rgbaBytes[10] << 8) | rgbaBytes[11];
       
-      // Since we pack Mid and Side across 2 adjacent pixels, the visual width is exactly half of PNG width!
-      width = w_png / 2;
+      width = w;
       height = h;
 
       if (!offscreenCanvas) {
@@ -71,45 +70,42 @@
       
       // Slice out the 16-byte metadata header to render only the actual wavelet coefficients
       const coefOffset = 16;
-      const w_png = width * 2;
       
       for (let r = 0; r < height; r++) {
         for (let c = 0; c < width; c++) {
-          // Pixel A is at r * w_png + (c * 2). Pixel B is at offset_a + 4.
-          const idx_a = r * w_png + (c * 2);
-          const offset_a = coefOffset + idx_a * 4;
-          const offset_b = offset_a + 4;
+          const idx = r * width + c;
+          const offset = coefOffset + idx * 4;
           
-          if (offset_b + 3 >= rgbaBytes.length) break;
+          if (offset + 3 >= rgbaBytes.length) break;
 
-          // Extract high and low bytes of Mid (R and G of Pixel A)
-          const mid_high = rgbaBytes[offset_a];     // high byte (Red channel of Pixel A)
-          const mid_low  = rgbaBytes[offset_a + 1]; // low byte (Green channel of Pixel A)
+          // Hierarchical Readout: Red/Blue = Macro Structure (MSB), Green/Alpha = Micro Refinement (LSB)
+          const mid_high = rgbaBytes[offset];     // Red
+          const mid_low  = rgbaBytes[offset + 1]; // Green
+          const side_high = rgbaBytes[offset + 2]; // Blue
+          // Reverse alpha encoding inversion
+          const side_low = 255 - rgbaBytes[offset + 3];
           
-          // Extract high and low bytes of Side (R and G of Pixel B)
-          const side_high = rgbaBytes[offset_b];     // high byte (Red channel of Pixel B)
-          const side_low  = rgbaBytes[offset_b + 1]; // low byte (Green channel of Pixel B)
-          
-          // Output pixel coordinate in Svelte's offscreen visual canvas (W x H)
-          const out_idx = (r * width + c) * 4;
+          const out_idx = idx * 4;
           
           if (visualMode === 'full') {
-            // Render Mid on Red/Green, and Side on Blue
-            imageData.data[out_idx]     = mid_high;  // Mid High (Red)
-            imageData.data[out_idx + 1] = mid_low;   // Mid Low (Green)
-            imageData.data[out_idx + 2] = side_high;  // Side High (Blue)
-            imageData.data[out_idx + 3] = 255;       // Fully opaque display!
+            // Render Mid Structure on Red, Side Structure on Blue.
+            // Map Mid/Side refinements into Green/Alpha purely for visual richness/smoothness.
+            imageData.data[out_idx]     = mid_high;
+            imageData.data[out_idx + 1] = mid_low;
+            imageData.data[out_idx + 2] = side_high;
+            // The canvas expects actual Alpha opacity. Since side_low is detail noise, we cap opacity 
+            // so we don't accidentally make the canvas fully invisible (if visual mode is full).
+            imageData.data[out_idx + 3] = 255; 
           } else if (visualMode === 'mid') {
-            // Render only Mono Mid channels
             imageData.data[out_idx]     = mid_high;
             imageData.data[out_idx + 1] = mid_low;
             imageData.data[out_idx + 2] = 0;
             imageData.data[out_idx + 3] = 255;
           } else {
-            // Render only Stereo Side channels
             imageData.data[out_idx]     = 0;
             imageData.data[out_idx + 1] = 0;
             imageData.data[out_idx + 2] = side_high;
+            // Side structure and side refinement on Green/Blue, max opacity!
             imageData.data[out_idx + 3] = 255;
           }
         }
@@ -220,17 +216,37 @@
       hoverY = imgY;
 
       const coefOffset = 16;
-      const w_png = width * 2;
-      const idx_a = imgY * w_png + (imgX * 2);
-      const offset_a = coefOffset + idx_a * 4;
-      const offset_b = offset_a + 4;
+      const offset = coefOffset + (imgY * width + imgX) * 4;
       
-      if (offset_b + 3 < rgbaBytes.length) {
-        // Reconstruct original Mid (C_M) and Side (C_S) u16 values from R and G channels
-        const u16_m = (rgbaBytes[offset_a] << 8) | rgbaBytes[offset_a + 1];
-        const u16_s = (rgbaBytes[offset_b] << 8) | rgbaBytes[offset_b + 1];
+      if (offset + 3 < rgbaBytes.length) {
+        // Read semantic bit-planes from RGB
+        const m_msb = rgbaBytes[offset];
+        const m_lsb = rgbaBytes[offset + 1];
+        const s_msb = rgbaBytes[offset + 2];
+        const a_encoded = rgbaBytes[offset + 3];
         
-        // Decode ZigZag to get the exact signed 16-bit coefficients!
+        // Reverse Alpha-inversion trick (silence back to 0)
+        const s_lsb = 255 - a_encoded;
+        
+        // Combine MSB and LSB
+        const g_m = (m_msb << 8) | m_lsb;
+        const g_s = (s_msb << 8) | s_lsb;
+        
+        // Function to decode Gray code back to Unsigned ZigZag
+        const grayDecode = (val: number) => {
+          let res = val;
+          let mask = val >> 1;
+          while (mask !== 0) {
+            res ^= mask;
+            mask >>= 1;
+          }
+          return res;
+        };
+
+        const u16_m = grayDecode(g_m);
+        const u16_s = grayDecode(g_s);
+        
+        // Decode ZigZag back to exact signed 16-bit coefficients!
         const m_val = (u16_m >> 1) ^ (-(u16_m & 1));
         const s_val = (u16_s >> 1) ^ (-(u16_s & 1));
         

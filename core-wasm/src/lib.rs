@@ -203,7 +203,8 @@ fn calculate_grid_width(data_len: usize, h: usize) -> usize {
 }
 
 // ==========================================
-// Bijeção 3: Codificação Semântica ZigZag (i32 Headroom)
+// Bijeção 3: Codificação Semântica Gray Code
+// Transformação da Topologia de Inteiros para Bit-Planes
 // ==========================================
 
 #[inline]
@@ -216,8 +217,24 @@ pub fn zigzag_decode(val: u32) -> i32 {
     ((val >> 1) as i32) ^ (-((val & 1) as i32))
 }
 
+#[inline]
+pub fn gray_encode(val: i32) -> u32 {
+    let u_val = zigzag_encode(val);
+    u_val ^ (u_val >> 1)
+}
+
+#[inline]
+pub fn gray_decode(mut val: u32) -> i32 {
+    let mut mask = val >> 1;
+    while mask != 0 {
+        val ^= mask;
+        mask >>= 1;
+    }
+    zigzag_decode(val)
+}
+
 // ==========================================
-// WASM Entrypoints for Panoramic WPD Spectrogram
+// WASM Entrypoints for Hierarchical Semantic Spectrogram
 // ==========================================
 
 #[wasm_bindgen]
@@ -230,7 +247,9 @@ pub fn encode_wavelet(data: &[u8], h_custom: usize, wavelet_type: u32) -> Vec<u8
         h = 1024; // 21.5 Hz frequency resolution
     }
     
-    let w = calculate_grid_width(data.len(), h);
+    let num_pairs = (data.len() + 3) / 4;
+    let mut w = (num_pairs + h - 1) / h;
+    if w < 1 { w = 1; }
     let grid_size = w * h;
     
     let mut mid_grid = vec![0i16; grid_size];
@@ -257,43 +276,43 @@ pub fn encode_wavelet(data: &[u8], h_custom: usize, wavelet_type: u32) -> Vec<u8
     forward_wpd(&mut mid_grid, depth, wavelet_type);
     forward_wpd(&mut side_grid, depth, wavelet_type);
     
-    // 3. Pack metadata and coefficients into 8-bytes (2 pixels) per sample
-    // Output size: 16 bytes metadata + W * H * 2 pixels * 4 bytes/pixel = 16 + W * H * 8 bytes
-    let mut output = Vec::with_capacity(16 + grid_size * 8);
+    // 3. Hierarchical Bit-Plane Coding in 1 Pixel (32-bits) per Stereo Sample
+    let mut output = Vec::with_capacity(16 + grid_size * 4);
     
     // Metadata (Pixel 0 to 3)
     output.extend_from_slice(&original_len.to_be_bytes());
-    
-    // Save W_png = W * 2 because we use 2 adjacent pixels per sample!
-    let w_png = (w * 2) as u32;
-    output.extend_from_slice(&w_png.to_be_bytes());
+    output.extend_from_slice(&(w as u32).to_be_bytes()); // Restored W physical dimension!
     output.extend_from_slice(&(h as u32).to_be_bytes());
     
-    // Pixel 3: Parameters [Wavelet Type (1B), Channels (1B), Sample Rate (2B)]
     output.push(wavelet_type as u8);
     output.push(2u8); // Stereo
     output.extend_from_slice(&44100u16.to_be_bytes());
     
-    // Pack C_M and C_S into 2 adjacent pixels (8 bytes total)
     for r in 0..h {
         for c in 0..w {
             let idx = r * w + c;
             
-            // Encode using full 16-bit ZigZag headroom (lossless!)
-            let u16_m = zigzag_encode(mid_grid[idx] as i32) as u16;
-            let u16_s = zigzag_encode(side_grid[idx] as i32) as u16;
+            // Re-map topography using Gray Code to compress sequential correlation
+            let g_m = gray_encode(mid_grid[idx] as i32);
+            let g_s = gray_encode(side_grid[idx] as i32);
             
-            // Pixel A (Mid / Mono) - RGB active, A = 255 (opaque)
-            output.push((u16_m >> 8) as u8);   // R = high byte
-            output.push((u16_m & 0xFF) as u8); // G = low byte
-            output.push(0u8);                  // B = unused/neutral
-            output.push(255u8);                // A = fully opaque!
+            // Bit-Plane Hierarchical Mapping into RGB Semantics:
+            // High Bits (MSB - Structure) mapped to prominent Red (Mid) and Blue (Side)
+            let m_msb = (g_m >> 8) as u8; 
+            let s_msb = (g_s >> 8) as u8;
             
-            // Pixel B (Side / Stereo) - RGB active, A = 255 (opaque)
-            output.push((u16_s >> 8) as u8);   // R = high byte
-            output.push((u16_s & 0xFF) as u8); // G = low byte
-            output.push(0u8);                  // B = unused/neutral
-            output.push(255u8);                // A = fully opaque!
+            // Low Bits (LSB - Refinement Detail) packed into Green and Alpha (Texture)
+            let m_lsb = (g_m & 0xFF) as u8;
+            let s_lsb = (g_s & 0xFF) as u8;
+            
+            // Inverting the Alpha channel so that silence (0 LSB) yields Opaque (255)
+            // This guarantees that structural silence remains solid black, avoiding transparency bugs!
+            let a_encoded = 255u8.wrapping_sub(s_lsb);
+
+            output.push(m_msb);     // R = Mid MSB (Macro Structure)
+            output.push(m_lsb);     // G = Mid LSB (Micro Refinement)
+            output.push(s_msb);     // B = Side MSB (Spatial Structure)
+            output.push(a_encoded); // A = Side LSB Inverted (Texture)
         }
     }
     
@@ -303,66 +322,56 @@ pub fn encode_wavelet(data: &[u8], h_custom: usize, wavelet_type: u32) -> Vec<u8
 #[wasm_bindgen]
 pub fn decode_wavelet(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
     if rgba_data.len() < 16 {
-        return Err(JsValue::from_str("Invalid encoded data: too short to contain wavelet metadata header."));
+        return Err(JsValue::from_str("Invalid encoded data"));
     }
     
-    // Read metadata header
     let mut len_bytes = [0u8; 4];
-    let mut w_png_bytes = [0u8; 4];
+    let mut w_bytes = [0u8; 4];
     let mut h_bytes = [0u8; 4];
     
     len_bytes.copy_from_slice(&rgba_data[0..4]);
-    w_png_bytes.copy_from_slice(&rgba_data[4..8]);
+    w_bytes.copy_from_slice(&rgba_data[4..8]);
     h_bytes.copy_from_slice(&rgba_data[8..12]);
     
     let original_len = u32::from_be_bytes(len_bytes) as usize;
-    let w_png = u32::from_be_bytes(w_png_bytes) as usize;
+    let w = u32::from_be_bytes(w_bytes) as usize;
     let h = u32::from_be_bytes(h_bytes) as usize;
     
-    // Since we use 2 pixels per sample, W_audio is exactly W_png / 2
-    let w = w_png / 2;
-    
-    // Read parameters
     let wavelet_type = rgba_data[12] as u32;
     
-    let expected_coeff_len = w * h * 8; // 2 pixels per coefficient
+    let expected_coeff_len = w * h * 4; // 1 pixel (4 bytes) per sample
     if rgba_data.len() < 16 + expected_coeff_len {
-        return Err(JsValue::from_str(&format!(
-            "Invalid encoded data: expected at least {} bytes, but got only {} bytes.",
-            16 + expected_coeff_len, rgba_data.len()
-        )));
+        return Err(JsValue::from_str("Invalid encoded data size."));
     }
     
     let grid_size = w * h;
     let mut mid_grid = vec![0i16; grid_size];
     let mut side_grid = vec![0i16; grid_size];
     
-    // 1. Unpack 8-byte (2 adjacent pixels) pairs back into i16 coefficients
     for r in 0..h {
         for c in 0..w {
+            let offset = 16 + (r * w + c) * 4;
+            
+            let m_msb = rgba_data[offset] as u32;
+            let m_lsb = rgba_data[offset + 1] as u32;
+            let s_msb = rgba_data[offset + 2] as u32;
+            let a_encoded = rgba_data[offset + 3];
+            
+            let s_lsb = 255u32.wrapping_sub(a_encoded as u32);
+            
+            let g_m = (m_msb << 8) | m_lsb;
+            let g_s = (s_msb << 8) | s_lsb;
+            
             let idx = r * w + c;
-            
-            // Pixel A is at r * w_png + (c * 2)
-            let offset_a = 16 + (r * w_png + (c * 2)) * 4;
-            let offset_b = offset_a + 4;
-            
-            // Read 16-bit Mid coefficient from R and G of Pixel A
-            let u16_m = ((rgba_data[offset_a] as u16) << 8) | (rgba_data[offset_a + 1] as u16);
-                
-            // Read 16-bit Side coefficient from R and G of Pixel B
-            let u16_s = ((rgba_data[offset_b] as u16) << 8) | (rgba_data[offset_b + 1] as u16);
-                
-            mid_grid[idx] = zigzag_decode(u16_m as u32) as i16;
-            side_grid[idx] = zigzag_decode(u16_s as u32) as i16;
+            mid_grid[idx] = gray_decode(g_m) as i16;
+            side_grid[idx] = gray_decode(g_s) as i16;
         }
     }
     
-    // 2. Run inverse 1D Wavelet Packet Reconstruction
     let depth = (h as f64).log2() as usize;
     inverse_wpd(&mut mid_grid, depth, wavelet_type);
     inverse_wpd(&mut side_grid, depth, wavelet_type);
     
-    // 3. Unpack Mid/Side back to Left/Right samples and serialize as Little-Endian
     let mut original_data = Vec::with_capacity(original_len);
     for i in 0..((original_len + 3) / 4) {
         let m = mid_grid[i];
@@ -378,15 +387,9 @@ pub fn decode_wavelet(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
         let b3 = (u16_r >> 8) as u8;
         
         original_data.push(b0);
-        if original_data.len() < original_len {
-            original_data.push(b1);
-        }
-        if original_data.len() < original_len {
-            original_data.push(b2);
-        }
-        if original_data.len() < original_len {
-            original_data.push(b3);
-        }
+        if original_data.len() < original_len { original_data.push(b1); }
+        if original_data.len() < original_len { original_data.push(b2); }
+        if original_data.len() < original_len { original_data.push(b3); }
     }
     
     Ok(original_data)
