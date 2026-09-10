@@ -82,23 +82,23 @@
           
           if (offset_b + 3 >= rgbaBytes.length) break;
 
-          // Extract high and low bytes of Mid (Pixel A)
-          const mid_high = rgbaBytes[offset_a + 2]; // high byte (B channel of Pixel A)
-          const mid_low  = rgbaBytes[offset_a + 3]; // low byte (A channel of Pixel A)
+          // Extract high and low bytes of Mid (R and G of Pixel A)
+          const mid_high = rgbaBytes[offset_a];     // high byte (Red channel of Pixel A)
+          const mid_low  = rgbaBytes[offset_a + 1]; // low byte (Green channel of Pixel A)
           
-          // Extract high and low bytes of Side (Pixel B)
-          const side_high = rgbaBytes[offset_b + 2]; // high byte (B channel of Pixel B)
-          const side_low  = rgbaBytes[offset_b + 3]; // low byte (A channel of Pixel B)
+          // Extract high and low bytes of Side (R and G of Pixel B)
+          const side_high = rgbaBytes[offset_b];     // high byte (Red channel of Pixel B)
+          const side_low  = rgbaBytes[offset_b + 1]; // low byte (Green channel of Pixel B)
           
           // Output pixel coordinate in Svelte's offscreen visual canvas (W x H)
           const out_idx = (r * width + c) * 4;
           
           if (visualMode === 'full') {
             // Render Mid on Red/Green, and Side on Blue
-            imageData.data[out_idx]     = mid_high; // Mid High (Red)
-            imageData.data[out_idx + 1] = mid_low;  // Mid Low (Green)
-            imageData.data[out_idx + 2] = side_high; // Side High (Blue)
-            imageData.data[out_idx + 3] = 255;      // Fully opaque
+            imageData.data[out_idx]     = mid_high;  // Mid High (Red)
+            imageData.data[out_idx + 1] = mid_low;   // Mid Low (Green)
+            imageData.data[out_idx + 2] = side_high;  // Side High (Blue)
+            imageData.data[out_idx + 3] = 255;       // Fully opaque display!
           } else if (visualMode === 'mid') {
             // Render only Mono Mid channels
             imageData.data[out_idx]     = mid_high;
@@ -226,9 +226,9 @@
       const offset_b = offset_a + 4;
       
       if (offset_b + 3 < rgbaBytes.length) {
-        // Reconstruct original Mid (C_M) and Side (C_S) u16 values from high and low bytes
-        const u16_m = (rgbaBytes[offset_a + 2] << 8) | rgbaBytes[offset_a + 3];
-        const u16_s = (rgbaBytes[offset_b + 2] << 8) | rgbaBytes[offset_b + 3];
+        // Reconstruct original Mid (C_M) and Side (C_S) u16 values from R and G channels
+        const u16_m = (rgbaBytes[offset_a] << 8) | rgbaBytes[offset_a + 1];
+        const u16_s = (rgbaBytes[offset_b] << 8) | rgbaBytes[offset_b + 1];
         
         // Decode ZigZag to get the exact signed 16-bit coefficients!
         const m_val = (u16_m >> 1) ^ (-(u16_m & 1));

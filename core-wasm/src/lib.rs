@@ -279,21 +279,21 @@ pub fn encode_wavelet(data: &[u8], h_custom: usize, wavelet_type: u32) -> Vec<u8
         for c in 0..w {
             let idx = r * w + c;
             
-            // Encode using full 32-bit ZigZag headroom (lossless!)
-            let u32_m = zigzag_encode(mid_grid[idx] as i32);
-            let u32_s = zigzag_encode(side_grid[idx] as i32);
+            // Encode using full 16-bit ZigZag headroom (lossless!)
+            let u16_m = zigzag_encode(mid_grid[idx] as i32) as u16;
+            let u16_s = zigzag_encode(side_grid[idx] as i32) as u16;
             
-            // Pixel A (Mid / Mono) - 4 bytes
-            output.push((u32_m >> 24) as u8);
-            output.push(((u32_m >> 16) & 0xFF) as u8);
-            output.push(((u32_m >> 8) & 0xFF) as u8);
-            output.push((u32_m & 0xFF) as u8);
+            // Pixel A (Mid / Mono) - RGB active, A = 255 (opaque)
+            output.push((u16_m >> 8) as u8);   // R = high byte
+            output.push((u16_m & 0xFF) as u8); // G = low byte
+            output.push(0u8);                  // B = unused/neutral
+            output.push(255u8);                // A = fully opaque!
             
-            // Pixel B (Side / Stereo) - 4 bytes
-            output.push((u32_s >> 24) as u8);
-            output.push(((u32_s >> 16) & 0xFF) as u8);
-            output.push(((u32_s >> 8) & 0xFF) as u8);
-            output.push((u32_s & 0xFF) as u8);
+            // Pixel B (Side / Stereo) - RGB active, A = 255 (opaque)
+            output.push((u16_s >> 8) as u8);   // R = high byte
+            output.push((u16_s & 0xFF) as u8); // G = low byte
+            output.push(0u8);                  // B = unused/neutral
+            output.push(255u8);                // A = fully opaque!
         }
     }
     
@@ -346,20 +346,14 @@ pub fn decode_wavelet(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
             let offset_a = 16 + (r * w_png + (c * 2)) * 4;
             let offset_b = offset_a + 4;
             
-            // Read 32-bit Mid coefficient (Pixel A)
-            let u32_m = ((rgba_data[offset_a] as u32) << 24)
-                | ((rgba_data[offset_a + 1] as u32) << 16)
-                | ((rgba_data[offset_a + 2] as u32) << 8)
-                | (rgba_data[offset_a + 3] as u32);
+            // Read 16-bit Mid coefficient from R and G of Pixel A
+            let u16_m = ((rgba_data[offset_a] as u16) << 8) | (rgba_data[offset_a + 1] as u16);
                 
-            // Read 32-bit Side coefficient (Pixel B)
-            let u32_s = ((rgba_data[offset_b] as u32) << 24)
-                | ((rgba_data[offset_b + 1] as u32) << 16)
-                | ((rgba_data[offset_b + 2] as u32) << 8)
-                | (rgba_data[offset_b + 3] as u32);
+            // Read 16-bit Side coefficient from R and G of Pixel B
+            let u16_s = ((rgba_data[offset_b] as u16) << 8) | (rgba_data[offset_b + 1] as u16);
                 
-            mid_grid[idx] = zigzag_decode(u32_m) as i16;
-            side_grid[idx] = zigzag_decode(u32_s) as i16;
+            mid_grid[idx] = zigzag_decode(u16_m as u32) as i16;
+            side_grid[idx] = zigzag_decode(u16_s as u32) as i16;
         }
     }
     
