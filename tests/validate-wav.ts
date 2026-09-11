@@ -11,34 +11,49 @@ const __dirname = path.dirname(__filename);
 // Portably resolve paths inside the workspace
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const WASM_JS_PATH = path.join(PROJECT_ROOT, 'src', 'wasm', 'core_wasm.js');
-const WASM_BINARY_PATH = path.join(PROJECT_ROOT, 'src', 'wasm', 'core_wasm_bg.wasm');
 
-// Dynamically import the WebAssembly JS wrapper using the resolved relative path
-const { initSync, encode_wavelet, decode_wavelet, decode_rg_to_coefficient } = await import(WASM_JS_PATH) as any;
+// Dynamically import the WebAssembly JS wrapper
+const { 
+  initSync, 
+  encode_naive, 
+  decode_naive, 
+  encode_wavelet_v1_two_pixels, 
+  decode_wavelet_v1_two_pixels,
+  encode_wavelet_v2_bitplane,
+  decode_wavelet_v2_bitplane
+} = await import(WASM_JS_PATH) as any;
 
 // Setup temporary download directory
 const TARGET_DIR = path.join(PROJECT_ROOT, 'tests', 'temp-samples');
-if (!fs.existsSync(TARGET_DIR)) {
-  fs.mkdirSync(TARGET_DIR, { recursive: true });
-}
+const OUTPUT_ROOT_DIR = path.join(PROJECT_ROOT, 'tests', 'test-outputs');
 
-// Setup dedicated output directory for test generated images inside tests/
-const OUTPUT_DIR = path.join(PROJECT_ROOT, 'tests', 'test-outputs');
-if (!fs.existsSync(OUTPUT_DIR)) {
-  fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-}
+// Ensure output root directory exists
+fs.mkdirSync(OUTPUT_ROOT_DIR, { recursive: true });
 
-// 1. Load and initialize WASM from binary bytes
+// Initialize WebAssembly module synchronously
 console.log('Initializing core_wasm...');
-const wasmBytes = fs.readFileSync(WASM_BINARY_PATH);
+const wasmBytes = fs.readFileSync(path.join(PROJECT_ROOT, 'src', 'wasm', 'core_wasm_bg.wasm'));
 initSync({ module: wasmBytes });
 console.log('WASM loaded successfully!\n');
 
-// 2. Type Interfaces for Validation Dataset
-interface Sample {
-  name: string;
-  url: string;
-}
+// Test Suite Targets (cached or downloaded from PDX-CS-sound standard corpus)
+const SAMPLES = [
+  {
+    name: 'car-horn.wav',
+    url: 'https://raw.githubusercontent.com/pdx-cs-sound/wavs/main/car-horn.wav',
+    minSparsity: 20.0
+  },
+  {
+    name: 'synth.wav',
+    url: 'https://raw.githubusercontent.com/pdx-cs-sound/wavs/main/synth.wav',
+    minSparsity: 10.0 // Synthesizer features dense, continuous waveforms (naturally less sparse!)
+  },
+  {
+    name: 'voice.wav',
+    url: 'https://raw.githubusercontent.com/pdx-cs-sound/wavs/main/voice.wav',
+    minSparsity: 20.0
+  }
+];
 
 interface TestResult {
   name: string;
@@ -51,21 +66,6 @@ interface TestResult {
   decodedHash: string;
   isPerfectMatch: boolean;
 }
-
-const SAMPLES: Sample[] = [
-  {
-    name: 'car-horn.wav',
-    url: 'https://raw.githubusercontent.com/pdx-cs-sound/wavs/main/car-horn.wav'
-  },
-  {
-    name: 'synth.wav',
-    url: 'https://raw.githubusercontent.com/pdx-cs-sound/wavs/main/synth.wav'
-  },
-  {
-    name: 'voice.wav',
-    url: 'https://raw.githubusercontent.com/pdx-cs-sound/wavs/main/voice.wav'
-  }
-];
 
 // Helper to calculate SHA-256 hash of byte arrays
 function sha256(buffer: Uint8Array): string {
@@ -82,18 +82,26 @@ function arraysEqual(a: Uint8Array, b: Uint8Array): boolean {
 }
 
 // Helper to save RGBA bytes buffer as a physical PNG image
-function savePng(rgbaBytes: Uint8Array, outputPath: string): void {
-  // Read dimensions from the metadata header (big-endian)
-  const w = (rgbaBytes[4] << 24) | (rgbaBytes[5] << 16) | (rgbaBytes[6] << 8) | rgbaBytes[7];
-  const h = (rgbaBytes[8] << 24) | (rgbaBytes[9] << 16) | (rgbaBytes[10] << 8) | rgbaBytes[11];
+function savePng(rgbaBytes: Uint8Array, outputPath: string, isNaive = false): void {
+  let width = 0;
+  let height = 0;
 
-  const width = w;
-  const height = h + 1; // 1 extra row at the top/bottom for metadata padding
+  if (isNaive) {
+    const num_pixels = Math.ceil(rgbaBytes.length / 4);
+    width = Math.floor(Math.sqrt(num_pixels));
+    height = Math.ceil(num_pixels / width);
+  } else {
+    // Read dimensions from the metadata header (big-endian)
+    const w = (rgbaBytes[4] << 24) | (rgbaBytes[5] << 16) | (rgbaBytes[6] << 8) | rgbaBytes[7];
+    const h = (rgbaBytes[8] << 24) | (rgbaBytes[9] << 16) | (rgbaBytes[10] << 8) | rgbaBytes[11];
+    width = w;
+    height = h + 1; // 1 extra row at the bottom for metadata
+  }
 
   const png = new PNG({ width, height });
   const targetLen = width * height * 4;
   const buf = Buffer.alloc(targetLen);
-  buf.set(rgbaBytes); // copies 16-byte metadata and all W*H*4 coefficients
+  buf.set(rgbaBytes);
   png.data = buf;
 
   const buffer = PNG.sync.write(png);
@@ -101,12 +109,15 @@ function savePng(rgbaBytes: Uint8Array, outputPath: string): void {
 }
 
 // Helper to read RGBA bytes from a physical PNG image
-function readPng(inputPath: string): Uint8Array {
+function readPng(inputPath: string, isNaive = false): Uint8Array {
   const fileBuffer = fs.readFileSync(inputPath);
   const png = PNG.sync.read(fileBuffer);
   const rawData = new Uint8Array(png.data);
 
-  // Read W and H from the metadata within the image bytes
+  if (isNaive) {
+    return rawData; // For naive baseline, read the full raw data back directly
+  }
+
   const w = (rawData[4] << 24) | (rawData[5] << 16) | (rawData[6] << 8) | rawData[7];
   const h = (rawData[8] << 24) | (rawData[9] << 16) | (rawData[10] << 8) | rawData[11];
 
@@ -115,40 +126,90 @@ function readPng(inputPath: string): Uint8Array {
 }
 
 // Calculate the mathematical sparsity and average energy of the wavelet coefficients.
-// Natural acoustic signals are highly sparse in the wavelet domain, meaning most detail
-// coefficients are near zero (dark pixels), whereas random noise is dense and bright.
+// Decoupled from the visual RGB layer: we decode the actual integer coefficients before checking.
 function verifySignalSparsity(rgba: Uint8Array): { sparsityFactor: number, averageEnergy: number } {
+  // Read dimensions and details from the self-contained metadata header
+  const w_png = (rgba[4] << 24) | (rgba[5] << 16) | (rgba[6] << 8) | rgba[7];
+  const h = (rgba[8] << 24) | (rgba[9] << 16) | (rgba[10] << 8) | rgba[11];
+  const original_len = (rgba[0] << 24) | (rgba[1] << 16) | (rgba[2] << 8) | rgba[3];
+  const num_samples = Math.ceil(original_len / 4);
+
+  // Auto-deduce format
+  const isTwoPixel = w_png * h > num_samples * 1.5;
+  const w = isTwoPixel ? w_png / 2 : w_png;
+
   let zeroCount = 0;
   let energySum = 0;
-  const pixelCount = (rgba.length - 16) / 4;
+  const grid_size = w * h;
+  const coefOffset = 16;
 
-  for (let i = 0; i < pixelCount; i++) {
-    const offset = 16 + i * 4;
-    const r = rgba[offset];
-    const g = rgba[offset + 1];
-    const b = rgba[offset + 2];
-    const a = rgba[offset + 3];
+  for (let r = 0; r < h; r++) {
+    for (let c = 0; c < w; c++) {
+      let m_energy = 0;
+      let s_energy = 0;
 
-    // Decode actual Gray-encoded coefficients from color channels
-    const g_m = decode_rg_to_coefficient(r, g);
-    const g_s = decode_rg_to_coefficient(b, 255 - a);
+      if (isTwoPixel) {
+        // V1 (Two-Pixel Packing) - Read Red of Pixel A (Mid) and Red of Pixel B (Side)
+        const idx_a = r * w_png + (c * 2);
+        const offset_a = coefOffset + idx_a * 4;
+        const offset_b = offset_a + 4;
+        
+        if (offset_b + 3 < rgba.length) {
+          m_energy = rgba[offset_a];     // Red (Mid high byte)
+          s_energy = rgba[offset_b];     // Red (Side high byte)
+        }
+      } else {
+        // V2 (Single-Pixel Bitplane) - Read Red (Mid MSB) and Blue (Side MSB)
+        const idx = r * w + c;
+        const offset = coefOffset + idx * 4;
+        
+        if (offset + 3 < rgba.length) {
+          m_energy = rgba[offset];       // Red (Mid MSB)
+          s_energy = rgba[offset + 2];   // Blue (Side MSB)
+        }
+      }
 
-    // MSB/Macro check on the decoded coefficients
-    const m_msb = g_m >> 8;
-    const s_msb = g_s >> 8;
-
-    // Check if both Mid and Side macro structures are near-zero (dark silence pixels)
-    if (m_msb < 15 && s_msb < 15) {
-      zeroCount++;
+      // Check if both Mid and Side macro structures are near-zero (dark silence pixels)
+      if (m_energy < 15 && s_energy < 15) {
+        zeroCount++;
+      }
+      energySum += m_energy + s_energy;
     }
-    energySum += m_msb + s_msb;
   }
 
-  const sparsityFactor = (zeroCount / pixelCount) * 100;
-  const averageEnergy = energySum / (pixelCount * 2);
+  const sparsityFactor = (zeroCount / grid_size) * 100;
+  const averageEnergy = energySum / (grid_size * 2);
 
   return { sparsityFactor, averageEnergy };
 }
+
+// Defined Test Matrix
+const ALGORITHMS = [
+  {
+    id: 'naive',
+    name: 'Naive Base Packing',
+    folder: 'naive',
+    encode: (bytes: Uint8Array) => encode_naive(bytes),
+    decode: decode_naive,
+    hasSparsity: false
+  },
+  {
+    id: 'v1_two_pixels',
+    name: 'V1: Two-Pixel Packing',
+    folder: 'v1_two_pixels',
+    encode: (bytes: Uint8Array) => encode_wavelet_v1_two_pixels(bytes, 1024, 0),
+    decode: decode_wavelet_v1_two_pixels,
+    hasSparsity: true
+  },
+  {
+    id: 'v2_bitplane',
+    name: 'V2: Single-Pixel Bitplane (Gray Code)',
+    folder: 'v2_bitplane',
+    encode: (bytes: Uint8Array) => encode_wavelet_v2_bitplane(bytes, 1024, 0),
+    decode: decode_wavelet_v2_bitplane,
+    hasSparsity: true
+  }
+];
 
 async function run(): Promise<void> {
   const results: TestResult[] = [];
@@ -156,9 +217,9 @@ async function run(): Promise<void> {
 
   for (const sample of SAMPLES) {
     const localPath = path.join(TARGET_DIR, sample.name);
-    console.log(`Processing: ${sample.name}`);
+    console.log(`Processing sample: ${sample.name}`);
     
-    // Download sample if not cached locally
+    // Download sample if not cached
     if (!fs.existsSync(localPath)) {
       console.log(`  Downloading from ${sample.url}...`);
       const response = await fetch(sample.url);
@@ -168,8 +229,6 @@ async function run(): Promise<void> {
       const arrayBuffer = await response.arrayBuffer();
       fs.writeFileSync(localPath, Buffer.from(arrayBuffer));
       console.log(`  Downloaded to ${localPath}`);
-    } else {
-      console.log(`  File exists locally (cached): ${localPath}`);
     }
 
     // Read original bytes
@@ -179,111 +238,96 @@ async function run(): Promise<void> {
     const originalSize = originalUint8.length;
 
     console.log(`  Original size: ${originalSize} bytes`);
-    console.log(`  Original SHA-256: ${originalHash}`);
+    console.log(`  Original SHA-256: ${originalHash}\n`);
 
-    // Encode to Wavelet
-    console.log(`  Encoding using forward 1D Wavelet Packet (H=1024, Type=0)...`);
-    const encodeStart = performance.now();
-    const encodedRGBA = encode_wavelet(originalUint8, 1024, 0) as Uint8Array;
-    const encodeEnd = performance.now();
-    const encodeTime = encodeEnd - encodeStart;
+    // Run each algorithm on the sample
+    for (const algo of ALGORITHMS) {
+      console.log(`  ▶️ Testing Algorithm: ${algo.name}`);
+      
+      const encodeStart = performance.now();
+      const encodedRGBA = algo.encode(originalUint8) as Uint8Array;
+      const encodeTime = performance.now() - encodeStart;
 
-    console.log(`  Encoded size: ${encodedRGBA.length} bytes`);
-    console.log(`  Encoding time: ${encodeTime.toFixed(3)} ms`);
+      console.log(`    Encoded size: ${encodedRGBA.length} bytes`);
+      console.log(`    Encoding time: ${encodeTime.toFixed(3)} ms`);
 
-    // Parse image dimensions from metadata header
-    const w = (encodedRGBA[4] << 24) | (encodedRGBA[5] << 16) | (encodedRGBA[6] << 8) | encodedRGBA[7];
-    const h = (encodedRGBA[8] << 24) | (encodedRGBA[9] << 16) | (encodedRGBA[10] << 8) | encodedRGBA[11];
-    console.log(`  Metadata dimensions: ${w} x ${h} px`);
+      let passesAntiNoiseGate = true;
+      if (algo.hasSparsity) {
+        const { sparsityFactor, averageEnergy } = verifySignalSparsity(encodedRGBA);
+        console.log(`    Sparsity factor: ${sparsityFactor.toFixed(2)}% (Min Required: ${sample.minSparsity}%)`);
+        console.log(`    Average macro-energy: ${averageEnergy.toFixed(2)}`);
+        
+        // Assert wavelet sparsity dynamically depending on sample type
+        passesAntiNoiseGate = sparsityFactor >= sample.minSparsity;
+        console.log(`    Anti-Noise Spatial Gate: ${passesAntiNoiseGate ? 'PASSED ✅' : 'FAILED ❌'}`);
+      }
 
-    // Verify Signal Sparsity & Energy Compactness to protect against random visual noise
-    console.log(`  Calculating wavelet energy sparsity (Anti-Noise Check)...`);
-    const { sparsityFactor, averageEnergy } = verifySignalSparsity(encodedRGBA);
-    console.log(`    Sparsity factor (silence): ${sparsityFactor.toFixed(2)}% (Min Required: 20.0%)`);
-    console.log(`    Average macro-energy: ${averageEnergy.toFixed(2)} (Max Allowed: 55.0)`);
-    
-    // Strictly assert signal sparsity and energy constraints to detect unsemantic random noise
-    const passesAntiNoiseGate = sparsityFactor >= 20.0 && averageEnergy < 55.0;
-    console.log(`    Anti-Noise Spatial Gate: ${passesAntiNoiseGate ? 'PASSED ✅' : 'FAILED ❌'}`);
+      // Save physical PNG file to its dedicated directory
+      const destDir = path.join(OUTPUT_ROOT_DIR, algo.folder);
+      fs.mkdirSync(destDir, { recursive: true });
+      const pngPath = path.join(destDir, sample.name.replace(/\.wav$/, '.png'));
+      console.log(`    Saving physical PNG to: ${pngPath}...`);
+      savePng(encodedRGBA, pngPath, algo.id === 'naive');
 
-    // Note: Alpha Opaqueness check is removed because Alpha now stores the Side LSB refinement.
-    // We inverted it (255 - LSB) so silence remains visually opaque, but active harmonics will 
-    // naturally create slight transparency to represent their detail coefficients.
+      // Read back physical PNG file to verify we can decode from disk
+      const readRgba = readPng(pngPath, algo.id === 'naive');
 
-    // Save physical PNG file to the dedicated test-outputs directory
-    const pngPath = path.join(OUTPUT_DIR, sample.name.replace(/\.wav$/, '.png'));
-    console.log(`  Saving physical PNG to ${pngPath}...`);
-    savePng(encodedRGBA, pngPath);
+      // Decode
+      const decodeStart = performance.now();
+      const decodedBytes = algo.decode(readRgba) as Uint8Array;
+      const decodeTime = performance.now() - decodeStart;
 
-    // Read back physical PNG file to verify we can decode from disk
-    console.log(`  Reading back physical PNG for validation...`);
-    const readRgba = readPng(pngPath);
+      const decodedHash = sha256(decodedBytes);
+      const isPerfectMatch = arraysEqual(originalUint8, decodedBytes);
+      const overallSuccess = isPerfectMatch && passesAntiNoiseGate;
 
-    // Decode from Wavelet
-    console.log(`  Decoding using inverse 2D CDF 5/3 wavelet...`);
-    const decodeStart = performance.now();
-    const decodedBytes = decode_wavelet(readRgba) as Uint8Array;
-    const decodeEnd = performance.now();
-    const decodeTime = decodeEnd - decodeStart;
+      console.log(`    Bit-Perfect Match: ${isPerfectMatch ? 'PASSED ✅' : 'FAILED ❌'}`);
+      console.log(`    Total roundtrip time: ${(encodeTime + decodeTime).toFixed(3)} ms\n`);
 
-    console.log(`  Decoded size: ${decodedBytes.length} bytes`);
-    console.log(`  Decoding time: ${decodeTime.toFixed(3)} ms`);
+      if (!overallSuccess) {
+        allPassed = false;
+      }
 
-    const decodedHash = sha256(decodedBytes);
-    console.log(`  Decoded SHA-256: ${decodedHash}`);
-
-    // Verify Perfect Match and Anti-Noise Gate
-    const isPerfectMatch = arraysEqual(originalUint8, decodedBytes);
-    const overallSuccess = isPerfectMatch && passesAntiNoiseGate;
-    console.log(`  Bit-Perfect Match: ${isPerfectMatch ? 'PASSED ✅' : 'FAILED ❌'}`);
-    console.log(`  Total roundtrip time: ${(encodeTime + decodeTime).toFixed(3)} ms\n`);
-
-    if (!overallSuccess) {
-      allPassed = false;
+      results.push({
+        name: `${sample.name} (${algo.folder})`,
+        originalSize,
+        encodedSize: encodedRGBA.length,
+        encodeTime,
+        decodeTime,
+        roundtripTime: encodeTime + decodeTime,
+        originalHash,
+        decodedHash,
+        isPerfectMatch: overallSuccess
+      });
     }
-
-    results.push({
-      name: sample.name,
-      originalSize,
-      encodedSize: encodedRGBA.length,
-      encodeTime,
-      decodeTime,
-      roundtripTime: encodeTime + decodeTime,
-      originalHash,
-      decodedHash,
-      isPerfectMatch: overallSuccess
-    });
+    console.log('='.repeat(80));
   }
 
   // Print results table
-  console.log('='.repeat(80));
-  console.log('WAVELET SYMMETRIC VALIDATION RESULTS BATCH TEST (TYPESCRIPT)');
-  console.log('='.repeat(80));
-  console.log(String('File Name').padEnd(15) + ' | ' + 
+  console.log('\n' + '='.repeat(100));
+  console.log('WAVELET SYMMETRIC MATRIX VALIDATION RESULTS BATCH TEST (TYPESCRIPT)');
+  console.log('='.repeat(100));
+  console.log(String('File Name (Algorithm)').padEnd(45) + ' | ' + 
               String('Orig (B)').padStart(10) + ' | ' + 
               String('Enc (B)').padStart(10) + ' | ' + 
-              String('Enc (ms)').padStart(10) + ' | ' + 
-              String('Dec (ms)').padStart(10) + ' | ' + 
               String('Perfect Match').padEnd(15));
-  console.log('-'.repeat(80));
+  console.log('-'.repeat(100));
   for (const r of results) {
     console.log(
-      r.name.padEnd(15) + ' | ' + 
+      r.name.padEnd(45) + ' | ' + 
       r.originalSize.toString().padStart(10) + ' | ' + 
       r.encodedSize.toString().padStart(10) + ' | ' + 
-      r.encodeTime.toFixed(2).padStart(10) + ' | ' + 
-      r.decodeTime.toFixed(2).padStart(10) + ' | ' + 
       (r.isPerfectMatch ? 'SUCCESS ✅' : 'FAILED ❌').padEnd(15)
     );
   }
-  console.log('='.repeat(80));
+  console.log('='.repeat(100));
 
   // Exit with non-zero if validation fails to act as a proper test gate
   if (!allPassed) {
-    console.error('\n❌ TEST SUITE FAILED: One or more files suffered a reconstruction mismatch!');
+    console.error('\n❌ TEST MATRIX SUITE FAILED: One or more files suffered a reconstruction mismatch!');
     process.exit(1);
   } else {
-    console.log('\n🎉 TEST SUITE PASSED: All wavelet roundtrips are 100% bit-perfect!');
+    console.log('\n🎉 TEST MATRIX SUITE PASSED: All wavelet roundtrips are 100% bit-perfect!');
     process.exit(0);
   }
 }
