@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import init, { 
     init_panic_hook, 
     encode_naive, 
@@ -75,7 +75,7 @@
   async function loadDefaultSample() {
     isPreloading = true;
     try {
-      const defaultUrl = 'https://raw.githubusercontent.com/pdx-cs-sound/wavs/main/voice.wav';
+      const defaultUrl = './voice.wav';
       console.log('Preloading default sample:', defaultUrl);
       
       const response = await fetch(defaultUrl);
@@ -255,7 +255,9 @@
   // Reactive effect to re-run the entire pipeline when any parameter changes
   $effect(() => {
     if (originalBytes && wasmLoaded && selectedAlgorithm && selectedHeight !== undefined && selectedWaveletType !== undefined) {
-      runEncoding();
+      untrack(() => {
+        runEncoding();
+      });
     }
   });
 

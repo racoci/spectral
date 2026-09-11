@@ -23,6 +23,7 @@
     "@types/node": "^24.13.3",
     "@types/pngjs": "^6.0.5",
     "pngjs": "^7.0.0",
+    "puppeteer": "^25.10.0",
     "svelte": "^5.56.10",
     "svelte-check": "^4.7.6",
     "tsx": "^4.23.13",

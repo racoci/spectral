@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
 
   // Props using Svelte 5 standard runes
   let { rgbaBytes = null }: { rgbaBytes: Uint8Array | null } = $props();
@@ -9,9 +9,22 @@
   let offscreenCanvas: HTMLCanvasElement | null = null;
   let offscreenCtx: CanvasRenderingContext2D | null = null;
 
-  // Image Dimensions
-  let width = $state(0);
-  let height = $state(0);
+  // Image Dimensions derived synchronously from props (Zero-loop, compile-time contract!)
+  let width = $derived.by(() => {
+    if (rgbaBytes && rgbaBytes.length > 0) {
+      const w_png = (rgbaBytes[4] << 24) | (rgbaBytes[5] << 16) | (rgbaBytes[6] << 8) | rgbaBytes[7];
+      return w_png / 2;
+    }
+    return 0;
+  });
+
+  let height = $derived.by(() => {
+    if (rgbaBytes && rgbaBytes.length > 0) {
+      const h = (rgbaBytes[8] << 24) | (rgbaBytes[9] << 16) | (rgbaBytes[10] << 8) | rgbaBytes[11];
+      return h;
+    }
+    return 0;
+  });
 
   // Interaction State
   let scale = $state(1);
@@ -36,96 +49,81 @@
   // Aspect Ratio Stretching: horizontal stretch factor to format as a wide Melgram (default 4x)
   let stretchFactor = $state<number>(4);
 
-  // 1. Calculate canvas dimensions and reset view ONLY when the raw bytes change
+  // Consolidated Svelte 5 Pipeline Effect (Zero-loop, Unidirectional Flow)
   $effect(() => {
-    if (rgbaBytes && rgbaBytes.length > 0) {
-      // Read dimensions from the self-contained metadata header (big-endian)
-      const w = (rgbaBytes[4] << 24) | (rgbaBytes[5] << 16) | (rgbaBytes[6] << 8) | rgbaBytes[7];
-      const h = (rgbaBytes[8] << 24) | (rgbaBytes[9] << 16) | (rgbaBytes[10] << 8) | rgbaBytes[11];
-      
-      width = w;
-      height = h;
-
+    if (rgbaBytes && rgbaBytes.length > 0 && width > 0 && height > 0) {
+      // Setup the offscreen canvas only when dimensions change
       if (!offscreenCanvas) {
         offscreenCanvas = document.createElement('canvas');
       }
-      offscreenCanvas.width = width;
-      offscreenCanvas.height = height;
-      offscreenCtx = offscreenCanvas.getContext('2d');
-
-      resetView();
-    } else {
-      width = 0;
-      height = 0;
-      offscreenCanvas = null;
-      offscreenCtx = null;
-      resetView();
-    }
-  });
-
-  // 2. Perform raw pixel channel filtering and render when bytes or visualMode changes
-  $effect(() => {
-    if (rgbaBytes && rgbaBytes.length > 0 && offscreenCtx) {
-      const imageData = offscreenCtx.createImageData(width, height);
       
-      // Slice out the 16-byte metadata header to render only the actual wavelet coefficients
-      const coefOffset = 16;
+      if (offscreenCanvas.width !== width || offscreenCanvas.height !== height) {
+        offscreenCanvas.width = width;
+        offscreenCanvas.height = height;
+        offscreenCtx = offscreenCanvas.getContext('2d');
+        // Isolate resetView from dependency tracking
+        untrack(() => resetView());
+      }
       
-      for (let r = 0; r < height; r++) {
-        for (let c = 0; c < width; c++) {
-          const idx = r * width + c;
-          const offset = coefOffset + idx * 4;
-          
-          if (offset + 3 >= rgbaBytes.length) break;
+      if (offscreenCtx) {
+        const imageData = offscreenCtx.createImageData(width, height);
+        const coefOffset = 16;
+        const w_png = width * 2;
+        
+        for (let r = 0; r < height; r++) {
+          for (let c = 0; c < width; c++) {
+            const idx_a = r * w_png + (c * 2);
+            const offset_a = coefOffset + idx_a * 4;
+            const offset_b = offset_a + 4;
+            
+            if (offset_b + 3 >= rgbaBytes.length) break;
 
-          // Hierarchical Readout: Red/Blue = Macro Structure (MSB), Green/Alpha = Micro Refinement (LSB)
-          const mid_high = rgbaBytes[offset];     // Red
-          const mid_low  = rgbaBytes[offset + 1]; // Green
-          const side_high = rgbaBytes[offset + 2]; // Blue
-          // Reverse alpha encoding inversion
-          const side_low = 255 - rgbaBytes[offset + 3];
-          
-          const out_idx = idx * 4;
-          
-          if (visualMode === 'full') {
-            // Render Mid Structure on Red, Side Structure on Blue.
-            // Map Mid/Side refinements into Green/Alpha purely for visual richness/smoothness.
-            imageData.data[out_idx]     = mid_high;
-            imageData.data[out_idx + 1] = mid_low;
-            imageData.data[out_idx + 2] = side_high;
-            // The canvas expects actual Alpha opacity. Since side_low is detail noise, we cap opacity 
-            // so we don't accidentally make the canvas fully invisible (if visual mode is full).
-            imageData.data[out_idx + 3] = 255; 
-          } else if (visualMode === 'mid') {
-            imageData.data[out_idx]     = mid_high;
-            imageData.data[out_idx + 1] = mid_low;
-            imageData.data[out_idx + 2] = 0;
-            imageData.data[out_idx + 3] = 255;
-          } else {
-            imageData.data[out_idx]     = 0;
-            imageData.data[out_idx + 1] = 0;
-            imageData.data[out_idx + 2] = side_high;
-            // Side structure and side refinement on Green/Blue, max opacity!
-            imageData.data[out_idx + 3] = 255;
+            // Extract high and low bytes of Mid (R and G of Pixel A)
+            const mid_high = rgbaBytes[offset_a];
+            const mid_low  = rgbaBytes[offset_a + 1];
+            
+            // Extract high and low bytes of Side (R and G of Pixel B)
+            const side_high = rgbaBytes[offset_b];
+            const side_low  = 255 - rgbaBytes[offset_b + 1]; // Reverse alpha-inverted side detail
+            
+            const out_idx = (r * width + c) * 4;
+            
+            if (visualMode === 'full') {
+              imageData.data[out_idx]     = mid_high;  // Mid High (Red)
+              imageData.data[out_idx + 1] = mid_low;   // Mid Low (Green)
+              imageData.data[out_idx + 2] = side_high;  // Side High (Blue)
+              imageData.data[out_idx + 3] = 255;       // Opaque display
+            } else if (visualMode === 'mid') {
+              imageData.data[out_idx]     = mid_high;
+              imageData.data[out_idx + 1] = mid_low;
+              imageData.data[out_idx + 2] = 0;
+              imageData.data[out_idx + 3] = 255;
+            } else {
+              imageData.data[out_idx]     = 0;
+              imageData.data[out_idx + 1] = 0;
+              imageData.data[out_idx + 2] = side_high;
+              imageData.data[out_idx + 3] = 255;
+            }
           }
         }
+        offscreenCtx.putImageData(imageData, 0, 0);
+        // Isolate draw from dependency tracking
+        untrack(() => draw());
       }
-      offscreenCtx.putImageData(imageData, 0, 0);
-      draw();
     }
   });
 
-  // Animation frame loop
+  // Main UI Redraw Trigger (Re-runs when visual parameters or scale are manipulated)
   $effect(() => {
     if (canvas && offscreenCanvas) {
-      draw();
-    }
-  });
-
-  // Reactive redraw trigger when smoothSpectrogram or stretchFactor changes
-  $effect(() => {
-    if (canvas && offscreenCanvas && smoothSpectrogram !== undefined && stretchFactor !== undefined) {
-      draw();
+      // Explicitly subscribe to zoom/pan state changes
+      const _s = scale;
+      const _ox = offsetX;
+      const _oy = offsetY;
+      const _sf = stretchFactor;
+      const _sm = smoothSpectrogram;
+      
+      untrack(() => draw());
     }
   });
 
@@ -202,7 +200,7 @@
       draw();
     }
 
-    // 2. Handle Inspection / Pixel coordinates calculation
+    // 2. Handle Inspection / Pixel coordinates calculation (calibrated for stretchFactor)
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
