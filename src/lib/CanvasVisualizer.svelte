@@ -1,5 +1,12 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
+  import { 
+    decode_rg_to_coefficient, 
+    get_color_r, 
+    get_color_g, 
+    get_color_b,
+    decode_color_to_coefficient
+  } from '../wasm/core_wasm.js';
 
   // Props using Svelte 5 standard runes
   let { rgbaBytes = null }: { rgbaBytes: Uint8Array | null } = $props();
@@ -86,6 +93,7 @@
             let mid_high = 0;
             let mid_low = 0;
             let side_high = 0;
+            let mid_blue = 0;
             
             if (isTwoPixel) {
               // Decode V1 (Two-Pixel Packing)
@@ -99,33 +107,75 @@
               mid_low  = rgbaBytes[offset_a + 1]; // G of Pixel A
               side_high = rgbaBytes[offset_b];     // R of Pixel B
             } else {
-              // Decode V2 (Single-Pixel Bitplane)
+              // Decode V2 (Single-Pixel Bitplane) using Cubic-Shell Color Mapping
               const idx = r * width + c;
               const offset = coefOffset + idx * 4;
               
               if (offset + 3 >= rgbaBytes.length) break;
 
-              mid_high = rgbaBytes[offset];     // Red (Mid MSB)
-              mid_low  = rgbaBytes[offset + 1]; // Green (Mid LSB)
-              side_high = rgbaBytes[offset + 2]; // Blue (Side MSB)
+              const r_m = rgbaBytes[offset];     // R = Mid Red
+              const g_m = rgbaBytes[offset + 1]; // G = Mid Green
+              const r_s = rgbaBytes[offset + 2]; // B = Side Red
+              const g_s = 255 - rgbaBytes[offset + 3]; // A = Side Green Inverted
+
+              // Decode using WASM helpers
+              const m_coef = decode_rg_to_coefficient(r_m, g_m);
+              const s_coef = decode_rg_to_coefficient(r_s, g_s);
+
+              // Look up the full beautiful 3D colors of Mid and Side
+              const m_r = get_color_r(m_coef);
+              const m_g = get_color_g(m_coef);
+              const m_b = get_color_b(m_coef);
+
+              const s_r = get_color_r(s_coef);
+              const s_g = get_color_g(s_coef);
+              const s_b = get_color_b(s_coef);
+
+              mid_high = m_r;
+              mid_low = m_g;
+              mid_blue = m_b;
+              side_high = s_r;
             }
             
             const out_idx = (r * width + c) * 4;
             
             if (visualMode === 'full') {
-              imageData.data[out_idx]     = mid_high;  // Mid High (Red)
-              imageData.data[out_idx + 1] = mid_low;   // Mid Low (Green)
-              imageData.data[out_idx + 2] = side_high;  // Side High (Blue)
+              if (isTwoPixel) {
+                imageData.data[out_idx]     = mid_high;  // Mid High (Red)
+                imageData.data[out_idx + 1] = mid_low;   // Mid Low (Green)
+                imageData.data[out_idx + 2] = side_high;  // Side High (Blue)
+              } else {
+                imageData.data[out_idx]     = mid_high;  // Mid Red (m_r)
+                imageData.data[out_idx + 1] = mid_low;   // Mid Green (m_g)
+                imageData.data[out_idx + 2] = side_high;  // Side Red (s_r)
+              }
               imageData.data[out_idx + 3] = 255;       // Opaque display
             } else if (visualMode === 'mid') {
-              imageData.data[out_idx]     = mid_high;
-              imageData.data[out_idx + 1] = mid_low;
-              imageData.data[out_idx + 2] = 0;
+              if (isTwoPixel) {
+                imageData.data[out_idx]     = mid_high;
+                imageData.data[out_idx + 1] = mid_low;
+                imageData.data[out_idx + 2] = 0;
+              } else {
+                imageData.data[out_idx]     = mid_high;
+                imageData.data[out_idx + 1] = mid_low;
+                imageData.data[out_idx + 2] = mid_blue;  // Show full gorgeous 3D color of Mid!
+              }
               imageData.data[out_idx + 3] = 255;
             } else {
-              imageData.data[out_idx]     = 0;
-              imageData.data[out_idx + 1] = 0;
-              imageData.data[out_idx + 2] = side_high;
+              if (isTwoPixel) {
+                imageData.data[out_idx]     = 0;
+                imageData.data[out_idx + 1] = 0;
+                imageData.data[out_idx + 2] = side_high;
+              } else {
+                const idx = r * width + c;
+                const offset = coefOffset + idx * 4;
+                const r_s = rgbaBytes[offset + 2];
+                const g_s = 255 - rgbaBytes[offset + 3];
+                const s_coef = decode_rg_to_coefficient(r_s, g_s);
+                imageData.data[out_idx]     = get_color_r(s_coef);
+                imageData.data[out_idx + 1] = get_color_g(s_coef);
+                imageData.data[out_idx + 2] = get_color_b(s_coef); // Show full gorgeous 3D color of Side!
+              }
               imageData.data[out_idx + 3] = 255;
             }
           }
@@ -262,18 +312,31 @@
           hoverG = s_val;
         }
       } else {
-        // Inspect V2 (Single-Pixel Bitplane + Gray Code)
+        // Inspect V2 (Single-Pixel Bitplane + Cubic-Shell Color Mapping)
         const offset = coefOffset + (imgY * width + imgX) * 4;
         
         if (offset + 3 < rgbaBytes.length) {
-          const m_msb = rgbaBytes[offset];
-          const m_lsb = rgbaBytes[offset + 1];
-          const s_msb = rgbaBytes[offset + 2];
-          const a_encoded = rgbaBytes[offset + 3];
-          
-          const s_lsb = 255 - a_encoded;
-          const g_m = (m_msb << 8) | m_lsb;
-          const g_s = (s_msb << 8) | s_lsb;
+          const r_m = rgbaBytes[offset];
+          const g_m = rgbaBytes[offset + 1];
+          const r_s = rgbaBytes[offset + 2];
+          const g_s = 255 - rgbaBytes[offset + 3];
+
+          // Decode using our WASM helpers
+          const g_m_coef = decode_rg_to_coefficient(r_m, g_m);
+          const g_s_coef = decode_rg_to_coefficient(r_s, g_s);
+
+          // Retrieve full (R, G, B) colors of the coefficients
+          const m_r_full = get_color_r(g_m_coef);
+          const m_g_full = get_color_g(g_m_coef);
+          const m_b_full = get_color_b(g_m_coef);
+
+          const s_r_full = get_color_r(g_s_coef);
+          const s_g_full = get_color_g(g_s_coef);
+          const s_b_full = get_color_b(g_s_coef);
+
+          // Demonstrate decode using the WASM/JS binary search helper on the unique sorting key
+          const u16_m_bin = decode_color_to_coefficient(m_r_full, m_g_full, m_b_full);
+          const u16_s_bin = decode_color_to_coefficient(s_r_full, s_g_full, s_b_full);
           
           // Function to decode Gray code back to Unsigned ZigZag
           const grayDecode = (val: number) => {
@@ -286,8 +349,8 @@
             return res;
           };
 
-          const u16_m = grayDecode(g_m);
-          const u16_s = grayDecode(g_s);
+          const u16_m = grayDecode(u16_m_bin);
+          const u16_s = grayDecode(u16_s_bin);
           
           // Decode ZigZag back to exact signed 16-bit coefficients!
           const m_val = (u16_m >> 1) ^ (-(u16_m & 1));

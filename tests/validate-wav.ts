@@ -14,7 +14,7 @@ const WASM_JS_PATH = path.join(PROJECT_ROOT, 'src', 'wasm', 'core_wasm.js');
 const WASM_BINARY_PATH = path.join(PROJECT_ROOT, 'src', 'wasm', 'core_wasm_bg.wasm');
 
 // Dynamically import the WebAssembly JS wrapper using the resolved relative path
-const { initSync, encode_wavelet, decode_wavelet } = await import(WASM_JS_PATH) as any;
+const { initSync, encode_wavelet, decode_wavelet, decode_rg_to_coefficient } = await import(WASM_JS_PATH) as any;
 
 // Setup temporary download directory
 const TARGET_DIR = path.join(PROJECT_ROOT, 'tests', 'temp-samples');
@@ -124,17 +124,24 @@ function verifySignalSparsity(rgba: Uint8Array): { sparsityFactor: number, avera
 
   for (let i = 0; i < pixelCount; i++) {
     const offset = 16 + i * 4;
-    // Under Hierarchical Bit-Plane Mapping:
-    // Red (R) is Mid MSB (Macro Structure)
-    // Blue (B) is Side MSB (Macro Structure)
-    const r = rgba[offset];     
-    const b = rgba[offset + 2]; 
+    const r = rgba[offset];
+    const g = rgba[offset + 1];
+    const b = rgba[offset + 2];
+    const a = rgba[offset + 3];
+
+    // Decode actual Gray-encoded coefficients from color channels
+    const g_m = decode_rg_to_coefficient(r, g);
+    const g_s = decode_rg_to_coefficient(b, 255 - a);
+
+    // MSB/Macro check on the decoded coefficients
+    const m_msb = g_m >> 8;
+    const s_msb = g_s >> 8;
 
     // Check if both Mid and Side macro structures are near-zero (dark silence pixels)
-    if (r < 15 && b < 15) {
+    if (m_msb < 15 && s_msb < 15) {
       zeroCount++;
     }
-    energySum += r + b;
+    energySum += m_msb + s_msb;
   }
 
   const sparsityFactor = (zeroCount / pixelCount) * 100;

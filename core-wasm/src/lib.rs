@@ -1,9 +1,135 @@
 use wasm_bindgen::prelude::*;
+use std::sync::OnceLock;
 
 #[wasm_bindgen]
 pub fn init_panic_hook() {
     #[cfg(target_arch = "wasm32")]
     console_error_panic_hook::set_once();
+}
+
+// ==========================================
+// Cubic-Shell Geodesic Snake LUT Generators
+// ==========================================
+
+static COLOR_LUT: OnceLock<[(u8, u8, u8); 65536]> = OnceLock::new();
+static DECODE_LUT: OnceLock<[(u64, u16); 65536]> = OnceLock::new();
+static REVERSE_RG: OnceLock<[u16; 65536]> = OnceLock::new();
+
+fn generate_color_lut() -> [(u8, u8, u8); 65536] {
+    let mut lut = [(0u8, 0u8, 0u8); 65536];
+    let mut count = 0;
+    
+    for l in 0..=255 {
+        if l == 0 {
+            lut[0] = (0, 0, 0);
+            count += 1;
+            continue;
+        }
+        
+        if l % 2 == 0 {
+            for g in 0..=l {
+                if count >= 65536 { break; }
+                let r = l;
+                let b = l;
+                lut[count] = (r as u8, g as u8, b as u8);
+                count += 1;
+            }
+            for r_idx in 1..=l {
+                if count >= 65536 { break; }
+                let r = l - r_idx;
+                let g = l;
+                let b = l;
+                lut[count] = (r as u8, g as u8, b as u8);
+                count += 1;
+            }
+        } else {
+            for r in 0..=l {
+                if count >= 65536 { break; }
+                let g = l;
+                let b = l;
+                lut[count] = (r as u8, g as u8, b as u8);
+                count += 1;
+            }
+            for g_idx in 1..=l {
+                if count >= 65536 { break; }
+                let r = l;
+                let g = l - g_idx;
+                let b = l;
+                lut[count] = (r as u8, g as u8, b as u8);
+                count += 1;
+            }
+        }
+    }
+    lut
+}
+
+fn get_color_lut() -> &'static [(u8, u8, u8); 65536] {
+    COLOR_LUT.get_or_init(generate_color_lut)
+}
+
+fn get_decode_lut() -> &'static [(u64, u16); 65536] {
+    DECODE_LUT.get_or_init(|| {
+        let color_lut = get_color_lut();
+        let mut decode = [(0u64, 0u16); 65536];
+        for i in 0..65536 {
+            let (r, g, b) = color_lut[i];
+            let r_u64 = r as u64;
+            let g_u64 = g as u64;
+            let b_u64 = b as u64;
+            let key = (r_u64 * r_u64 + g_u64 * g_u64 + b_u64 * b_u64) * 16777216 + r_u64 * 65536 + g_u64 * 256 + b_u64;
+            decode[i] = (key, i as u16);
+        }
+        decode.sort_by_key(|entry| entry.0);
+        decode
+    })
+}
+
+fn get_reverse_rg() -> &'static [u16; 65536] {
+    REVERSE_RG.get_or_init(|| {
+        let color_lut = get_color_lut();
+        let mut reverse = [0u16; 65536];
+        for i in 0..65536 {
+            let (r, g, _) = color_lut[i];
+            let idx = (r as usize) * 256 + (g as usize);
+            reverse[idx] = i as u16;
+        }
+        reverse
+    })
+}
+
+#[wasm_bindgen]
+pub fn decode_color_to_coefficient(r: u8, g: u8, b: u8) -> u16 {
+    let r_u64 = r as u64;
+    let g_u64 = g as u64;
+    let b_u64 = b as u64;
+    let key = (r_u64 * r_u64 + g_u64 * g_u64 + b_u64 * b_u64) * 16777216 + r_u64 * 65536 + g_u64 * 256 + b_u64;
+    
+    let decode_lut = get_decode_lut();
+    match decode_lut.binary_search_by_key(&key, |entry| entry.0) {
+        Ok(idx) => decode_lut[idx].1,
+        Err(_) => 0,
+    }
+}
+
+#[wasm_bindgen]
+pub fn decode_rg_to_coefficient(r: u8, g: u8) -> u16 {
+    let reverse = get_reverse_rg();
+    reverse[(r as usize) * 256 + (g as usize)]
+}
+
+#[wasm_bindgen]
+pub fn get_color_r(v: u16) -> u8 {
+    get_color_lut()[v as usize].0
+}
+
+#[wasm_bindgen]
+pub fn get_color_g(v: u16) -> u8 {
+    get_color_lut()[v as usize].1
+}
+
+#[wasm_bindgen]
+pub fn get_color_b(v: u16) -> u8 {
+    get_color_lut()[v as usize].2
 }
 
 // ==========================================
@@ -293,26 +419,20 @@ pub fn encode_wavelet_v2_bitplane(data: &[u8], h_custom: usize, wavelet_type: u3
             let idx = r * w + c;
             
             // Re-map topography using Gray Code to compress sequential correlation
-            let g_m = gray_encode(mid_grid[idx] as i32);
-            let g_s = gray_encode(side_grid[idx] as i32);
+            let g_m = gray_encode(mid_grid[idx] as i32) as u16;
+            let g_s = gray_encode(side_grid[idx] as i32) as u16;
             
-            // Bit-Plane Hierarchical Mapping into RGB Semantics:
-            // High Bits (MSB - Structure) mapped to prominent Red (Mid) and Blue (Side)
-            let m_msb = (g_m >> 8) as u8; 
-            let s_msb = (g_s >> 8) as u8;
+            // Use Cubic-Shell color LUT for packing Mid and Side coefficients
+            let (r_m, g_m_color, _) = get_color_lut()[g_m as usize];
+            let (r_s, g_s_color, _) = get_color_lut()[g_s as usize];
             
-            // Low Bits (LSB - Refinement Detail) packed into Green and Alpha (Texture)
-            let m_lsb = (g_m & 0xFF) as u8;
-            let s_lsb = (g_s & 0xFF) as u8;
-            
-            // Inverting the Alpha channel so that silence (0 LSB) yields Opaque (255)
-            // This guarantees that structural silence remains solid black, avoiding transparency bugs!
-            let a_encoded = 255u8.wrapping_sub(s_lsb);
+            // Inverting the Alpha channel so that silence yields Opaque (255)
+            let a_encoded = 255u8.wrapping_sub(g_s_color);
 
-            output.push(m_msb);     // R = Mid MSB (Macro Structure)
-            output.push(m_lsb);     // G = Mid LSB (Micro Refinement)
-            output.push(s_msb);     // B = Side MSB (Spatial Structure)
-            output.push(a_encoded); // A = Side LSB Inverted (Texture)
+            output.push(r_m);       // R = Mid Red
+            output.push(g_m_color); // G = Mid Green
+            output.push(r_s);       // B = Side Red
+            output.push(a_encoded); // A = Side Green Inverted
         }
     }
     
@@ -352,19 +472,19 @@ pub fn decode_wavelet_v2_bitplane(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> 
         for c in 0..w {
             let offset = 16 + (r * w + c) * 4;
             
-            let m_msb = rgba_data[offset] as u32;
-            let m_lsb = rgba_data[offset + 1] as u32;
-            let s_msb = rgba_data[offset + 2] as u32;
+            let r_m = rgba_data[offset];
+            let g_m_color = rgba_data[offset + 1];
+            let r_s = rgba_data[offset + 2];
             let a_encoded = rgba_data[offset + 3];
             
-            let s_lsb = 255u32.wrapping_sub(a_encoded as u32);
+            let g_s_color = 255u8.wrapping_sub(a_encoded);
             
-            let g_m = (m_msb << 8) | m_lsb;
-            let g_s = (s_msb << 8) | s_lsb;
+            let g_m = decode_rg_to_coefficient(r_m, g_m_color);
+            let g_s = decode_rg_to_coefficient(r_s, g_s_color);
             
             let idx = r * w + c;
-            mid_grid[idx] = gray_decode(g_m) as i16;
-            side_grid[idx] = gray_decode(g_s) as i16;
+            mid_grid[idx] = gray_decode(g_m as u32) as i16;
+            side_grid[idx] = gray_decode(g_s as u32) as i16;
         }
     }
     
