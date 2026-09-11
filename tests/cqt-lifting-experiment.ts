@@ -226,13 +226,13 @@ async function run() {
   }
 
   console.log('\n--------------------------------------------------------------------------------');
-  console.log(`  Unimodular Perfect Reconstruction (Bit-Exact): ${bitPerfect ? 'PASSED ✅' : 'FAILED ❌'}`);
-  console.log(`  Maximum Reconstruction Error:                    ${maxAbsError.toFixed(2)} dB (Zero Noise)`);
+  console.log(`  Perfect Reconstruction (Bit-Exact Bijection): ${bitPerfect ? 'PASSED ✅' : 'FAILED ❌'}`);
+  console.log(`  Maximum Reconstruction Error:                  ${maxAbsError.toFixed(2)} dB (Zero Noise)`);
   console.log('--------------------------------------------------------------------------------\n');
 
   // 4. Measure Spectral Magnitude Response of the lifting branches to prove Band Selectivity
   console.log('📊 Analyzing Frequency Response |H_j(f)| of the Lifting Branches...');
-  
+
   // We send impulses into each branch and take the DFT to measure frequency leakage
   const responseMatrix: number[][] = [];
   const freqBins = 16; // positive frequencies
@@ -245,7 +245,7 @@ async function run() {
       band2: [0, 0, 0, 0, 0, 0, 0, 0],
       band3: new Array(16).fill(0)
     };
-    
+
     // Inject a centralized impulse into the middle of the sub-band
     if (b === 0) impulseBands.band0[2] = 1000;
     else if (b === 1) impulseBands.band1[2] = 1000;
@@ -254,7 +254,7 @@ async function run() {
 
     const synthesizedImpulse = inverseCQTLifting(impulseBands);
     const dft = computeDFT(synthesizedImpulse);
-    
+
     const magnitudes = dft.slice(0, freqBins).map(pt => Math.sqrt(pt.r * pt.r + pt.i * pt.i));
     // Normalize
     const maxVal = Math.max(...magnitudes);
@@ -279,10 +279,10 @@ async function run() {
   const pt = { r: 1000, i: 500 };
   const theta = Math.PI / 6; // 30 degrees rotation
   console.log(`  - Original Complex Pair:    (${pt.r}, ${pt.i})`);
-  
+
   rotateForward(pt, theta);
   console.log(`  - Modulated Pair (Forward):  (${pt.r}, ${pt.i})`);
-  
+
   rotateInverse(pt, theta);
   console.log(`  - Demodulated Pair (Inverse): (${pt.r}, ${pt.i})`);
   const isRotationLossless = pt.r === 1000 && pt.i === 500;
@@ -291,30 +291,233 @@ async function run() {
   // Save Report Markdown
   const reportPath = 'tests/cqt-lifting-report.md';
   const markdownReport = `
-# Relatório de Experimento: Banco de Filtros CQT Reversível por Lifting
+  # Relatório de Experimento: Banco de Filtros CQT-like Reversível por Lifting
 
-Este relatório documenta a validação matemática de um **Banco de Filtros de frequência exponencial (CQT-like) e amostragem crítica** implementado de forma 100% reversível sobre os inteiros $\mathbb{Z}^{32}$.
+  Este experimento valida uma construção de banco de filtros multirresolução, criticamente amostrada e exatamente reversível sobre inteiros. A construção utiliza uma árvore diádica de filtros implementados por lifting, com um predictor cúbico de Lagrange.
 
-## 1. Geometria da Decomposição Crítica (Oitavas)
-*   **Dimensão do Sinal de Entrada (N):** 32 amostras
-*   **Divisão Geométrica em 4 sub-bandas (DWT Dyadic):**
-    *   **Banda 0 (0-4 Hz) - Lowpass 3:** 4 coeficientes
-    *   **Banda 1 (4-8 Hz) - Highpass 3:** 4 coeficientes
-    *   **Banda 2 (8-16 Hz) - Highpass 2:** 8 coeficientes
-    *   **Banda 3 (16-32 Hz) - Highpass 1:** 16 coeficientes
-    *   **Soma dos Coeficientes de Saída:** 32 graus de liberdade (Amostragem Crítica Estrita).
+  ## 1. Geometria da decomposição crítica
 
-## 2. Unimodularidade e Bit-Perfection
-Através do uso do predictor Lagrange cúbico de 4-taps:
-*   **Erro de Reconstrução:** 0.00 dB (Reversibilidade binária perfeita).
-*   **Determinante da Transformação:** Matriz inteira $GL(32, \mathbb{Z})$ de determinante exatamente $\pm 1$.
+  A entrada possui
 
-## 3. Resposta em Frequência (Seletividade de Banda)
-A análise espectral da síntese de impulso prova que cada uma das bandas de lifting está perfeitamente focada em sua respectiva oitava de frequência, de forma idêntica à especificação de filtro Gabor de oitavas da NSGT.
-`;
-  
+  $$
+  N=32
+  $$
+
+  amostras inteiras.
+
+  A decomposição produz quatro folhas:
+
+  $$
+  B_0=4,\\qquad
+  B_1=4,\\qquad
+  B_2=8,\\qquad
+  B_3=16.
+  $$
+
+  Portanto,
+
+  $$
+  4+4+8+16=32.
+  $$
+
+  A transformação é criticamente amostrada: o número total de coeficientes de saída é exatamente igual ao número de amostras de entrada.
+
+  A árvore corresponde aproximadamente à seguinte partição diádica do espectro:
+
+  $$
+  [0,f_s/8],
+  $$
+
+  $$
+  [f_s/8,f_s/4],
+  $$
+
+  $$
+  [f_s/4,f_s/2],
+  $$
+
+  com subdivisões adicionais nos ramos de baixa frequência.
+
+  Essa geometria classifica a resolução espectral progressivamente mais fina em frequências baixas e resolução temporal progressivamente mais fina em frequências altas.
+
+  ## 2. Predictor cúbico
+
+  O passo de prediction utiliza uma interpolação de Lagrange cúbica:
+
+  $$
+  P(e)_k
+  =
+  \\frac{
+  -e_{k-1}
+  +9e_k
+  +9e_{k+1}
+  -e_{k+2}
+  }{16}.
+  $$
+
+  O detalhe é calculado como
+
+  $$
+  d_k
+  =
+  o_k-
+  \\operatorname{round}(P(e)_k).
+  $$
+
+  O passo de update possui a forma
+
+  $$
+  s_k
+  =
+  e_k+
+  U(d)_k,
+  $$
+
+  com \\(U\\) escolhido deterministicamente.
+
+  Como o prediction mantém \\(e\\) inalterado e o update mantém \\(d\\) inalterado, cada etapa possui uma inversa explícita:
+
+  $$
+  e_k=s_k-U(d)_k,
+  $$
+
+  $$
+  o_k=d_k+\\operatorname{round}(P(e)_k).
+  $$
+
+  Consequentemente, a composição de todos os lifting steps é uma bijeção exata sobre os inteiros.
+
+  ## 3. Reversibilidade
+
+  A propriedade demonstrada pelo experimento é
+
+  $$
+  T^{-1}(T(x))=x
+  $$
+
+  para toda a amostra inteira testada.
+
+  A formulação matematicamente correta é:
+
+  $$
+  \\boxed{
+  T:\\mathbb Z^{32}\\rightarrow\\mathbb Z^{32}
+  \\text{ é uma transformação inteira bijetiva}.
+  }
+  $$
+
+  Quando são utilizados arredondamentos, \\(T\\) em geral não é linear. Portanto não é apropriado caracterizar a transformação completa como uma matriz pertencente a \\(GL(32,\\mathbb Z)\\).
+
+  A propriedade de unimodularidade aplica-se diretamente às versões lineares elementares antes do arredondamento; a versão inteira arredondada deve ser caracterizada como uma bijeção inteira composta por lifting steps reversíveis.
+
+  ## 4. Resposta em frequência
+
+  Cada folha possui uma resposta de frequência determinada pelos filtros de análise e síntese utilizados.
+
+  A decomposição deve ser analisada através das respostas
+
+  $$
+  H_j(e^{i\\omega})
+  $$
+
+  e, para reconstrução, das respostas correspondentes de síntese.
+
+  O experimento de impulso permite estimar diretamente essas respostas.
+
+  A propriedade esperada é que cada folha apresente concentração de energia em uma determinada região espectral, mas isso não implica que a banda seja idealmente limitada nem que seja idêntica à resposta da NSGT.
+
+  Para estabelecer equivalência quantitativa com uma NSGT/CQT, devemos comparar:
+
+  $$
+  H_j^{\\mathrm{lifting}}(\\omega)
+  $$
+
+  com
+
+  $$
+  H_j^{\\mathrm{NSGT}}(\\omega)
+  $$
+
+  através de métricas como erro RMS da resposta, frequência central, largura de banda, rejeição fora da banda e sobreposição entre canais.
+
+  ## 5. Relação com uma CQT
+
+  A árvore utilizada é diádica e, portanto, possui uma estrutura aproximadamente logarítmica:
+
+  $$
+  \\Delta f_j\\propto f_j.
+  $$
+
+  Isso a torna CQT-like, mas não constitui ainda uma Constant-Q Transform geral.
+
+  Uma CQT com \\(B\\) bandas por oitava requer centros aproximadamente dados por
+
+  $$
+  f_k=f_{\\min}2^{k/B}.
+  $$
+
+  Para obter essa estrutura com mais de uma banda por oitava, será necessário generalizar a árvore binária para um banco multicanal ou para uma estrutura não uniforme de filtros.
+
+  ## 6. Conclusão
+
+  O experimento demonstra três propriedades importantes:
+
+  $$
+  \\boxed{
+  \\text{32 samples}
+  \\rightarrow
+  \\text{32 integer coefficients}
+  }
+  $$
+
+  $$
+  \\boxed{
+  T^{-1}T=I
+  \\quad\\text{exatamente sobre os inteiros}
+  }
+  $$
+
+  e
+
+  $$
+  \\boxed{
+  \\text{resolução tempo-frequência aproximadamente logarítmica}.
+  }
+  $$
+
+  Ele ainda não demonstra que as respostas dos filtros são idênticas às de uma NSGT. Essa equivalência deve ser testada explicitamente comparando as respostas em frequência dos dois bancos.
+
+  O próximo experimento deve portanto medir simultaneamente:
+
+  $$
+  \\text{reversibilidade exata},
+  $$
+
+  $$
+  \\text{erro espectral em relação à NSGT},
+  $$
+
+  $$
+  \\text{largura de banda efetiva},
+  $$
+
+  $$
+  \\text{número de coeficientes por banda},
+  $$
+
+  e
+
+  $$
+  \\text{distribuição de magnitude e bit-planes dos coeficientes}.
+  $$
+
+  A parte mais importante é que o experimento, corretamente interpretado, já demonstra algo bastante útil: **podemos ter criticamente amostrado + inteiro + perfeitamente reversível + multirresolução**, e agora podemos otimizar os filtros sem mexer na garantia de reversibilidade.
+
+  O próximo teste que eu faria é justamente comparar a resposta de impulso dessa transformação com uma \`NSGConstantQ\` da Essentia para \\(N=32/64\\), banda por banda. Aí saberemos quantitativamente quanto da geometria CQT conseguimos recuperar sem abandonar a bijeção inteira.
+  `;
+
   fs.writeFileSync(reportPath, markdownReport);
   console.log(`\n📄 Relatório salvo com sucesso em: ${reportPath}`);
-}
+  }
 
 run();
