@@ -13,7 +13,13 @@
   let width = $derived.by(() => {
     if (rgbaBytes && rgbaBytes.length > 0) {
       const w_png = (rgbaBytes[4] << 24) | (rgbaBytes[5] << 16) | (rgbaBytes[6] << 8) | rgbaBytes[7];
-      return w_png / 2;
+      const h = (rgbaBytes[8] << 24) | (rgbaBytes[9] << 16) | (rgbaBytes[10] << 8) | rgbaBytes[11];
+      const original_len = (rgbaBytes[0] << 24) | (rgbaBytes[1] << 16) | (rgbaBytes[2] << 8) | rgbaBytes[3];
+      const num_samples = Math.ceil(original_len / 4);
+
+      // Detect if image is in V1 (2-pixel packing) or V2 (1-pixel packing) format
+      const isTwoPixel = w_png * h > num_samples * 1.5;
+      return isTwoPixel ? w_png / 2 : w_png;
     }
     return 0;
   });
@@ -68,23 +74,41 @@
       if (offscreenCtx) {
         const imageData = offscreenCtx.createImageData(width, height);
         const coefOffset = 16;
-        const w_png = width * 2;
+        
+        // Fetch parameters to identify algorithm format
+        const w_png = (rgbaBytes[4] << 24) | (rgbaBytes[5] << 16) | (rgbaBytes[6] << 8) | rgbaBytes[7];
+        const original_len = (rgbaBytes[0] << 24) | (rgbaBytes[1] << 16) | (rgbaBytes[2] << 8) | rgbaBytes[3];
+        const num_samples = Math.ceil(original_len / 4);
+        const isTwoPixel = w_png * height > num_samples * 1.5;
         
         for (let r = 0; r < height; r++) {
           for (let c = 0; c < width; c++) {
-            const idx_a = r * w_png + (c * 2);
-            const offset_a = coefOffset + idx_a * 4;
-            const offset_b = offset_a + 4;
+            let mid_high = 0;
+            let mid_low = 0;
+            let side_high = 0;
             
-            if (offset_b + 3 >= rgbaBytes.length) break;
+            if (isTwoPixel) {
+              // Decode V1 (Two-Pixel Packing)
+              const idx_a = r * w_png + (c * 2);
+              const offset_a = coefOffset + idx_a * 4;
+              const offset_b = offset_a + 4;
+              
+              if (offset_b + 3 >= rgbaBytes.length) break;
 
-            // Extract high and low bytes of Mid (R and G of Pixel A)
-            const mid_high = rgbaBytes[offset_a];
-            const mid_low  = rgbaBytes[offset_a + 1];
-            
-            // Extract high and low bytes of Side (R and G of Pixel B)
-            const side_high = rgbaBytes[offset_b];
-            const side_low  = 255 - rgbaBytes[offset_b + 1]; // Reverse alpha-inverted side detail
+              mid_high = rgbaBytes[offset_a];     // R of Pixel A
+              mid_low  = rgbaBytes[offset_a + 1]; // G of Pixel A
+              side_high = rgbaBytes[offset_b];     // R of Pixel B
+            } else {
+              // Decode V2 (Single-Pixel Bitplane)
+              const idx = r * width + c;
+              const offset = coefOffset + idx * 4;
+              
+              if (offset + 3 >= rgbaBytes.length) break;
+
+              mid_high = rgbaBytes[offset];     // Red (Mid MSB)
+              mid_low  = rgbaBytes[offset + 1]; // Green (Mid LSB)
+              side_high = rgbaBytes[offset + 2]; // Blue (Side MSB)
+            }
             
             const out_idx = (r * width + c) * 4;
             
@@ -214,42 +238,64 @@
       hoverY = imgY;
 
       const coefOffset = 16;
-      const offset = coefOffset + (imgY * width + imgX) * 4;
       
-      if (offset + 3 < rgbaBytes.length) {
-        // Read semantic bit-planes from RGB
-        const m_msb = rgbaBytes[offset];
-        const m_lsb = rgbaBytes[offset + 1];
-        const s_msb = rgbaBytes[offset + 2];
-        const a_encoded = rgbaBytes[offset + 3];
-        
-        // Reverse Alpha-inversion trick (silence back to 0)
-        const s_lsb = 255 - a_encoded;
-        
-        // Combine MSB and LSB
-        const g_m = (m_msb << 8) | m_lsb;
-        const g_s = (s_msb << 8) | s_lsb;
-        
-        // Function to decode Gray code back to Unsigned ZigZag
-        const grayDecode = (val: number) => {
-          let res = val;
-          let mask = val >> 1;
-          while (mask !== 0) {
-            res ^= mask;
-            mask >>= 1;
-          }
-          return res;
-        };
+      const w_png = (rgbaBytes[4] << 24) | (rgbaBytes[5] << 16) | (rgbaBytes[6] << 8) | rgbaBytes[7];
+      const original_len = (rgbaBytes[0] << 24) | (rgbaBytes[1] << 16) | (rgbaBytes[2] << 8) | rgbaBytes[3];
+      const num_samples = Math.ceil(original_len / 4);
+      const isTwoPixel = w_png * height > num_samples * 1.5;
 
-        const u16_m = grayDecode(g_m);
-        const u16_s = grayDecode(g_s);
+      if (isTwoPixel) {
+        // Inspect V1 (Two-Pixel Packing)
+        const idx_a = imgY * w_png + (imgX * 2);
+        const offset_a = coefOffset + idx_a * 4;
+        const offset_b = offset_a + 4;
         
-        // Decode ZigZag back to exact signed 16-bit coefficients!
-        const m_val = (u16_m >> 1) ^ (-(u16_m & 1));
-        const s_val = (u16_s >> 1) ^ (-(u16_s & 1));
+        if (offset_b + 3 < rgbaBytes.length) {
+          const u16_m = (rgbaBytes[offset_a] << 8) | rgbaBytes[offset_a + 1];
+          const u16_s = (rgbaBytes[offset_b] << 8) | rgbaBytes[offset_b + 1];
+          
+          // V1 uses standard ZigZag
+          const m_val = (u16_m >> 1) ^ (-(u16_m & 1));
+          const s_val = (u16_s >> 1) ^ (-(u16_s & 1));
+          
+          hoverR = m_val;
+          hoverG = s_val;
+        }
+      } else {
+        // Inspect V2 (Single-Pixel Bitplane + Gray Code)
+        const offset = coefOffset + (imgY * width + imgX) * 4;
         
-        hoverR = m_val;
-        hoverG = s_val;
+        if (offset + 3 < rgbaBytes.length) {
+          const m_msb = rgbaBytes[offset];
+          const m_lsb = rgbaBytes[offset + 1];
+          const s_msb = rgbaBytes[offset + 2];
+          const a_encoded = rgbaBytes[offset + 3];
+          
+          const s_lsb = 255 - a_encoded;
+          const g_m = (m_msb << 8) | m_lsb;
+          const g_s = (s_msb << 8) | s_lsb;
+          
+          // Function to decode Gray code back to Unsigned ZigZag
+          const grayDecode = (val: number) => {
+            let res = val;
+            let mask = val >> 1;
+            while (mask !== 0) {
+              res ^= mask;
+              mask >>= 1;
+            }
+            return res;
+          };
+
+          const u16_m = grayDecode(g_m);
+          const u16_s = grayDecode(g_s);
+          
+          // Decode ZigZag back to exact signed 16-bit coefficients!
+          const m_val = (u16_m >> 1) ^ (-(u16_m & 1));
+          const s_val = (u16_s >> 1) ^ (-(u16_s & 1));
+          
+          hoverR = m_val;
+          hoverG = s_val;
+        }
       }
     } else {
       hoverX = -1;

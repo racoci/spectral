@@ -4,8 +4,10 @@
     init_panic_hook, 
     encode_naive, 
     decode_naive,
-    encode_wavelet,
-    decode_wavelet
+    encode_wavelet_v1_two_pixels,
+    decode_wavelet_v1_two_pixels,
+    encode_wavelet_v2_bitplane,
+    decode_wavelet_v2_bitplane
   } from '../wasm/core_wasm.js';
   import CanvasVisualizer from './CanvasVisualizer.svelte';
 
@@ -13,8 +15,8 @@
   let wasmLoaded = $state(false);
   let wasmError = $state<string | null>(null);
 
-  // Selected conversion algorithm
-  let selectedAlgorithm = $state<'wavelet' | 'naive'>('wavelet');
+  // Selected conversion algorithm (v2_bitplane is the highly compressed, 1-pixel default)
+  let selectedAlgorithm = $state<'v2_bitplane' | 'v1_two_pixels' | 'naive'>('v2_bitplane');
   let selectedHeight = $state<number>(1024); // default 20 Hz limit (1024 frequency bins)
   let selectedWaveletType = $state<number>(0); // 0 = CDF 5/3, 1 = Haar (CDF 1/1)
 
@@ -267,8 +269,10 @@
 
     try {
       const start = performance.now();
-      if (selectedAlgorithm === 'wavelet') {
-        rgbaBytes = encode_wavelet(originalBytes, selectedHeight, selectedWaveletType);
+      if (selectedAlgorithm === 'v2_bitplane') {
+        rgbaBytes = encode_wavelet_v2_bitplane(originalBytes, selectedHeight, selectedWaveletType);
+      } else if (selectedAlgorithm === 'v1_two_pixels') {
+        rgbaBytes = encode_wavelet_v1_two_pixels(originalBytes, selectedHeight, selectedWaveletType);
       } else {
         rgbaBytes = encode_naive(originalBytes);
       }
@@ -287,8 +291,10 @@
 
     try {
       const start = performance.now();
-      if (selectedAlgorithm === 'wavelet') {
-        decodedBytes = decode_wavelet(rgbaBytes);
+      if (selectedAlgorithm === 'v2_bitplane') {
+        decodedBytes = decode_wavelet_v2_bitplane(rgbaBytes);
+      } else if (selectedAlgorithm === 'v1_two_pixels') {
+        decodedBytes = decode_wavelet_v1_two_pixels(rgbaBytes);
       } else {
         decodedBytes = decode_naive(rgbaBytes);
       }
@@ -427,11 +433,12 @@
             bind:value={selectedAlgorithm}
             class="algorithm-select-dropdown"
           >
-            <option value="wavelet">Wavelet Packet (Melgram Reversível)</option>
-            <option value="naive">Naive Byte Packing (Lossless Baseline)</option>
+            <option value="v2_bitplane">V2: Bit-Plane Hierárquico (1 Pixel, Gray Code - Recomendável!)</option>
+            <option value="v1_two_pixels">V1: Two-Pixel Sólido (8-Bytes por Amostra, RGB Ativo)</option>
+            <option value="naive">Naive Byte Packing (Lossless Baseline, Sem Transformação)</option>
           </select>
           
-          {#if selectedAlgorithm === 'wavelet'}
+          {#if selectedAlgorithm !== 'naive'}
             <!-- Wavelet Family Selector -->
             <label for="wavelet-type-select" class="algorithm-label" style="margin-top: 0.75rem;">Família Wavelet:</label>
             <select 
@@ -458,13 +465,10 @@
           {/if}
 
           <p class="algorithm-description">
-            {#if selectedAlgorithm === 'wavelet'}
-              {#if selectedWaveletType === 0}
-                <strong>Wavelet CDF 5/3:</strong> Oferece excelente isolamento de frequência, suavidade visual nas faixas melódicas e reconstituição bit-perfect via Lifting.
-              {:else}
-                <strong>Wavelet Haar:</strong> Oferece máxima localização temporal (blocos verticais bem definidos para batidas rápidas), porém com maior vazamento de frequência lateral.
-              {/if}
-              A resolução escolhida de {selectedHeight} linhas define uma largura de banda de <strong>{(22050 / selectedHeight).toFixed(2)} Hz</strong> por bin.
+            {#if selectedAlgorithm === 'v2_bitplane'}
+              <strong>Estratégia V2 Hierárquica:</strong> Comprime cada amostra estéreo em apenas <strong>1 pixel (4 bytes)</strong>. Separa os MSBs (Estrutura) nos canais Vermelho/Azul para brilho sólido, e os LSBs (Refinamento) nos canais Verde/Alpha mapeados por código Gray para máxima compressão.
+            {:else if selectedAlgorithm === 'v1_two_pixels'}
+              <strong>Estratégia V1 Sólida:</strong> Empacota cada amostra em <strong>2 pixels (8 bytes)</strong>. Salva Mid e Side nos canais Red e Green de pixels separados e fixa o Alpha em 255. Excelente precisão visual, porém dobra a largura física do PNG.
             {:else}
               <strong>Naive Packing:</strong> Mapeia os bytes binários brutos do arquivo diretamente nos canais de cor RGBA, gerando ruído cinza de TV.
             {/if}
