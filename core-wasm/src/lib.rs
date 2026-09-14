@@ -983,26 +983,45 @@ pub fn encode_wavelet_v4_dyadic_dwt(data: &[u8], h_custom: usize, wavelet_type: 
     let mut mid_grid = vec![0i16; grid_size];
     let mut side_grid = vec![0i16; grid_size];
     
-    for i in 0..((data.len() + 3) / 4) {
-        let offset = i * 4;
-        let b0 = if offset < data.len() { data[offset] } else { 0 };
-        let b1 = if offset + 1 < data.len() { data[offset + 1] } else { 0 };
-        let b2 = if offset + 2 < data.len() { data[offset + 2] } else { 0 };
-        let b3 = if offset + 3 < data.len() { data[offset + 3] } else { 0 };
-        
-        let l_sample = (((b1 as u16) << 8) | (b0 as u16)) as i16;
-        let r_sample = (((b3 as u16) << 8) | (b2 as u16)) as i16;
-        
-        let (m, s) = lr_to_ms(l_sample, r_sample);
-        mid_grid[i] = m;
-        side_grid[i] = s;
+    // Unpack and MS conversion into contiguous vertical blocks
+    for c in 0..w {
+        for r in 0..h {
+            let i = c * h + r;
+            let offset = i * 4;
+            
+            let b0 = if offset < data.len() { data[offset] } else { 0 };
+            let b1 = if offset + 1 < data.len() { data[offset + 1] } else { 0 };
+            let b2 = if offset + 2 < data.len() { data[offset + 2] } else { 0 };
+            let b3 = if offset + 3 < data.len() { data[offset + 3] } else { 0 };
+            
+            let l_sample = (((b1 as u16) << 8) | (b0 as u16)) as i16;
+            let r_sample = (((b3 as u16) << 8) | (b2 as u16)) as i16;
+            
+            let (m, s) = lr_to_ms(l_sample, r_sample);
+            mid_grid[r * w + c] = m;
+            side_grid[r * w + c] = s;
+        }
     }
     
     let depth = (h as f64).log2() as usize;
     
-    // Apply Forward DWT directly on the entire flat contiguous grids!
-    forward_dwt(&mut mid_grid, depth, wavelet_type);
-    forward_dwt(&mut side_grid, depth, wavelet_type);
+    // Process columns of size H with Forward DWT
+    for c in 0..w {
+        let mut col_m = vec![0i16; h];
+        let mut col_s = vec![0i16; h];
+        for r in 0..h {
+            col_m[r] = mid_grid[r * w + c];
+            col_s[r] = side_grid[r * w + c];
+        }
+        
+        forward_dwt(&mut col_m, depth, wavelet_type);
+        forward_dwt(&mut col_s, depth, wavelet_type);
+        
+        for r in 0..h {
+            mid_grid[r * w + c] = col_m[r];
+            side_grid[r * w + c] = col_s[r];
+        }
+    }
     
     let mut output = Vec::with_capacity(16 + grid_size * 8);
     output.extend_from_slice(&original_len.to_be_bytes());
@@ -1059,8 +1078,6 @@ pub fn decode_wavelet_v4_dyadic_dwt(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue
     let mut mid_grid = vec![0i16; grid_size];
     let mut side_grid = vec![0i16; grid_size];
     
-    let depth = (h as f64).log2() as usize;
-    
     for r in 0..h {
         for c in 0..w {
             let idx = r * w + c;
@@ -1086,22 +1103,44 @@ pub fn decode_wavelet_v4_dyadic_dwt(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue
         }
     }
     
-    // Apply Inverse DWT directly on the entire flat contiguous grids!
-    inverse_dwt(&mut mid_grid, depth, wavelet_type);
-    inverse_dwt(&mut side_grid, depth, wavelet_type);
+    let depth = (h as f64).log2() as usize;
+    
+    // Apply Inverse DWT directly on the columns
+    for c in 0..w {
+        let mut col_m = vec![0i16; h];
+        let mut col_s = vec![0i16; h];
+        for r in 0..h {
+            col_m[r] = mid_grid[r * w + c];
+            col_s[r] = side_grid[r * w + c];
+        }
+        
+        inverse_dwt(&mut col_m, depth, wavelet_type);
+        inverse_dwt(&mut col_s, depth, wavelet_type);
+        
+        for r in 0..h {
+            mid_grid[r * w + c] = col_m[r];
+            side_grid[r * w + c] = col_s[r];
+        }
+    }
     
     let mut original_data = Vec::with_capacity(original_len);
-    for i in 0..((original_len + 3) / 4) {
-        let m = mid_grid[i];
-        let s = side_grid[i];
-        let (l, r) = ms_to_lr(m, s);
-        let u16_l = l as u16;
-        let u16_r = r as u16;
-        
-        original_data.push((u16_l & 0xFF) as u8);
-        if original_data.len() < original_len { original_data.push((u16_l >> 8) as u8); }
-        if original_data.len() < original_len { original_data.push((u16_r & 0xFF) as u8); }
-        if original_data.len() < original_len { original_data.push((u16_r >> 8) as u8); }
+    for c in 0..w {
+        for r in 0..h {
+            let i = c * h + r;
+            let offset = i * 4;
+            if offset >= original_len { break; }
+            
+            let m = mid_grid[r * w + c];
+            let s = side_grid[r * w + c];
+            let (l, r_sample) = ms_to_lr(m, s);
+            let u16_l = l as u16;
+            let u16_r = r_sample as u16;
+            
+            original_data.push((u16_l & 0xFF) as u8);
+            if original_data.len() < original_len { original_data.push((u16_l >> 8) as u8); }
+            if original_data.len() < original_len { original_data.push((u16_r & 0xFF) as u8); }
+            if original_data.len() < original_len { original_data.push((u16_r >> 8) as u8); }
+        }
     }
     Ok(original_data)
 }
