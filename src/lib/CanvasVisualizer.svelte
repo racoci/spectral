@@ -6,7 +6,8 @@
     get_color_g, 
     get_color_b,
     decode_color_to_coefficient,
-    wasm_encode_n
+    wasm_encode_n,
+    wasm_generate_v6_spectrogram
   } from '../wasm/core_wasm.js';
 
   // Props using Svelte 5 standard runes
@@ -95,122 +96,150 @@
         const isTwoPixel = w_png * height > num_samples * 1.5;
         const packingVersion = rgbaBytes[13];
         
-        for (let r = 0; r < height; r++) {
-          for (let c = 0; c < width; c++) {
-            let mid_high = 0;
-            let mid_low = 0;
-            let mid_blue = 0;
-            let side_high = 0;
-            let side_low = 0;
-            let side_blue = 0;
-            
-            if (isTwoPixel) {
-              const idx_a = r * w_png + (c * 2);
-              const offset_a = coefOffset + idx_a * 4;
-              const offset_b = offset_a + 4;
+        if (packingVersion === 6) {
+          // V6: Dual-Engine Reassigned STFT Spectrogram Rendering!
+          const powerBuffer = wasm_generate_v6_spectrogram(rgbaBytes);
+          let maxPower = 1e-5;
+          for (let i = 0; i < powerBuffer.length; i++) {
+            if (powerBuffer[i] > maxPower) maxPower = powerBuffer[i];
+          }
+          
+          for (let r = 0; r < height; r++) {
+            for (let c = 0; c < width; c++) {
+              // y=0 in powerBuffer is low frequency, draw inverted vertically so low frequency is at the bottom
+              const power_idx = (height - 1 - r) * width + c;
+              const power = powerBuffer[power_idx] || 0;
               
-              if (offset_b + 3 >= rgbaBytes.length) break;
-
-              if (packingVersion === 3 || packingVersion === 4 || packingVersion === 5) {
-                // V3: Two-Pixel Serpentine Pure Arithmetic
-                mid_high  = rgbaBytes[offset_a];     // R of Pixel A
-                mid_low   = rgbaBytes[offset_a + 1]; // G of Pixel A
-                mid_blue  = rgbaBytes[offset_a + 2]; // B of Pixel A
-                
-                side_high = rgbaBytes[offset_b];     // R of Pixel B
-                side_low  = rgbaBytes[offset_b + 1]; // G of Pixel B
-                side_blue = rgbaBytes[offset_b + 2]; // B of Pixel B
-              } else {
-                // Decode V1 (Two-Pixel Packing)
-                mid_high  = rgbaBytes[offset_a];     // R of Pixel A
-                mid_low   = rgbaBytes[offset_a + 1]; // G of Pixel A
-                side_high = rgbaBytes[offset_b];     // R of Pixel B
-              }
-            } else {
-              // Decode V2 (Single-Pixel Bitplane) using Cubic-Shell Color Mapping
-              const idx = r * width + c;
-              const offset = coefOffset + idx * 4;
+              // Logarithmic/gamma compression for stunning heat-map dynamics
+              const ratio = Math.pow(power / maxPower, 0.3);
+              const color_index = Math.floor(ratio * 65535);
               
-              if (offset + 3 >= rgbaBytes.length) break;
-
-              const r_m = rgbaBytes[offset];     // R = Mid Red
-              const g_m = rgbaBytes[offset + 1]; // G = Mid Green
-              const r_s = rgbaBytes[offset + 2]; // B = Side Red
-              const g_s = 255 - rgbaBytes[offset + 3]; // A = Side Green Inverted
-
-              // Decode using WASM helpers
-              const m_coef = decode_rg_to_coefficient(r_m, g_m);
-              const s_coef = decode_rg_to_coefficient(r_s, g_s);
-
-              // Look up the full beautiful 3D colors of Mid and Side
-              const m_r = get_color_r(m_coef);
-              const m_g = get_color_g(m_coef);
-              const m_b = get_color_b(m_coef);
-
-              const s_r = get_color_r(s_coef);
-              const s_g = get_color_g(s_coef);
-              const s_b = get_color_b(s_coef);
-
-              mid_high = m_r;
-              mid_low = m_g;
-              mid_blue = m_b;
-              side_high = s_r;
-              side_low = s_g;
-              side_blue = s_b;
-            }
-            
-            const out_idx = (r * width + c) * 4;
-            
-            if (visualMode === 'full') {
-              if (packingVersion === 3 || packingVersion === 4 || packingVersion === 5) {
-                imageData.data[out_idx]     = mid_high;
-                imageData.data[out_idx + 1] = mid_low;
-                imageData.data[out_idx + 2] = side_high;
-              } else if (isTwoPixel) {
-                imageData.data[out_idx]     = mid_high;  // Mid High (Red)
-                imageData.data[out_idx + 1] = mid_low;   // Mid Low (Green)
-                imageData.data[out_idx + 2] = side_high;  // Side High (Blue)
-              } else {
-                imageData.data[out_idx]     = mid_high;  // Mid Red (m_r)
-                imageData.data[out_idx + 1] = mid_low;   // Mid Green (m_g)
-                imageData.data[out_idx + 2] = side_high;  // Side Red (s_r)
-              }
-              imageData.data[out_idx + 3] = 255;       // Opaque display
-            } else if (visualMode === 'mid') {
-              if (packingVersion === 3 || packingVersion === 4 || packingVersion === 5) {
-                imageData.data[out_idx]     = mid_high;
-                imageData.data[out_idx + 1] = mid_low;
-                imageData.data[out_idx + 2] = mid_blue;
-              } else if (isTwoPixel) {
-                imageData.data[out_idx]     = mid_high;
-                imageData.data[out_idx + 1] = mid_low;
-                imageData.data[out_idx + 2] = 0;
-              } else {
-                imageData.data[out_idx]     = mid_high;
-                imageData.data[out_idx + 1] = mid_low;
-                imageData.data[out_idx + 2] = mid_blue;  // Show full gorgeous 3D color of Mid!
-              }
+              const out_idx = (r * width + c) * 4;
+              imageData.data[out_idx]     = get_color_r(color_index);
+              imageData.data[out_idx + 1] = get_color_g(color_index);
+              imageData.data[out_idx + 2] = get_color_b(color_index);
               imageData.data[out_idx + 3] = 255;
-            } else {
-              if (packingVersion === 3 || packingVersion === 4 || packingVersion === 5) {
-                imageData.data[out_idx]     = side_high;
-                imageData.data[out_idx + 1] = side_low;
-                imageData.data[out_idx + 2] = side_blue;
-              } else if (isTwoPixel) {
-                imageData.data[out_idx]     = 0;
-                imageData.data[out_idx + 1] = 0;
-                imageData.data[out_idx + 2] = side_high;
+            }
+          }
+        } else {
+          // Standard Wavelet/WPD rendering (V1 to V5)
+          for (let r = 0; r < height; r++) {
+            for (let c = 0; c < width; c++) {
+              let mid_high = 0;
+              let mid_low = 0;
+              let mid_blue = 0;
+              let side_high = 0;
+              let side_low = 0;
+              let side_blue = 0;
+              
+              if (isTwoPixel) {
+                const idx_a = r * w_png + (c * 2);
+                const offset_a = coefOffset + idx_a * 4;
+                const offset_b = offset_a + 4;
+                
+                if (offset_b + 3 >= rgbaBytes.length) break;
+
+                if (packingVersion === 3 || packingVersion === 4 || packingVersion === 5) {
+                  // V3: Two-Pixel Serpentine Pure Arithmetic
+                  mid_high  = rgbaBytes[offset_a];     // R of Pixel A
+                  mid_low   = rgbaBytes[offset_a + 1]; // G of Pixel A
+                  mid_blue  = rgbaBytes[offset_a + 2]; // B of Pixel A
+                  
+                  side_high = rgbaBytes[offset_b];     // R of Pixel B
+                  side_low  = rgbaBytes[offset_b + 1]; // G of Pixel B
+                  side_blue = rgbaBytes[offset_b + 2]; // B of Pixel B
+                } else {
+                  // Decode V1 (Two-Pixel Packing)
+                  mid_high  = rgbaBytes[offset_a];     // R of Pixel A
+                  mid_low   = rgbaBytes[offset_a + 1]; // G of Pixel A
+                  side_high = rgbaBytes[offset_b];     // R of Pixel B
+                }
               } else {
+                // Decode V2 (Single-Pixel Bitplane) using Cubic-Shell Color Mapping
                 const idx = r * width + c;
                 const offset = coefOffset + idx * 4;
-                const r_s = rgbaBytes[offset + 2];
-                const g_s = 255 - rgbaBytes[offset + 3];
+                
+                if (offset + 3 >= rgbaBytes.length) break;
+
+                const r_m = rgbaBytes[offset];     // R = Mid Red
+                const g_m = rgbaBytes[offset + 1]; // G = Mid Green
+                const r_s = rgbaBytes[offset + 2]; // B = Side Red
+                const g_s = 255 - rgbaBytes[offset + 3]; // A = Side Green Inverted
+
+                // Decode using WASM helpers
+                const m_coef = decode_rg_to_coefficient(r_m, g_m);
                 const s_coef = decode_rg_to_coefficient(r_s, g_s);
-                imageData.data[out_idx]     = get_color_r(s_coef);
-                imageData.data[out_idx + 1] = get_color_g(s_coef);
-                imageData.data[out_idx + 2] = get_color_b(s_coef); // Show full gorgeous 3D color of Side!
+
+                // Look up the full beautiful 3D colors of Mid and Side
+                const m_r = get_color_r(m_coef);
+                const m_g = get_color_g(m_coef);
+                const m_b = get_color_b(m_coef);
+
+                const s_r = get_color_r(s_coef);
+                const s_g = get_color_g(s_coef);
+                const s_b = get_color_b(s_coef);
+
+                mid_high = m_r;
+                mid_low = m_g;
+                mid_blue = m_b;
+                side_high = s_r;
+                side_low = s_g;
+                side_blue = s_b;
               }
-              imageData.data[out_idx + 3] = 255;
+              
+              const out_idx = (r * width + c) * 4;
+              
+              if (visualMode === 'full') {
+                if (packingVersion === 3 || packingVersion === 4 || packingVersion === 5) {
+                  imageData.data[out_idx]     = mid_high;
+                  imageData.data[out_idx + 1] = mid_low;
+                  imageData.data[out_idx + 2] = side_high;
+                } else if (isTwoPixel) {
+                  imageData.data[out_idx]     = mid_high;  // Mid High (Red)
+                  imageData.data[out_idx + 1] = mid_low;   // Mid Low (Green)
+                  imageData.data[out_idx + 2] = side_high;  // Side High (Blue)
+                } else {
+                  imageData.data[out_idx]     = mid_high;  // Mid Red (m_r)
+                  imageData.data[out_idx + 1] = mid_low;   // Mid Green (m_g)
+                  imageData.data[out_idx + 2] = side_high;  // Side Red (s_r)
+                }
+                imageData.data[out_idx + 3] = 255;       // Opaque display
+              } else if (visualMode === 'mid') {
+                if (packingVersion === 3 || packingVersion === 4 || packingVersion === 5) {
+                  imageData.data[out_idx]     = mid_high;
+                  imageData.data[out_idx + 1] = mid_low;
+                  imageData.data[out_idx + 2] = mid_blue;
+                } else if (isTwoPixel) {
+                  imageData.data[out_idx]     = mid_high;
+                  imageData.data[out_idx + 1] = mid_low;
+                  imageData.data[out_idx + 2] = 0;
+                } else {
+                  imageData.data[out_idx]     = mid_high;
+                  imageData.data[out_idx + 1] = mid_low;
+                  imageData.data[out_idx + 2] = mid_blue;  // Show full gorgeous 3D color of Mid!
+                }
+                imageData.data[out_idx + 3] = 255;
+              } else {
+                if (packingVersion === 3 || packingVersion === 4 || packingVersion === 5) {
+                  imageData.data[out_idx]     = side_high;
+                  imageData.data[out_idx + 1] = side_low;
+                  imageData.data[out_idx + 2] = side_blue;
+                } else if (isTwoPixel) {
+                  imageData.data[out_idx]     = 0;
+                  imageData.data[out_idx + 1] = 0;
+                  imageData.data[out_idx + 2] = side_high;
+                } else {
+                  const idx = r * width + c;
+                  const offset = coefOffset + idx * 4;
+                  const r_s = rgbaBytes[offset + 2];
+                  const g_s = 255 - rgbaBytes[offset + 3];
+                  const s_coef = decode_rg_to_coefficient(r_s, g_s);
+                  imageData.data[out_idx]     = get_color_r(s_coef);
+                  imageData.data[out_idx + 1] = get_color_g(s_coef);
+                  imageData.data[out_idx + 2] = get_color_b(s_coef); // Show full gorgeous 3D color of Side!
+                }
+                imageData.data[out_idx + 3] = 255;
+              }
             }
           }
         }

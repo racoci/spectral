@@ -1429,6 +1429,217 @@ pub fn decode_naive_v0(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
     decode_naive(rgba_data)
 }
 
+// ==========================================
+// 8. V6: Dual-Engine Spectrogram (Lifting CDF 5/3 + Gaussian Reassignment)
+// ==========================================
+
+#[wasm_bindgen]
+pub fn encode_wavelet_v6_reassigned(data: &[u8], h_custom: usize) -> Vec<u8> {
+    let original_len = data.len() as u32;
+    let mut h = h_custom;
+    if !h.is_power_of_two() || h < 4 { h = 1024; }
+    let w = calculate_grid_width(data.len(), h);
+    let grid_size = w * h;
+    
+    let mut mid_grid = vec![0i16; grid_size];
+    let mut side_grid = vec![0i16; grid_size];
+    
+    // Unpack and MS conversion into contiguous vertical blocks (using CDF 5/3 Lifting)
+    for c in 0..w {
+        for r in 0..h {
+            let i = c * h + r;
+            let offset = i * 4;
+            
+            let b0 = if offset < data.len() { data[offset] } else { 0 };
+            let b1 = if offset + 1 < data.len() { data[offset + 1] } else { 0 };
+            let b2 = if offset + 2 < data.len() { data[offset + 2] } else { 0 };
+            let b3 = if offset + 3 < data.len() { data[offset + 3] } else { 0 };
+            
+            let l_sample = (((b1 as u16) << 8) | (b0 as u16)) as i16;
+            let r_sample = (((b3 as u16) << 8) | (b2 as u16)) as i16;
+            
+            let (m, s) = lr_to_ms(l_sample, r_sample);
+            mid_grid[r * w + c] = m;
+            side_grid[r * w + c] = s;
+        }
+    }
+    
+    let depth = (h as f64).log2() as usize;
+    
+    // Process columns with Forward Lifting 5/3
+    for c in 0..w {
+        let mut col_m = vec![0i16; h];
+        let mut col_s = vec![0i16; h];
+        for r in 0..h {
+            col_m[r] = mid_grid[r * w + c];
+            col_s[r] = side_grid[r * w + c];
+        }
+        
+        forward_lifting_53(&mut col_m, depth);
+        forward_lifting_53(&mut col_s, depth);
+        
+        for r in 0..h {
+            mid_grid[r * w + c] = col_m[r];
+            side_grid[r * w + c] = col_s[r];
+        }
+    }
+    
+    let mut output = Vec::with_capacity(16 + grid_size * 8);
+    output.extend_from_slice(&original_len.to_be_bytes());
+    let w_png = (w * 2) as u32;
+    output.extend_from_slice(&w_png.to_be_bytes());
+    output.extend_from_slice(&(h as u32).to_be_bytes());
+    
+    output.push(0u8); // wavelet_type
+    output.push(6u8); // Packing Version 6!
+    output.extend_from_slice(&44100u16.to_be_bytes());
+    
+    for r in 0..h {
+        for c in 0..w {
+            let idx = r * w + c;
+            
+            let u16_m = zigzag_encode(mid_grid[idx] as i32);
+            let u16_s = zigzag_encode(side_grid[idx] as i32);
+            
+            let rgb_m = decode_n(u16_m, 40);
+            let rgb_s = decode_n(u16_s, 40);
+            
+            output.push(scale_coordinate(rgb_m.r));
+            output.push(scale_coordinate(rgb_m.g));
+            output.push(scale_coordinate(rgb_m.b));
+            output.push(255u8);
+            
+            output.push(scale_coordinate(rgb_s.r));
+            output.push(scale_coordinate(rgb_s.g));
+            output.push(scale_coordinate(rgb_s.b));
+            output.push(255u8);
+        }
+    }
+    output
+}
+
+#[wasm_bindgen]
+pub fn decode_wavelet_v6_reassigned(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
+    // Reassigned storage is backward-compatible with V5 dyadic lifting decoder
+    decode_wavelet_v5_dyadic_lifting(rgba_data)
+}
+
+#[wasm_bindgen]
+pub fn wasm_generate_v6_spectrogram(rgba_data: &[u8]) -> Result<Vec<f32>, JsValue> {
+    if rgba_data.len() < 16 {
+        return Err(JsValue::from_str("Invalid input data"));
+    }
+    let packing_version = rgba_data[13];
+    
+    // Decode rgba_data back to PCM
+    let pcm = match packing_version {
+        1 => decode_wavelet_v1_two_pixels(rgba_data)?,
+        2 => decode_wavelet_v2_bitplane(rgba_data)?,
+        3 => decode_wavelet_v3_serpentine(rgba_data)?,
+        4 => decode_wavelet_v4_dyadic_dwt(rgba_data)?,
+        5 | 6 => decode_wavelet_v5_dyadic_lifting(rgba_data)?,
+        _ => return Err(JsValue::from_str("Unsupported packing version")),
+    };
+    
+    let w_png = u32::from_be_bytes([rgba_data[4], rgba_data[5], rgba_data[6], rgba_data[7]]) as usize;
+    let h = u32::from_be_bytes([rgba_data[8], rgba_data[9], rgba_data[10], rgba_data[11]]) as usize;
+    let w = if packing_version == 2 { w_png } else { w_png / 2 };
+    
+    let fs = ((rgba_data[14] as u16) << 8) | (rgba_data[15] as u16);
+    let fs_f32 = if fs == 0 { 44100.0 } else { fs as f32 };
+    
+    let original_len = pcm.len();
+    let num_samples = original_len / 4;
+    let mut mid_channel = vec![0.0f32; num_samples];
+    
+    for i in 0..num_samples {
+        let offset = i * 4;
+        let b0 = pcm[offset];
+        let b1 = pcm[offset + 1];
+        let b2 = pcm[offset + 2];
+        let b3 = pcm[offset + 3];
+        
+        let l = (((b1 as u16) << 8) | (b0 as u16)) as i16 as f32;
+        let r = (((b3 as u16) << 8) | (b2 as u16)) as i16 as f32;
+        
+        mid_channel[i] = (l + r) * 0.5;
+    }
+    
+    let n = 1024; // Window size
+    let sigma_sec = 0.050f32; // 50ms Gaussian window
+    let mut spec = vec![0.0f32; w * h];
+    
+    if num_samples <= n {
+        return Ok(spec);
+    }
+    
+    let hop = ((num_samples - n) as f32 / (w as f32 - 1.0)).max(1.0).floor() as usize;
+    
+    use rustfft::{FftPlanner, num_complex::Complex};
+    let mut planner = FftPlanner::new();
+    let fft = planner.plan_fft_forward(n);
+    
+    let center = (n as f32 - 1.0) * 0.5;
+    let alpha = 0.69314718056 / (sigma_sec * sigma_sec);
+    
+    for c in 0..w {
+        let start = c * hop;
+        if start + n > num_samples { break; }
+        
+        let mut buffer = vec![Complex::<f32>::new(0.0, 0.0); n];
+        for i in 0..n {
+            let val = mid_channel[start + i];
+            let t = (i as f32 - center) / fs_f32;
+            let g = (-alpha * t * t).exp();
+            
+            let a = val * g;
+            let b = val * t * g;
+            buffer[i] = Complex::new(a, b);
+        }
+        
+        fft.process(&mut buffer);
+        
+        for k in 1..(n / 2) {
+            let kn = n - k;
+            let z1 = buffer[k];
+            let z2 = buffer[kn].conj();
+            
+            // Reconstruct hermit-symmetric real FFTs of windowed real signals a[n] and b[n]
+            let x = (z1 + z2) * 0.5;
+            let y = Complex::new(
+                (z1.im - z2.im) * 0.5,
+                -(z1.re - z2.re) * 0.5,
+            );
+            
+            let power = x.re * x.re + x.im * x.im;
+            if power < 1e-4 { continue; }
+            
+            let ratio_im = (y.im * x.re - y.re * x.im) / power;
+            let freq = k as f32 * fs_f32 / n as f32;
+            let correction = (0.69314718056 / (3.14159265359 * sigma_sec * sigma_sec)) * ratio_im;
+            let reassigned = freq + correction;
+            
+            if reassigned >= 20.0 && reassigned <= 20000.0 {
+                // Logarithmic frequency coordinate matching human perception
+                let y_frac = (reassigned / 20.0).ln() / 1000.0f32.ln();
+                let pixel_y = y_frac * (h - 1) as f32;
+                
+                if pixel_y >= 0.0 && pixel_y <= (h - 1) as f32 {
+                    let y0 = pixel_y.floor() as usize;
+                    let y1 = (y0 + 1).min(h - 1);
+                    let frac = pixel_y - y0 as f32;
+                    
+                    // Accumulate power with bilinear anti-aliasing
+                    spec[y0 * w + c] += power * (1.0 - frac);
+                    spec[y1 * w + c] += power * frac;
+                }
+            }
+        }
+    }
+    
+    Ok(spec)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1495,6 +1706,17 @@ mod tests {
         forward_lifting_53(&mut original, 3);
         inverse_lifting_53(&mut original, 3);
         assert_eq!(cloned, original, "Lifting 5/3 failed!");
+    }
+
+    #[test]
+    fn test_v6_pipeline_large() {
+        let mut original = vec![0u8; 4000];
+        for i in 0..4000 {
+            original[i] = (i % 256) as u8;
+        }
+        let encoded = encode_wavelet_v6_reassigned(&original, 256);
+        let decoded = decode_wavelet_v6_reassigned(&encoded).unwrap();
+        assert_eq!(original, decoded, "V6 pipeline failed for large audio!");
     }
 
     #[test]

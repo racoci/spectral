@@ -13,7 +13,9 @@
     encode_wavelet_v4_dyadic_dwt,
     decode_wavelet_v4_dyadic_dwt,
     encode_wavelet_v5_dyadic_lifting,
-    decode_wavelet_v5_dyadic_lifting
+    decode_wavelet_v5_dyadic_lifting,
+    encode_wavelet_v6_reassigned,
+    decode_wavelet_v6_reassigned
   } from '../wasm/core_wasm.js';
   import CanvasVisualizer from './CanvasVisualizer.svelte';
 
@@ -22,7 +24,7 @@
   let wasmError = $state<string | null>(null);
 
   // Selected conversion algorithm (v2_bitplane is the highly compressed, 1-pixel default)
-  let selectedAlgorithm = $state<'v2_bitplane' | 'v1_two_pixels' | 'v3_serpentine' | 'v4_dyadic_dwt' | 'v5_dyadic_lifting' | 'naive'>('v2_bitplane');
+  let selectedAlgorithm = $state<'v2_bitplane' | 'v1_two_pixels' | 'v3_serpentine' | 'v4_dyadic_dwt' | 'v5_dyadic_lifting' | 'v6_reassigned' | 'naive'>('v2_bitplane');
   let selectedHeight = $state<number>(1024); // default 20 Hz limit (1024 frequency bins)
   let selectedWaveletType = $state<number>(0); // 0 = CDF 5/3, 1 = Haar (CDF 1/1)
 
@@ -285,6 +287,8 @@
         rgbaBytes = encode_wavelet_v4_dyadic_dwt(originalBytes, selectedHeight, selectedWaveletType);
       } else if (selectedAlgorithm === 'v5_dyadic_lifting') {
         rgbaBytes = encode_wavelet_v5_dyadic_lifting(originalBytes, selectedHeight);
+      } else if (selectedAlgorithm === 'v6_reassigned') {
+        rgbaBytes = encode_wavelet_v6_reassigned(originalBytes, selectedHeight);
       } else {
         rgbaBytes = encode_naive(originalBytes);
       }
@@ -313,6 +317,8 @@
         decodedBytes = decode_wavelet_v4_dyadic_dwt(rgbaBytes);
       } else if (selectedAlgorithm === 'v5_dyadic_lifting') {
         decodedBytes = decode_wavelet_v5_dyadic_lifting(rgbaBytes);
+      } else if (selectedAlgorithm === 'v6_reassigned') {
+        decodedBytes = decode_wavelet_v6_reassigned(rgbaBytes);
       } else {
         decodedBytes = decode_naive(rgbaBytes);
       }
@@ -458,11 +464,12 @@
             <option value="v3_serpentine">V3: Two-Pixel Serpentina (8-Bytes, Aritmética Pura - Estudo!)</option>
             <option value="v4_dyadic_dwt">V4: Two-Pixel Serpentina Diádica (8-Bytes, Mallat DWT - Semântico!)</option>
             <option value="v5_dyadic_lifting">V5: Two-Pixel Serpentina Diádica CDF 5/3 (8-Bytes, Lifting - Teoria!)</option>
+            <option value="v6_reassigned">V6: Two-Pixel Reassigned (8-Bytes, Lifting + Gaussian STFT - Nitidez!)</option>
             <option value="naive">Naive Byte Packing (Lossless Baseline, Sem Transformação)</option>
           </select>
           
           {#if selectedAlgorithm !== 'naive'}
-            {#if selectedAlgorithm !== 'v5_dyadic_lifting'}
+            {#if selectedAlgorithm !== 'v5_dyadic_lifting' && selectedAlgorithm !== 'v6_reassigned'}
               <!-- Wavelet Family Selector -->
               <label for="wavelet-type-select" class="algorithm-label" style="margin-top: 0.75rem;">Família Wavelet:</label>
               <select 
@@ -500,6 +507,8 @@
               <strong>Estratégia V4 Serpentina Diádica (Mallat DWT):</strong> Decompõe o áudio em oitavas de escala logarítmica exponenciais $j$ utilizando wavelets diádicas clássicas em blocos contíguos de tempo. Garante bijeção perfeita e uma visualização sem ruídos orientada a oitavas e tempo.
             {:else if selectedAlgorithm === 'v5_dyadic_lifting'}
               <strong>Estratégia V5 Serpentina Diádica CDF 5/3 (Lifting):</strong> Aplica um banco de filtros wavelet por lifting com etapas de predição e atualização inteiras exatas baseadas em oitavas $H_j$ e canal passa-baixa residual $L_J$. Garante bijeção inteira rigorosa ($W^{-1}W(x)=x$) livre de perdas de arredondamento em tempo real, aliada à complementaridade perfeita de resolução tempo-frequência.
+            {:else if selectedAlgorithm === 'v6_reassigned'}
+              <strong>Estratégia V6 Dual-Engine Reassigned (Lifting + STFT):</strong> Separa por completo o armazenamento físico da visualização de tela. Salva os coeficientes perfeitamente reversíveis de lifting CDF 5/3 em disco e, simultaneamente, analisa o PCM reconstruído via <strong>Janelamento Gaussiano STFT com Reatribuição de Frequência de Alta Precisão</strong>, desenhando cristas de harmônicos ultra-nítidas de escala logarítmica na tela.
             {:else}
               <strong>Naive Packing:</strong> Mapeia os bytes binários brutos do arquivo diretamente nos canais de cor RGBA, gerando ruído cinza de TV.
             {/if}
