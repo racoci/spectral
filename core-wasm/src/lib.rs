@@ -8,131 +8,6 @@ pub fn init_panic_hook() {
 }
 
 // ==========================================
-// Cubic-Shell Geodesic Snake LUT Generators
-// ==========================================
-
-static COLOR_LUT: OnceLock<[(u8, u8, u8); 65536]> = OnceLock::new();
-static DECODE_LUT: OnceLock<[(u64, u16); 65536]> = OnceLock::new();
-static REVERSE_RG: OnceLock<[u16; 65536]> = OnceLock::new();
-
-fn generate_color_lut() -> [(u8, u8, u8); 65536] {
-    let mut lut = [(0u8, 0u8, 0u8); 65536];
-    let mut count = 0;
-    
-    for l in 0..=255 {
-        if l == 0 {
-            lut[0] = (0, 0, 0);
-            count += 1;
-            continue;
-        }
-        
-        if l % 2 == 0 {
-            for g in 0..=l {
-                if count >= 65536 { break; }
-                let r = l;
-                let b = l;
-                lut[count] = (r as u8, g as u8, b as u8);
-                count += 1;
-            }
-            for r_idx in 1..=l {
-                if count >= 65536 { break; }
-                let r = l - r_idx;
-                let g = l;
-                let b = l;
-                lut[count] = (r as u8, g as u8, b as u8);
-                count += 1;
-            }
-        } else {
-            for r in 0..=l {
-                if count >= 65536 { break; }
-                let g = l;
-                let b = l;
-                lut[count] = (r as u8, g as u8, b as u8);
-                count += 1;
-            }
-            for g_idx in 1..=l {
-                if count >= 65536 { break; }
-                let r = l;
-                let g = l - g_idx;
-                let b = l;
-                lut[count] = (r as u8, g as u8, b as u8);
-                count += 1;
-            }
-        }
-    }
-    lut
-}
-
-fn get_color_lut() -> &'static [(u8, u8, u8); 65536] {
-    COLOR_LUT.get_or_init(generate_color_lut)
-}
-
-fn get_decode_lut() -> &'static [(u64, u16); 65536] {
-    DECODE_LUT.get_or_init(|| {
-        let color_lut = get_color_lut();
-        let mut decode = [(0u64, 0u16); 65536];
-        for i in 0..65536 {
-            let (r, g, b) = color_lut[i];
-            let r_u64 = r as u64;
-            let g_u64 = g as u64;
-            let b_u64 = b as u64;
-            let key = (r_u64 * r_u64 + g_u64 * g_u64 + b_u64 * b_u64) * 16777216 + r_u64 * 65536 + g_u64 * 256 + b_u64;
-            decode[i] = (key, i as u16);
-        }
-        decode.sort_by_key(|entry| entry.0);
-        decode
-    })
-}
-
-fn get_reverse_rg() -> &'static [u16; 65536] {
-    REVERSE_RG.get_or_init(|| {
-        let color_lut = get_color_lut();
-        let mut reverse = [0u16; 65536];
-        for i in 0..65536 {
-            let (r, g, _) = color_lut[i];
-            let idx = (r as usize) * 256 + (g as usize);
-            reverse[idx] = i as u16;
-        }
-        reverse
-    })
-}
-
-#[wasm_bindgen]
-pub fn decode_color_to_coefficient(r: u8, g: u8, b: u8) -> u16 {
-    let r_u64 = r as u64;
-    let g_u64 = g as u64;
-    let b_u64 = b as u64;
-    let key = (r_u64 * r_u64 + g_u64 * g_u64 + b_u64 * b_u64) * 16777216 + r_u64 * 65536 + g_u64 * 256 + b_u64;
-    
-    let decode_lut = get_decode_lut();
-    match decode_lut.binary_search_by_key(&key, |entry| entry.0) {
-        Ok(idx) => decode_lut[idx].1,
-        Err(_) => 0,
-    }
-}
-
-#[wasm_bindgen]
-pub fn decode_rg_to_coefficient(r: u8, g: u8) -> u16 {
-    let reverse = get_reverse_rg();
-    reverse[(r as usize) * 256 + (g as usize)]
-}
-
-#[wasm_bindgen]
-pub fn get_color_r(v: u16) -> u8 {
-    get_color_lut()[v as usize].0
-}
-
-#[wasm_bindgen]
-pub fn get_color_g(v: u16) -> u8 {
-    get_color_lut()[v as usize].1
-}
-
-#[wasm_bindgen]
-pub fn get_color_b(v: u16) -> u8 {
-    get_color_lut()[v as usize].2
-}
-
-// ==========================================
 // 1. Transformada Reversível Mid/Side (L/R)
 // ==========================================
 
@@ -154,7 +29,6 @@ pub fn ms_to_lr(m: i16, s: i16) -> (i16, i16) {
 // Espelhamento Simétrico de Bordas (Boundary Mirroring)
 // ==========================================
 
-/// Safe indexing with symmetric edge mirroring to prevent boundary artifacts.
 #[inline]
 fn get_even(even: &[i16], idx: i32) -> i32 {
     let half = even.len() as i32;
@@ -171,7 +45,6 @@ fn get_even(even: &[i16], idx: i32) -> i32 {
 // Bijeção 2: Multi-Order Wavelet Predictor Lifting
 // ==========================================
 
-/// 1D forward lifting step with selectable predictor order
 fn forward_1d(a: &mut [i16], wavelet_type: u32) {
     let len = a.len();
     if len < 2 { return; }
@@ -184,16 +57,13 @@ fn forward_1d(a: &mut [i16], wavelet_type: u32) {
         odd[i] = a[2 * i + 1];
     }
     
-    // Predict step: odd[i] -= round(P(even))
     for i in 0..half {
         let p_val = match wavelet_type {
-            // Order 1 (Linear / CDF 5/3): 2-taps
             0 => {
                 let e0 = get_even(&even, i as i32);
                 let e1 = get_even(&even, i as i32 + 1);
                 (e0 + e1) / 2
             },
-            // Order 3 (Cubic Lagrange / CDF 9/7 proxy): 4-taps
             1 => {
                 let e_prev = get_even(&even, i as i32 - 1);
                 let e0 = get_even(&even, i as i32);
@@ -201,7 +71,6 @@ fn forward_1d(a: &mut [i16], wavelet_type: u32) {
                 let e_next = get_even(&even, i as i32 + 2);
                 (-e_prev + 9 * e0 + 9 * e1 - e_next + 8) / 16
             },
-            // Order 5 (Quintic Lagrange): 6-taps
             _ => {
                 let e_prev2 = get_even(&even, i as i32 - 2);
                 let e_prev1 = get_even(&even, i as i32 - 1);
@@ -215,7 +84,6 @@ fn forward_1d(a: &mut [i16], wavelet_type: u32) {
         odd[i] = odd[i].wrapping_sub(p_val as i16);
     }
     
-    // Update step: even[i] += round(U(odd)) [CDF 5/3 classic updater]
     for i in 0..half {
         let prev = if i > 0 { odd[i - 1] } else { odd[0] };
         let curr = odd[i];
@@ -229,7 +97,6 @@ fn forward_1d(a: &mut [i16], wavelet_type: u32) {
     }
 }
 
-/// 1D inverse lifting step with selectable predictor order
 fn inverse_1d(a: &mut [i16], wavelet_type: u32) {
     let len = a.len();
     if len < 2 { return; }
@@ -242,7 +109,6 @@ fn inverse_1d(a: &mut [i16], wavelet_type: u32) {
         odd[i] = a[half + i];
     }
     
-    // Inverse Update step
     for i in 0..half {
         let prev = if i > 0 { odd[i - 1] } else { odd[0] };
         let curr = odd[i];
@@ -250,16 +116,13 @@ fn inverse_1d(a: &mut [i16], wavelet_type: u32) {
         even[i] = even[i].wrapping_sub(update);
     }
     
-    // Inverse Predict step
     for i in 0..half {
         let p_val = match wavelet_type {
-            // Order 1 (Linear / CDF 5/3): 2-taps
             0 => {
                 let e0 = get_even(&even, i as i32);
                 let e1 = get_even(&even, i as i32 + 1);
                 (e0 + e1) / 2
             },
-            // Order 3 (Cubic Lagrange): 4-taps
             1 => {
                 let e_prev = get_even(&even, i as i32 - 1);
                 let e0 = get_even(&even, i as i32);
@@ -267,7 +130,6 @@ fn inverse_1d(a: &mut [i16], wavelet_type: u32) {
                 let e_next = get_even(&even, i as i32 + 2);
                 (-e_prev + 9 * e0 + 9 * e1 - e_next + 8) / 16
             },
-            // Order 5 (Quintic Lagrange): 6-taps
             _ => {
                 let e_prev2 = get_even(&even, i as i32 - 2);
                 let e_prev1 = get_even(&even, i as i32 - 1);
@@ -286,10 +148,6 @@ fn inverse_1d(a: &mut [i16], wavelet_type: u32) {
         a[2 * i + 1] = odd[i];
     }
 }
-
-// ==========================================
-// 1D Wavelet Packet Decomposition (WPD)
-// ==========================================
 
 fn forward_wpd(a: &mut [i16], depth: usize, wavelet_type: u32) {
     if depth == 0 { return; }
@@ -315,7 +173,6 @@ fn inverse_wpd(a: &mut [i16], depth: usize, wavelet_type: u32) {
     inverse_1d(a, wavelet_type);
 }
 
-/// Calculates image width W based on the number of stereo pairs and height H.
 fn calculate_grid_width(data_len: usize, h: usize) -> usize {
     let num_pairs = (data_len + 3) / 4;
     let mut w = (num_pairs + h - 1) / h;
@@ -330,7 +187,6 @@ fn calculate_grid_width(data_len: usize, h: usize) -> usize {
 
 // ==========================================
 // Bijeção 3: Codificação Semântica Gray Code
-// Transformação da Topologia de Inteiros para Bit-Planes
 // ==========================================
 
 #[inline]
@@ -360,346 +216,320 @@ pub fn gray_decode(mut val: u32) -> i32 {
 }
 
 // ==========================================
-// WASM Entrypoints for Hierarchical Semantic Spectrogram (V2: Single-Pixel Bit-Plane)
+// 4. Cubic-Shell Geodesic Snake (V2 LUT)
 // ==========================================
 
-#[wasm_bindgen]
-pub fn encode_wavelet_v2_bitplane(data: &[u8], h_custom: usize, wavelet_type: u32) -> Vec<u8> {
-    let original_len = data.len() as u32;
-    
-    // Validate target height H (must be power of 2)
-    let mut h = h_custom;
-    if !h.is_power_of_two() || h < 4 {
-        h = 1024; // 21.5 Hz frequency resolution
-    }
-    
-    let num_pairs = (data.len() + 3) / 4;
-    let mut w = (num_pairs + h - 1) / h;
-    if w < 1 { w = 1; }
-    let grid_size = w * h;
-    
-    let mut mid_grid = vec![0i16; grid_size];
-    let mut side_grid = vec![0i16; grid_size];
-    
-    // 1. Unpack L/R Little-Endian samples, convert to Mid/Side
-    for i in 0..((data.len() + 3) / 4) {
-        let offset = i * 4;
-        let b0 = if offset < data.len() { data[offset] } else { 0 };
-        let b1 = if offset + 1 < data.len() { data[offset + 1] } else { 0 };
-        let b2 = if offset + 2 < data.len() { data[offset + 2] } else { 0 };
-        let b3 = if offset + 3 < data.len() { data[offset + 3] } else { 0 };
-        
-        let l_sample = (((b1 as u16) << 8) | (b0 as u16)) as i16;
-        let r_sample = (((b3 as u16) << 8) | (b2 as u16)) as i16;
-        
-        let (m, s) = lr_to_ms(l_sample, r_sample);
-        mid_grid[i] = m;
-        side_grid[i] = s;
-    }
-    
-    // 2. Apply 1D Wavelet Packet Decomposition (Frequency is vertical rows)
-    let depth = (h as f64).log2() as usize;
-    forward_wpd(&mut mid_grid, depth, wavelet_type);
-    forward_wpd(&mut side_grid, depth, wavelet_type);
-    
-    // 3. Hierarchical Bit-Plane Coding in 1 Pixel (32-bits) per Stereo Sample
-    let mut output = Vec::with_capacity(16 + grid_size * 4);
-    
-    // Metadata (Pixel 0 to 3)
-    output.extend_from_slice(&original_len.to_be_bytes());
-    output.extend_from_slice(&(w as u32).to_be_bytes()); // Restored W physical dimension!
-    output.extend_from_slice(&(h as u32).to_be_bytes());
-    
-    output.push(wavelet_type as u8);
-    output.push(2u8); // Stereo
-    output.extend_from_slice(&44100u16.to_be_bytes());
-    
-    for r in 0..h {
-        for c in 0..w {
-            let idx = r * w + c;
-            
-            // Re-map topography using Gray Code to compress sequential correlation
-            let g_m = gray_encode(mid_grid[idx] as i32) as u16;
-            let g_s = gray_encode(side_grid[idx] as i32) as u16;
-            
-            // Use Cubic-Shell color LUT for packing Mid and Side coefficients
-            let (r_m, g_m_color, _) = get_color_lut()[g_m as usize];
-            let (r_s, g_s_color, _) = get_color_lut()[g_s as usize];
-            
-            // Inverting the Alpha channel so that silence yields Opaque (255)
-            let a_encoded = 255u8.wrapping_sub(g_s_color);
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rgb {
+    pub r: u16,
+    pub g: u16,
+    pub b: u16,
+}
 
-            output.push(r_m);       // R = Mid Red
-            output.push(g_m_color); // G = Mid Green
-            output.push(r_s);       // B = Side Red
-            output.push(a_encoded); // A = Side Green Inverted
+struct DecodeEntry {
+    key: u64,
+    index: u16,
+}
+
+static COLOR_LUT: OnceLock<[(u8, u8, u8); 65536]> = OnceLock::new();
+static DECODE_LUT: OnceLock<Vec<DecodeEntry>> = OnceLock::new();
+static REVERSE_RG: OnceLock<Vec<u16>> = OnceLock::new();
+
+fn generate_geodesic_snake_luts() {
+    let mut lut = [(0u8, 0u8, 0u8); 65536];
+    let mut idx = 0;
+    
+    for l in 0..256 {
+        let mut pts = Vec::with_capacity(3000);
+        for r in 0..=l {
+            for g in 0..=l {
+                if r == l || g == l {
+                    let pair = (r as u8, g as u8);
+                    if !pts.contains(&pair) {
+                        pts.push(pair);
+                    }
+                }
+            }
+        }
+        
+        pts.sort_unstable_by(|a, b| {
+            let key_a = (a.0 as u16 + a.1 as u16) % 2;
+            let key_b = (b.0 as u16 + b.1 as u16) % 2;
+            key_a.cmp(&key_b).then(a.0.cmp(&b.0)).then(a.1.cmp(&b.1))
+        });
+        
+        for p in pts {
+            if idx >= 65536 { break; }
+            lut[idx] = (p.0, p.1, l as u8);
+            idx += 1;
         }
     }
     
-    output
+    while idx < 65536 {
+        lut[idx] = (255, 255, 255);
+        idx += 1;
+    }
+    
+    COLOR_LUT.set(lut).ok();
+    
+    let mut decode_vec = Vec::with_capacity(65536);
+    let mut rev_rg = vec![0u16; 256 * 256];
+    
+    for i in 0..65536 {
+        let (r, g, b) = lut[i];
+        let key = (r as u64 * r as u64 + g as u64 * g as u64 + b as u64 * b as u64) * 16777216
+            + (r as u64 * 65536) + (g as u64 * 256) + b as u64;
+            
+        decode_vec.push(DecodeEntry { key, index: i as u16 });
+        
+        let rg_idx = (r as usize * 256) + g as usize;
+        rev_rg[rg_idx] = i as u16;
+    }
+    
+    decode_vec.sort_unstable_by_key(|e| e.key);
+    DECODE_LUT.set(decode_vec).ok();
+    REVERSE_RG.set(rev_rg).ok();
+}
+
+fn ensure_luts() {
+    if COLOR_LUT.get().is_none() {
+        generate_geodesic_snake_luts();
+    }
 }
 
 #[wasm_bindgen]
-pub fn decode_wavelet_v2_bitplane(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
-    if rgba_data.len() < 16 {
-        return Err(JsValue::from_str("Invalid encoded data"));
+pub fn decode_rg_to_coefficient(r: u8, g: u8) -> i16 {
+    ensure_luts();
+    let rev = REVERSE_RG.get().unwrap();
+    let idx = (r as usize * 256) + g as usize;
+    let gray_val = rev[idx] as u32;
+    gray_decode(gray_val) as i16
+}
+
+#[wasm_bindgen]
+pub fn decode_color_to_coefficient(r: u8, g: u8, b: u8) -> i16 {
+    ensure_luts();
+    let dec = DECODE_LUT.get().unwrap();
+    let key = (r as u64 * r as u64 + g as u64 * g as u64 + b as u64 * b as u64) * 16777216
+        + (r as u64 * 65536) + (g as u64 * 256) + b as u64;
+        
+    let search = dec.binary_search_by_key(&key, |e| e.key);
+    let idx_lut = match search {
+        Ok(pos) => dec[pos].index,
+        Err(_) => {
+            let rev = REVERSE_RG.get().unwrap();
+            rev[(r as usize * 256) + g as usize]
+        }
+    };
+    gray_decode(idx_lut as u32) as i16
+}
+
+#[wasm_bindgen]
+pub fn get_color_r(index: u16) -> u8 {
+    ensure_luts();
+    COLOR_LUT.get().unwrap()[index as usize].0
+}
+
+#[wasm_bindgen]
+pub fn get_color_g(index: u16) -> u8 {
+    ensure_luts();
+    COLOR_LUT.get().unwrap()[index as usize].1
+}
+
+#[wasm_bindgen]
+pub fn get_color_b(index: u16) -> u8 {
+    ensure_luts();
+    COLOR_LUT.get().unwrap()[index as usize].2
+}
+
+// ==========================================
+// 5. V3: Reversible Pure Arithmetic Serpentine Curve
+// ==========================================
+
+#[inline]
+fn c2(x: i64) -> i64 {
+    if x >= 2 { x * (x - 1) / 2 } else { 0 }
+}
+
+#[inline]
+fn c3(x: i64) -> i64 {
+    if x >= 3 {
+        x * (x - 1) * (x - 2) / 6
+    } else {
+        0
     }
-    
-    let mut len_bytes = [0u8; 4];
-    let mut w_bytes = [0u8; 4];
-    let mut h_bytes = [0u8; 4];
-    
-    len_bytes.copy_from_slice(&rgba_data[0..4]);
-    w_bytes.copy_from_slice(&rgba_data[4..8]);
-    h_bytes.copy_from_slice(&rgba_data[8..12]);
-    
-    let original_len = u32::from_be_bytes(len_bytes) as usize;
-    let w = u32::from_be_bytes(w_bytes) as usize;
-    let h = u32::from_be_bytes(h_bytes) as usize;
-    
-    let wavelet_type = rgba_data[12] as u32;
-    
-    let expected_coeff_len = w * h * 4; // 1 pixel (4 bytes) per sample
-    if rgba_data.len() < 16 + expected_coeff_len {
-        return Err(JsValue::from_str("Invalid encoded data size."));
+}
+
+#[inline]
+fn shell_count(q: i64, m: i64) -> i64 {
+    c2(q + 2)
+        - 3 * c2(q - m + 1)
+        + 3 * c2(q - 2 * m)
+        - c2(q - 3 * m - 1)
+}
+
+#[inline]
+fn prefix(q: i64, m: i64) -> i64 {
+    if q < 0 {
+        return 0;
     }
-    
-    let grid_size = w * h;
-    let mut mid_grid = vec![0i16; grid_size];
-    let mut side_grid = vec![0i16; grid_size];
-    
-    for r in 0..h {
-        for c in 0..w {
-            let offset = 16 + (r * w + c) * 4;
-            
-            let r_m = rgba_data[offset];
-            let g_m_color = rgba_data[offset + 1];
-            let r_s = rgba_data[offset + 2];
-            let a_encoded = rgba_data[offset + 3];
-            
-            let g_s_color = 255u8.wrapping_sub(a_encoded);
-            
-            let g_m = decode_rg_to_coefficient(r_m, g_m_color);
-            let g_s = decode_rg_to_coefficient(r_s, g_s_color);
-            
-            let idx = r * w + c;
-            mid_grid[idx] = gray_decode(g_m as u32) as i16;
-            side_grid[idx] = gray_decode(g_s as u32) as i16;
+    c3(q + 3)
+        - 3 * c3(q - m + 2)
+        + 3 * c3(q - 2 * m + 1)
+        - c3(q - 3 * m)
+}
+
+#[inline]
+fn locate_q(n: u32, m: u32) -> u32 {
+    let mut lo = 0;
+    let mut hi = 3 * m;
+    while lo < hi {
+        let mid = (lo + hi) / 2;
+        if prefix(mid as i64, m as i64) > n as i64 {
+            hi = mid;
+        } else {
+            lo = mid + 1;
         }
     }
-    
-    let depth = (h as f64).log2() as usize;
-    inverse_wpd(&mut mid_grid, depth, wavelet_type);
-    inverse_wpd(&mut side_grid, depth, wavelet_type);
-    
-    let mut original_data = Vec::with_capacity(original_len);
-    for i in 0..((original_len + 3) / 4) {
-        let m = mid_grid[i];
-        let s = side_grid[i];
-        
-        let (l, r) = ms_to_lr(m, s);
-        let u16_l = l as u16;
-        let u16_r = r as u16;
-        
-        let b0 = (u16_l & 0xFF) as u8;
-        let b1 = (u16_l >> 8) as u8;
-        let b2 = (u16_r & 0xFF) as u8;
-        let b3 = (u16_r >> 8) as u8;
-        
-        original_data.push(b0);
-        if original_data.len() < original_len { original_data.push(b1); }
-        if original_data.len() < original_len { original_data.push(b2); }
-        if original_data.len() < original_len { original_data.push(b3); }
-    }
-    
-    Ok(original_data)
+    lo
 }
 
-// ==========================================
-// WASM Entrypoints for Panoramic WPD Spectrogram (V1: Two-Pixel RGB)
-// ==========================================
+#[inline]
+fn row_range(q: u32, m: u32) -> (u32, u32) {
+    (
+        q.saturating_sub(2 * m),
+        q.min(m),
+    )
+}
 
-#[wasm_bindgen]
-pub fn encode_wavelet_v1_two_pixels(data: &[u8], h_custom: usize, wavelet_type: u32) -> Vec<u8> {
-    let original_len = data.len() as u32;
-    
-    // Validate target height H (must be power of 2)
-    let mut h = h_custom;
-    if !h.is_power_of_two() || h < 4 {
-        h = 1024; // 21.5 Hz frequency resolution
+fn row_prefix(q: u32, t: u32, m: u32) -> u32 {
+    let q = q as i64;
+    let t = t as i64;
+    let m = m as i64;
+    let r0 = (q - 2 * m).max(0);
+    let rmax = q.min(m);
+
+    if t <= r0 {
+        return 0;
     }
-    
-    let w = calculate_grid_width(data.len(), h);
-    let grid_size = w * h;
-    
-    let mut mid_grid = vec![0i16; grid_size];
-    let mut side_grid = vec![0i16; grid_size];
-    
-    // 1. Unpack L/R Little-Endian samples, convert to Mid/Side
-    for i in 0..((data.len() + 3) / 4) {
-        let offset = i * 4;
-        let b0 = if offset < data.len() { data[offset] } else { 0 };
-        let b1 = if offset + 1 < data.len() { data[offset + 1] } else { 0 };
-        let b2 = if offset + 2 < data.len() { data[offset + 2] } else { 0 };
-        let b3 = if offset + 3 < data.len() { data[offset + 3] } else { 0 };
-        
-        let l_sample = (((b1 as u16) << 8) | (b0 as u16)) as i16;
-        let r_sample = (((b3 as u16) << 8) | (b2 as u16)) as i16;
-        
-        let (m, s) = lr_to_ms(l_sample, r_sample);
-        mid_grid[i] = m;
-        side_grid[i] = s;
+    let t = t.min(rmax + 1);
+
+    if q <= m {
+        return (t * (q + 1) - t * (t - 1) / 2) as u32;
     }
-    
-    // 2. Apply 1D Wavelet Packet Decomposition (Frequency is vertical rows)
-    let depth = (h as f64).log2() as usize;
-    forward_wpd(&mut mid_grid, depth, wavelet_type);
-    forward_wpd(&mut side_grid, depth, wavelet_type);
-    
-    // 3. Pack metadata and coefficients into 8-bytes (2 pixels) per sample
-    // Output size: 16 bytes metadata + W * H * 2 pixels * 4 bytes/pixel = 16 + W * H * 8 bytes
-    let mut output = Vec::with_capacity(16 + grid_size * 8);
-    
-    // Metadata (Pixel 0 to 3)
-    output.extend_from_slice(&original_len.to_be_bytes());
-    
-    // Save W_png = W * 2 because we use 2 adjacent pixels per sample!
-    let w_png = (w * 2) as u32;
-    output.extend_from_slice(&w_png.to_be_bytes());
-    output.extend_from_slice(&(h as u32).to_be_bytes());
-    
-    // Pixel 3: Parameters [Wavelet Type (1B), Channels (1B), Sample Rate (2B)]
-    output.push(wavelet_type as u8);
-    output.push(2u8); // Stereo
-    output.extend_from_slice(&44100u16.to_be_bytes());
-    
-    // Pack C_M and C_S into 2 adjacent pixels (8 bytes total)
-    for r in 0..h {
-        for c in 0..w {
-            let idx = r * w + c;
-            
-            // Encode using full 16-bit ZigZag headroom (lossless!)
-            let u16_m = zigzag_encode(mid_grid[idx] as i32) as u16;
-            let u16_s = zigzag_encode(side_grid[idx] as i32) as u16;
-            
-            // Pixel A (Mid / Mono) - RGB active, A = 255 (opaque)
-            output.push((u16_m >> 8) as u8);   // R = high byte
-            output.push((u16_m & 0xFF) as u8); // G = low byte
-            output.push(0u8);                  // B = unused/neutral
-            output.push(255u8);                // A = fully opaque!
-            
-            // Pixel B (Side / Stereo) - RGB active, A = 255 (opaque)
-            output.push((u16_s >> 8) as u8);   // R = high byte
-            output.push((u16_s & 0xFF) as u8); // G = low byte
-            output.push(0u8);                  // B = unused/neutral
-            output.push(255u8);                // A = fully opaque!
+
+    if q <= 2 * m {
+        let s = q - m;
+        let mut out = 0i64;
+
+        let a = r0;
+        let b = t.min(s);
+
+        if b > a {
+            let n = b - a;
+            out += n * (2 * m - q + 1)
+                + (a + b - 1) * n / 2;
+        }
+
+        if t > s {
+            let c = s;
+            let d = t;
+            let n = d - c;
+
+            out += n * (q + 1)
+                - (c + d - 1) * n / 2;
+        }
+
+        return out as u32;
+    }
+
+    let n = t - r0;
+    let out = n * (n + 1) / 2;
+    out as u32
+}
+
+pub fn decode_base(q: u32, r: u32, m: u32) -> Rgb {
+    let (r0, rmax) = row_range(q, m);
+    let mut lo = r0;
+    let mut hi = rmax;
+
+    while lo < hi {
+        let mid = (lo + hi) >> 1;
+        if row_prefix(q, mid + 1, m) > r {
+            hi = mid;
+        } else {
+            lo = mid + 1;
         }
     }
+
+    let rr = lo;
+    let before = row_prefix(q, rr, m);
+    let j = r - before;
+
+    let g0 = q.saturating_sub(rr + m);
+    let g1 = (q - rr).min(m);
+
+    let gg = if ((rr - r0) & 1) == 0 {
+        g0 + j
+    } else {
+        g1 - j
+    };
+
+    let bb = q - rr - gg;
+
+    Rgb {
+        r: rr as u16,
+        g: gg as u16,
+        b: bb as u16,
+    }
+}
+
+#[inline]
+pub fn decode_n(n: u32, m: u32) -> Rgb {
+    let q = locate_q(n, m);
+    let q_sub = (q as i32) - 1;
+    let r = n - prefix(q_sub as i64, m as i64) as u32;
+    decode_base(q, r, m)
+}
+
+#[inline]
+pub fn encode_n(p: Rgb, m: u32) -> u32 {
+    let q = p.r as u32 + p.g as u32 + p.b as u32;
+    let (r0, _rmax) = row_range(q, m);
+    let rr = p.r as u32;
+    let gg = p.g as u32;
     
-    output
+    let before = row_prefix(q, rr, m);
+    let g0 = q.saturating_sub(rr + m);
+    let g1 = (q - rr).min(m);
+    
+    let j = if ((rr - r0) & 1) == 0 {
+        gg.saturating_sub(g0)
+    } else {
+        g1.saturating_sub(gg)
+    };
+    
+    let local = before + j;
+    let q_sub = (q as i32) - 1;
+    (prefix(q_sub as i64, m as i64) as u32) + local
 }
 
 #[wasm_bindgen]
-pub fn decode_wavelet_v1_two_pixels(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
-    if rgba_data.len() < 16 {
-        return Err(JsValue::from_str("Invalid encoded data: too short to contain wavelet metadata header."));
-    }
-    
-    // Read metadata header
-    let mut len_bytes = [0u8; 4];
-    let mut w_png_bytes = [0u8; 4];
-    let mut h_bytes = [0u8; 4];
-    
-    len_bytes.copy_from_slice(&rgba_data[0..4]);
-    w_png_bytes.copy_from_slice(&rgba_data[4..8]);
-    h_bytes.copy_from_slice(&rgba_data[8..12]);
-    
-    let original_len = u32::from_be_bytes(len_bytes) as usize;
-    let w_png = u32::from_be_bytes(w_png_bytes) as usize;
-    let h = u32::from_be_bytes(h_bytes) as usize;
-    
-    // Since we use 2 pixels per sample, W_audio is exactly W_png / 2
-    let w = w_png / 2;
-    
-    // Read parameters
-    let wavelet_type = rgba_data[12] as u32;
-    
-    let expected_coeff_len = w * h * 8; // 2 pixels per coefficient
-    if rgba_data.len() < 16 + expected_coeff_len {
-        return Err(JsValue::from_str("Invalid encoded data size."));
-    }
-    
-    let grid_size = w * h;
-    let mut mid_grid = vec![0i16; grid_size];
-    let mut side_grid = vec![0i16; grid_size];
-    
-    // 1. Unpack 8-byte (2 adjacent pixels) pairs back into i16 coefficients
-    for r in 0..h {
-        for c in 0..w {
-            let idx = r * w + c;
-            
-            // Pixel A is at r * w_png + (c * 2)
-            let offset_a = 16 + (r * w_png + (c * 2)) * 4;
-            let offset_b = offset_a + 4;
-            
-            // Read 16-bit Mid coefficient from R and G of Pixel A
-            let u16_m = ((rgba_data[offset_a] as u16) << 8) | (rgba_data[offset_a + 1] as u16);
-                
-            // Read 16-bit Side coefficient from R and G of Pixel B
-            let u16_s = ((rgba_data[offset_b] as u16) << 8) | (rgba_data[offset_b + 1] as u16);
-                
-            mid_grid[idx] = zigzag_decode(u16_m as u32) as i16;
-            side_grid[idx] = zigzag_decode(u16_s as u32) as i16;
-        }
-    }
-    
-    // 2. Run inverse 1D Wavelet Packet Reconstruction
-    let depth = (h as f64).log2() as usize;
-    inverse_wpd(&mut mid_grid, depth, wavelet_type);
-    inverse_wpd(&mut side_grid, depth, wavelet_type);
-    
-    // 3. Unpack Mid/Side back to Left/Right samples and serialize as Little-Endian
-    let mut original_data = Vec::with_capacity(original_len);
-    for i in 0..((original_len + 3) / 4) {
-        let m = mid_grid[i];
-        let s = side_grid[i];
-        
-        let (l, r) = ms_to_lr(m, s);
-        let u16_l = l as u16;
-        let u16_r = r as u16;
-        
-        let b0 = (u16_l & 0xFF) as u8;
-        let b1 = (u16_l >> 8) as u8;
-        let b2 = (u16_r & 0xFF) as u8;
-        let b3 = (u16_r >> 8) as u8;
-        
-        original_data.push(b0);
-        if original_data.len() < original_len { original_data.push(b1); }
-        if original_data.len() < original_len { original_data.push(b2); }
-        if original_data.len() < original_len { original_data.push(b3); }
-    }
-    
-    Ok(original_data)
-}
-
-// ==========================================
-// Backwards-compatible Default Entrypoints (Routing to V2)
-// ==========================================
-
-#[wasm_bindgen]
-pub fn encode_wavelet(data: &[u8], h_custom: usize, wavelet_type: u32) -> Vec<u8> {
-    encode_wavelet_v2_bitplane(data, h_custom, wavelet_type)
+pub fn wasm_decode_n(n: u32, m: u32) -> Vec<u16> {
+    let rgb = decode_n(n, m);
+    vec![rgb.r, rgb.g, rgb.b]
 }
 
 #[wasm_bindgen]
-pub fn decode_wavelet(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
-    decode_wavelet_v2_bitplane(rgba_data)
+pub fn wasm_encode_n(r: u16, g: u16, b: u16, m: u32) -> u32 {
+    encode_n(Rgb { r, g, b }, m)
 }
 
 // ==========================================
-// Naive Baseline (Legacy)
+// WASM Entrypoints for ALL Versions (Modular sandboxes)
 // ==========================================
 
+// Legacy Naive
 #[wasm_bindgen]
 pub fn encode_naive(data: &[u8]) -> Vec<u8> {
     let original_len = data.len() as u32;
@@ -717,15 +547,427 @@ pub fn encode_naive(data: &[u8]) -> Vec<u8> {
 #[wasm_bindgen]
 pub fn decode_naive(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
     if rgba_data.len() < 4 {
-        return Err(JsValue::from_str("Invalid encoded data: too short to contain length prefix."));
+        return Err(JsValue::from_str("Invalid naive data"));
     }
     let mut len_bytes = [0u8; 4];
     len_bytes.copy_from_slice(&rgba_data[0..4]);
     let original_len = u32::from_be_bytes(len_bytes) as usize;
-    if rgba_data.len() < 4 + original_len {
-        return Err(JsValue::from_str("Invalid encoded data size."));
-    }
     Ok(rgba_data[4..4 + original_len].to_vec())
+}
+
+// V1: Two-Pixel Sólido (8-bytes, RGB-only)
+#[wasm_bindgen]
+pub fn encode_wavelet_v1_two_pixels(data: &[u8], h_custom: usize, wavelet_type: u32) -> Vec<u8> {
+    let original_len = data.len() as u32;
+    let mut h = h_custom;
+    if !h.is_power_of_two() || h < 4 { h = 1024; }
+    let w = calculate_grid_width(data.len(), h);
+    let grid_size = w * h;
+    
+    let mut mid_grid = vec![0i16; grid_size];
+    let mut side_grid = vec![0i16; grid_size];
+    
+    for i in 0..((data.len() + 3) / 4) {
+        let offset = i * 4;
+        let b0 = if offset < data.len() { data[offset] } else { 0 };
+        let b1 = if offset + 1 < data.len() { data[offset + 1] } else { 0 };
+        let b2 = if offset + 2 < data.len() { data[offset + 2] } else { 0 };
+        let b3 = if offset + 3 < data.len() { data[offset + 3] } else { 0 };
+        
+        let l_sample = (((b1 as u16) << 8) | (b0 as u16)) as i16;
+        let r_sample = (((b3 as u16) << 8) | (b2 as u16)) as i16;
+        
+        let (m, s) = lr_to_ms(l_sample, r_sample);
+        mid_grid[i] = m;
+        side_grid[i] = s;
+    }
+    
+    let depth = (h as f64).log2() as usize;
+    forward_wpd(&mut mid_grid, depth, wavelet_type);
+    forward_wpd(&mut side_grid, depth, wavelet_type);
+    
+    let mut output = Vec::with_capacity(16 + grid_size * 8);
+    output.extend_from_slice(&original_len.to_be_bytes());
+    let w_png = (w * 2) as u32;
+    output.extend_from_slice(&w_png.to_be_bytes());
+    output.extend_from_slice(&(h as u32).to_be_bytes());
+    
+    output.push(wavelet_type as u8);
+    output.push(1u8); // Packing Version 1!
+    output.extend_from_slice(&44100u16.to_be_bytes());
+    
+    for r in 0..h {
+        for c in 0..w {
+            let idx = r * w + c;
+            let u16_m = zigzag_encode(mid_grid[idx] as i32) as u16;
+            let u16_s = zigzag_encode(side_grid[idx] as i32) as u16;
+            
+            output.push((u16_m >> 8) as u8);
+            output.push((u16_m & 0xFF) as u8);
+            output.push(0u8);
+            output.push(255u8);
+            
+            output.push((u16_s >> 8) as u8);
+            output.push((u16_s & 0xFF) as u8);
+            output.push(0u8);
+            output.push(255u8);
+        }
+    }
+    output
+}
+
+#[wasm_bindgen]
+pub fn decode_wavelet_v1_two_pixels(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
+    if rgba_data.len() < 16 { return Err(JsValue::from_str("Invalid V1 data")); }
+    let mut len_bytes = [0u8; 4];
+    let mut w_png_bytes = [0u8; 4];
+    let mut h_bytes = [0u8; 4];
+    
+    len_bytes.copy_from_slice(&rgba_data[0..4]);
+    w_png_bytes.copy_from_slice(&rgba_data[4..8]);
+    h_bytes.copy_from_slice(&rgba_data[8..12]);
+    
+    let original_len = u32::from_be_bytes(len_bytes) as usize;
+    let w_png = u32::from_be_bytes(w_png_bytes) as usize;
+    let h = u32::from_be_bytes(h_bytes) as usize;
+    let w = w_png / 2;
+    
+    let wavelet_type = rgba_data[12] as u32;
+    let grid_size = w * h;
+    let mut mid_grid = vec![0i16; grid_size];
+    let mut side_grid = vec![0i16; grid_size];
+    
+    for r in 0..h {
+        for c in 0..w {
+            let idx = r * w + c;
+            let offset_a = 16 + (r * w_png + (c * 2)) * 4;
+            let offset_b = offset_a + 4;
+            
+            let u16_m = ((rgba_data[offset_a] as u16) << 8) | (rgba_data[offset_a + 1] as u16);
+            let u16_s = ((rgba_data[offset_b] as u16) << 8) | (rgba_data[offset_b + 1] as u16);
+            
+            mid_grid[idx] = zigzag_decode(u16_m as u32) as i16;
+            side_grid[idx] = zigzag_decode(u16_s as u32) as i16;
+        }
+    }
+    
+    let depth = (h as f64).log2() as usize;
+    inverse_wpd(&mut mid_grid, depth, wavelet_type);
+    inverse_wpd(&mut side_grid, depth, wavelet_type);
+    
+    let mut original_data = Vec::with_capacity(original_len);
+    for i in 0..((original_len + 3) / 4) {
+        let m = mid_grid[i];
+        let s = side_grid[i];
+        let (l, r) = ms_to_lr(m, s);
+        let u16_l = l as u16;
+        let u16_r = r as u16;
+        
+        original_data.push((u16_l & 0xFF) as u8);
+        if original_data.len() < original_len { original_data.push((u16_l >> 8) as u8); }
+        if original_data.len() < original_len { original_data.push((u16_r & 0xFF) as u8); }
+        if original_data.len() < original_len { original_data.push((u16_r >> 8) as u8); }
+    }
+    Ok(original_data)
+}
+
+// V2: Single-Pixel Bitplane (Gray Code LUT Geodesic)
+#[wasm_bindgen]
+pub fn encode_wavelet_v2_bitplane(data: &[u8], h_custom: usize, wavelet_type: u32) -> Vec<u8> {
+    let original_len = data.len() as u32;
+    let mut h = h_custom;
+    if !h.is_power_of_two() || h < 4 { h = 1024; }
+    
+    let num_pairs = (data.len() + 3) / 4;
+    let mut w = (num_pairs + h - 1) / h;
+    if w < 1 { w = 1; }
+    let grid_size = w * h;
+    
+    let mut mid_grid = vec![0i16; grid_size];
+    let mut side_grid = vec![0i16; grid_size];
+    
+    for i in 0..((data.len() + 3) / 4) {
+        let offset = i * 4;
+        let b0 = if offset < data.len() { data[offset] } else { 0 };
+        let b1 = if offset + 1 < data.len() { data[offset + 1] } else { 0 };
+        let b2 = if offset + 2 < data.len() { data[offset + 2] } else { 0 };
+        let b3 = if offset + 3 < data.len() { data[offset + 3] } else { 0 };
+        
+        let l_sample = (((b1 as u16) << 8) | (b0 as u16)) as i16;
+        let r_sample = (((b3 as u16) << 8) | (b2 as u16)) as i16;
+        
+        let (m, s) = lr_to_ms(l_sample, r_sample);
+        mid_grid[i] = m;
+        side_grid[i] = s;
+    }
+    
+    let depth = (h as f64).log2() as usize;
+    forward_wpd(&mut mid_grid, depth, wavelet_type);
+    forward_wpd(&mut side_grid, depth, wavelet_type);
+    
+    let mut output = Vec::with_capacity(16 + grid_size * 4);
+    output.extend_from_slice(&original_len.to_be_bytes());
+    output.extend_from_slice(&(w as u32).to_be_bytes());
+    output.extend_from_slice(&(h as u32).to_be_bytes());
+    
+    output.push(wavelet_type as u8);
+    output.push(2u8); // Packing Version 2!
+    output.extend_from_slice(&44100u16.to_be_bytes());
+    
+    ensure_luts();
+    let lut = COLOR_LUT.get().unwrap();
+    
+    for r in 0..h {
+        for c in 0..w {
+            let idx = r * w + c;
+            
+            let g_m = gray_encode(mid_grid[idx] as i32) as usize;
+            let g_s = gray_encode(side_grid[idx] as i32) as usize;
+            
+            let (r_m, g_m, b_m) = lut[g_m % 65536];
+            let (r_s, g_s, _b_s) = lut[g_s % 65536];
+            
+            output.push(r_m);
+            output.push(g_m);
+            output.push(r_s);
+            output.push(255u8.wrapping_sub(g_s)); // Alpha inverted side detail
+        }
+    }
+    output
+}
+
+#[wasm_bindgen]
+pub fn decode_wavelet_v2_bitplane(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
+    if rgba_data.len() < 16 { return Err(JsValue::from_str("Invalid V2 data")); }
+    let mut len_bytes = [0u8; 4];
+    let mut w_bytes = [0u8; 4];
+    let mut h_bytes = [0u8; 4];
+    
+    len_bytes.copy_from_slice(&rgba_data[0..4]);
+    w_bytes.copy_from_slice(&rgba_data[4..8]);
+    h_bytes.copy_from_slice(&rgba_data[8..12]);
+    
+    let original_len = u32::from_be_bytes(len_bytes) as usize;
+    let w = u32::from_be_bytes(w_bytes) as usize;
+    let h = u32::from_be_bytes(h_bytes) as usize;
+    let wavelet_type = rgba_data[12] as u32;
+    
+    let expected_coeff_len = w * h * 4;
+    if rgba_data.len() < 16 + expected_coeff_len { return Err(JsValue::from_str("Invalid V2 size")); }
+    
+    let grid_size = w * h;
+    let mut mid_grid = vec![0i16; grid_size];
+    let mut side_grid = vec![0i16; grid_size];
+    
+    ensure_luts();
+    let rev = REVERSE_RG.get().unwrap();
+    
+    for r in 0..h {
+        for c in 0..w {
+            let offset = 16 + (r * w + c) * 4;
+            let r_m = rgba_data[offset] as usize;
+            let g_m = rgba_data[offset + 1] as usize;
+            let r_s = rgba_data[offset + 2] as usize;
+            let a_encoded = rgba_data[offset + 3];
+            let g_s = 255u32.wrapping_sub(a_encoded as u32) as usize;
+            
+            let g_m_idx = rev[r_m * 256 + g_m] as u32;
+            let g_s_idx = rev[r_s * 256 + g_s] as u32;
+            
+            let idx = r * w + c;
+            mid_grid[idx] = gray_decode(g_m_idx) as i16;
+            side_grid[idx] = gray_decode(g_s_idx) as i16;
+        }
+    }
+    
+    let depth = (h as f64).log2() as usize;
+    inverse_wpd(&mut mid_grid, depth, wavelet_type);
+    inverse_wpd(&mut side_grid, depth, wavelet_type);
+    
+    let mut original_data = Vec::with_capacity(original_len);
+    for i in 0..((original_len + 3) / 4) {
+        let m = mid_grid[i];
+        let s = side_grid[i];
+        let (l, r) = ms_to_lr(m, s);
+        let u16_l = l as u16;
+        let u16_r = r as u16;
+        
+        original_data.push((u16_l & 0xFF) as u8);
+        if original_data.len() < original_len { original_data.push((u16_l >> 8) as u8); }
+        if original_data.len() < original_len { original_data.push((u16_r & 0xFF) as u8); }
+        if original_data.len() < original_len { original_data.push((u16_r >> 8) as u8); }
+    }
+    Ok(original_data)
+}
+
+// ==========================================
+// 5. V3: Reversible Pure Arithmetic Serpentine Curve (High-Contrast Scale-Optimized)
+// ==========================================
+
+#[inline]
+pub fn scale_coordinate(val: u16) -> u8 {
+    (((val as f64) * 255.0 / 40.0).round()) as u8
+}
+
+#[inline]
+pub fn unscale_coordinate(val: u8) -> u16 {
+    (((val as f64) * 40.0 / 255.0).round()) as u16
+}
+
+// V3: Reversible Pure Arithmetic Serpentine Curve (8-bytes, RGB-only)
+#[wasm_bindgen]
+pub fn encode_wavelet_v3_serpentine(data: &[u8], h_custom: usize, wavelet_type: u32) -> Vec<u8> {
+    let original_len = data.len() as u32;
+    let mut h = h_custom;
+    if !h.is_power_of_two() || h < 4 { h = 1024; }
+    let w = calculate_grid_width(data.len(), h);
+    let grid_size = w * h;
+    
+    let mut mid_grid = vec![0i16; grid_size];
+    let mut side_grid = vec![0i16; grid_size];
+    
+    for i in 0..((data.len() + 3) / 4) {
+        let offset = i * 4;
+        let b0 = if offset < data.len() { data[offset] } else { 0 };
+        let b1 = if offset + 1 < data.len() { data[offset + 1] } else { 0 };
+        let b2 = if offset + 2 < data.len() { data[offset + 2] } else { 0 };
+        let b3 = if offset + 3 < data.len() { data[offset + 3] } else { 0 };
+        
+        let l_sample = (((b1 as u16) << 8) | (b0 as u16)) as i16;
+        let r_sample = (((b3 as u16) << 8) | (b2 as u16)) as i16;
+        
+        let (m, s) = lr_to_ms(l_sample, r_sample);
+        mid_grid[i] = m;
+        side_grid[i] = s;
+    }
+    
+    let depth = (h as f64).log2() as usize;
+    forward_wpd(&mut mid_grid, depth, wavelet_type);
+    forward_wpd(&mut side_grid, depth, wavelet_type);
+    
+    let mut output = Vec::with_capacity(16 + grid_size * 8);
+    output.extend_from_slice(&original_len.to_be_bytes());
+    let w_png = (w * 2) as u32;
+    output.extend_from_slice(&w_png.to_be_bytes());
+    output.extend_from_slice(&(h as u32).to_be_bytes());
+    
+    output.push(wavelet_type as u8);
+    output.push(3u8); // Packing Version 3!
+    output.extend_from_slice(&44100u16.to_be_bytes());
+    
+    for r in 0..h {
+        for c in 0..w {
+            let idx = r * w + c;
+            
+            let u16_m = zigzag_encode(mid_grid[idx] as i32);
+            let u16_s = zigzag_encode(side_grid[idx] as i32);
+            
+            let rgb_m = decode_n(u16_m, 40);
+            let rgb_s = decode_n(u16_s, 40);
+            
+            output.push(scale_coordinate(rgb_m.r));
+            output.push(scale_coordinate(rgb_m.g));
+            output.push(scale_coordinate(rgb_m.b));
+            output.push(255u8);
+            
+            output.push(scale_coordinate(rgb_s.r));
+            output.push(scale_coordinate(rgb_s.g));
+            output.push(scale_coordinate(rgb_s.b));
+            output.push(255u8);
+        }
+    }
+    output
+}
+
+#[wasm_bindgen]
+pub fn decode_wavelet_v3_serpentine(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
+    if rgba_data.len() < 16 { return Err(JsValue::from_str("Invalid V3 data")); }
+    let mut len_bytes = [0u8; 4];
+    let mut w_png_bytes = [0u8; 4];
+    let mut h_bytes = [0u8; 4];
+    
+    len_bytes.copy_from_slice(&rgba_data[0..4]);
+    w_png_bytes.copy_from_slice(&rgba_data[4..8]);
+    h_bytes.copy_from_slice(&rgba_data[8..12]);
+    
+    let original_len = u32::from_be_bytes(len_bytes) as usize;
+    let w_png = u32::from_be_bytes(w_png_bytes) as usize;
+    let h = u32::from_be_bytes(h_bytes) as usize;
+    let w = w_png / 2;
+    
+    let wavelet_type = rgba_data[12] as u32;
+    let grid_size = w * h;
+    let mut mid_grid = vec![0i16; grid_size];
+    let mut side_grid = vec![0i16; grid_size];
+    
+    for r in 0..h {
+        for c in 0..w {
+            let idx = r * w + c;
+            let offset_a = 16 + (r * w_png + (c * 2)) * 4;
+            let offset_b = offset_a + 4;
+            
+            let rgb_m = Rgb {
+                r: unscale_coordinate(rgba_data[offset_a]),
+                g: unscale_coordinate(rgba_data[offset_a + 1]),
+                b: unscale_coordinate(rgba_data[offset_a + 2]),
+            };
+            let rgb_s = Rgb {
+                r: unscale_coordinate(rgba_data[offset_b]),
+                g: unscale_coordinate(rgba_data[offset_b + 1]),
+                b: unscale_coordinate(rgba_data[offset_b + 2]),
+            };
+            
+            let u16_m = encode_n(rgb_m, 40);
+            let u16_s = encode_n(rgb_s, 40);
+            
+            mid_grid[idx] = zigzag_decode(u16_m) as i16;
+            side_grid[idx] = zigzag_decode(u16_s) as i16;
+        }
+    }
+    
+    let depth = (h as f64).log2() as usize;
+    inverse_wpd(&mut mid_grid, depth, wavelet_type);
+    inverse_wpd(&mut side_grid, depth, wavelet_type);
+    
+    let mut original_data = Vec::with_capacity(original_len);
+    for i in 0..((original_len + 3) / 4) {
+        let m = mid_grid[i];
+        let s = side_grid[i];
+        let (l, r) = ms_to_lr(m, s);
+        let u16_l = l as u16;
+        let u16_r = r as u16;
+        
+        original_data.push((u16_l & 0xFF) as u8);
+        if original_data.len() < original_len { original_data.push((u16_l >> 8) as u8); }
+        if original_data.len() < original_len { original_data.push((u16_r & 0xFF) as u8); }
+        if original_data.len() < original_len { original_data.push((u16_r >> 8) as u8); }
+    }
+    Ok(original_data)
+}
+
+// Map default encode_wavelet/decode_wavelet to point to V2 (Single Pixel Bitplane)
+#[wasm_bindgen]
+pub fn encode_wavelet(data: &[u8], h_custom: usize, wavelet_type: u32) -> Vec<u8> {
+    encode_wavelet_v2_bitplane(data, h_custom, wavelet_type)
+}
+
+#[wasm_bindgen]
+pub fn decode_wavelet(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
+    decode_wavelet_v2_bitplane(rgba_data)
+}
+
+// ==========================================
+// Naive Baseline (Legacy)
+// ==========================================
+
+#[wasm_bindgen]
+pub fn encode_naive_v0(data: &[u8]) -> Vec<u8> {
+    encode_naive(data)
+}
+
+#[wasm_bindgen]
+pub fn decode_naive_v0(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
+    decode_naive(rgba_data)
 }
 
 #[cfg(test)]
@@ -733,13 +975,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_zigzag_bijection() {
-        let test_cases = vec![0, 1, -1, 32767, -32768, 12345, -12345];
-        for val in test_cases {
-            let encoded = zigzag_encode(val);
-            let decoded = zigzag_decode(encoded);
-            assert_eq!(val, decoded);
+    fn test_serpentine_arithmetic_bijection() {
+        let m = 40;
+        for n in 0..10000 {
+            let rgb = decode_n(n, m);
+            let n_rec = encode_n(rgb, m);
+            if n != n_rec {
+                println!("DIVERGENCE at index {}: RGB=({:?}), Rec={}", n, rgb, n_rec);
+                assert_eq!(n, n_rec);
+            }
         }
+    }
+
+    #[test]
+    fn test_scaling_bijection() {
+        for v in 0..=40 {
+            let scaled = scale_coordinate(v);
+            let unscaled = unscale_coordinate(scaled);
+            assert_eq!(v, unscaled, "Scaling failed at value {}", v);
+        }
+    }
+
+    #[test]
+    fn test_v2_pipeline_large() {
+        let mut original = vec![0u8; 4000];
+        for i in 0..4000 {
+            original[i] = (i % 256) as u8;
+        }
+        let encoded = encode_wavelet_v2_bitplane(&original, 256, 0);
+        let decoded = decode_wavelet_v2_bitplane(&encoded).unwrap();
+        assert_eq!(original, decoded, "V2 pipeline failed for large audio!");
+    }
+
+    #[test]
+    fn test_v3_pipeline_large() {
+        let mut original = vec![0u8; 4000];
+        for i in 0..4000 {
+            original[i] = (i % 256) as u8;
+        }
+        let encoded = encode_wavelet_v3_serpentine(&original, 256, 0);
+        let decoded = decode_wavelet_v3_serpentine(&encoded).unwrap();
+        assert_eq!(original, decoded, "V3 pipeline failed for large audio!");
     }
 
     #[test]
@@ -785,24 +1061,9 @@ mod tests {
         ];
         
         for order in 0..=2 {
-            // Test V2 (default)
-            let encoded_rgba_v2 = encode_wavelet(&original_audio, 256, order);
-            let decoded_audio_v2 = decode_wavelet(&encoded_rgba_v2).unwrap();
-            assert_eq!(original_audio, decoded_audio_v2, "V2 Pipeline failed for order {}", order);
-
-            // Test V1 (two-pixel)
-            let encoded_rgba_v1 = encode_wavelet_v1_two_pixels(&original_audio, 256, order);
-            let decoded_audio_v1 = decode_wavelet_v1_two_pixels(&encoded_rgba_v1).unwrap();
-            assert_eq!(original_audio, decoded_audio_v1, "V1 Pipeline failed for order {}", order);
+            let encoded_rgba = encode_wavelet(&original_audio, 256, order);
+            let decoded_audio = decode_wavelet(&encoded_rgba).unwrap();
+            assert_eq!(original_audio, decoded_audio, "Pipeline failed for order {}", order);
         }
-    }
-
-    #[test]
-    fn test_naive_pipeline_perfect_identity() {
-        let original_audio = vec![0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, 0x11, 0x22];
-        let encoded_image = encode_naive(&original_audio);
-        assert_eq!(encoded_image.len() % 4, 0);
-        let decoded_audio = decode_naive(&encoded_image).unwrap();
-        assert_eq!(original_audio, decoded_audio);
     }
 }

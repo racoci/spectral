@@ -5,7 +5,8 @@
     get_color_r, 
     get_color_g, 
     get_color_b,
-    decode_color_to_coefficient
+    decode_color_to_coefficient,
+    wasm_encode_n
   } from '../wasm/core_wasm.js';
 
   // Props using Svelte 5 standard runes
@@ -87,25 +88,39 @@
         const original_len = (rgbaBytes[0] << 24) | (rgbaBytes[1] << 16) | (rgbaBytes[2] << 8) | rgbaBytes[3];
         const num_samples = Math.ceil(original_len / 4);
         const isTwoPixel = w_png * height > num_samples * 1.5;
+        const packingVersion = rgbaBytes[13];
         
         for (let r = 0; r < height; r++) {
           for (let c = 0; c < width; c++) {
             let mid_high = 0;
             let mid_low = 0;
-            let side_high = 0;
             let mid_blue = 0;
+            let side_high = 0;
+            let side_low = 0;
+            let side_blue = 0;
             
             if (isTwoPixel) {
-              // Decode V1 (Two-Pixel Packing)
               const idx_a = r * w_png + (c * 2);
               const offset_a = coefOffset + idx_a * 4;
               const offset_b = offset_a + 4;
               
               if (offset_b + 3 >= rgbaBytes.length) break;
 
-              mid_high = rgbaBytes[offset_a];     // R of Pixel A
-              mid_low  = rgbaBytes[offset_a + 1]; // G of Pixel A
-              side_high = rgbaBytes[offset_b];     // R of Pixel B
+              if (packingVersion === 3) {
+                // V3: Two-Pixel Serpentine Pure Arithmetic
+                mid_high  = rgbaBytes[offset_a];     // R of Pixel A
+                mid_low   = rgbaBytes[offset_a + 1]; // G of Pixel A
+                mid_blue  = rgbaBytes[offset_a + 2]; // B of Pixel A
+                
+                side_high = rgbaBytes[offset_b];     // R of Pixel B
+                side_low  = rgbaBytes[offset_b + 1]; // G of Pixel B
+                side_blue = rgbaBytes[offset_b + 2]; // B of Pixel B
+              } else {
+                // Decode V1 (Two-Pixel Packing)
+                mid_high  = rgbaBytes[offset_a];     // R of Pixel A
+                mid_low   = rgbaBytes[offset_a + 1]; // G of Pixel A
+                side_high = rgbaBytes[offset_b];     // R of Pixel B
+              }
             } else {
               // Decode V2 (Single-Pixel Bitplane) using Cubic-Shell Color Mapping
               const idx = r * width + c;
@@ -135,12 +150,18 @@
               mid_low = m_g;
               mid_blue = m_b;
               side_high = s_r;
+              side_low = s_g;
+              side_blue = s_b;
             }
             
             const out_idx = (r * width + c) * 4;
             
             if (visualMode === 'full') {
-              if (isTwoPixel) {
+              if (packingVersion === 3) {
+                imageData.data[out_idx]     = mid_high;
+                imageData.data[out_idx + 1] = mid_low;
+                imageData.data[out_idx + 2] = side_high;
+              } else if (isTwoPixel) {
                 imageData.data[out_idx]     = mid_high;  // Mid High (Red)
                 imageData.data[out_idx + 1] = mid_low;   // Mid Low (Green)
                 imageData.data[out_idx + 2] = side_high;  // Side High (Blue)
@@ -151,7 +172,11 @@
               }
               imageData.data[out_idx + 3] = 255;       // Opaque display
             } else if (visualMode === 'mid') {
-              if (isTwoPixel) {
+              if (packingVersion === 3) {
+                imageData.data[out_idx]     = mid_high;
+                imageData.data[out_idx + 1] = mid_low;
+                imageData.data[out_idx + 2] = mid_blue;
+              } else if (isTwoPixel) {
                 imageData.data[out_idx]     = mid_high;
                 imageData.data[out_idx + 1] = mid_low;
                 imageData.data[out_idx + 2] = 0;
@@ -162,7 +187,11 @@
               }
               imageData.data[out_idx + 3] = 255;
             } else {
-              if (isTwoPixel) {
+              if (packingVersion === 3) {
+                imageData.data[out_idx]     = side_high;
+                imageData.data[out_idx + 1] = side_low;
+                imageData.data[out_idx + 2] = side_blue;
+              } else if (isTwoPixel) {
                 imageData.data[out_idx]     = 0;
                 imageData.data[out_idx + 1] = 0;
                 imageData.data[out_idx + 2] = side_high;
@@ -293,23 +322,44 @@
       const original_len = (rgbaBytes[0] << 24) | (rgbaBytes[1] << 16) | (rgbaBytes[2] << 8) | rgbaBytes[3];
       const num_samples = Math.ceil(original_len / 4);
       const isTwoPixel = w_png * height > num_samples * 1.5;
+      const packingVersion = rgbaBytes[13];
 
       if (isTwoPixel) {
-        // Inspect V1 (Two-Pixel Packing)
         const idx_a = imgY * w_png + (imgX * 2);
         const offset_a = coefOffset + idx_a * 4;
         const offset_b = offset_a + 4;
         
         if (offset_b + 3 < rgbaBytes.length) {
-          const u16_m = (rgbaBytes[offset_a] << 8) | rgbaBytes[offset_a + 1];
-          const u16_s = (rgbaBytes[offset_b] << 8) | rgbaBytes[offset_b + 1];
-          
-          // V1 uses standard ZigZag
-          const m_val = (u16_m >> 1) ^ (-(u16_m & 1));
-          const s_val = (u16_s >> 1) ^ (-(u16_s & 1));
-          
-          hoverR = m_val;
-          hoverG = s_val;
+          if (packingVersion === 3) {
+            // Inspect V3 (Two-Pixel Serpentine Pure Arithmetic)
+            const r_m = rgbaBytes[offset_a];
+            const g_m = rgbaBytes[offset_a + 1];
+            const b_m = rgbaBytes[offset_a + 2];
+            
+            const r_s = rgbaBytes[offset_b];
+            const g_s = rgbaBytes[offset_b + 1];
+            const b_s = rgbaBytes[offset_b + 2];
+
+            const u16_m = wasm_encode_n(r_m, g_m, b_m, 255);
+            const u16_s = wasm_encode_n(r_s, g_s, b_s, 255);
+
+            const m_val = (u16_m >> 1) ^ (-(u16_m & 1));
+            const s_val = (u16_s >> 1) ^ (-(u16_s & 1));
+
+            hoverR = m_val;
+            hoverG = s_val;
+          } else {
+            // Inspect V1 (Two-Pixel Packing)
+            const u16_m = (rgbaBytes[offset_a] << 8) | rgbaBytes[offset_a + 1];
+            const u16_s = (rgbaBytes[offset_b] << 8) | rgbaBytes[offset_b + 1];
+            
+            // V1 uses standard ZigZag
+            const m_val = (u16_m >> 1) ^ (-(u16_m & 1));
+            const s_val = (u16_s >> 1) ^ (-(u16_s & 1));
+            
+            hoverR = m_val;
+            hoverG = s_val;
+          }
         }
       } else {
         // Inspect V2 (Single-Pixel Bitplane + Cubic-Shell Color Mapping)

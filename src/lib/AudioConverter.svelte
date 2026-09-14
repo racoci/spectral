@@ -7,7 +7,9 @@
     encode_wavelet_v1_two_pixels,
     decode_wavelet_v1_two_pixels,
     encode_wavelet_v2_bitplane,
-    decode_wavelet_v2_bitplane
+    decode_wavelet_v2_bitplane,
+    encode_wavelet_v3_serpentine,
+    decode_wavelet_v3_serpentine
   } from '../wasm/core_wasm.js';
   import CanvasVisualizer from './CanvasVisualizer.svelte';
 
@@ -16,7 +18,7 @@
   let wasmError = $state<string | null>(null);
 
   // Selected conversion algorithm (v2_bitplane is the highly compressed, 1-pixel default)
-  let selectedAlgorithm = $state<'v2_bitplane' | 'v1_two_pixels' | 'naive'>('v2_bitplane');
+  let selectedAlgorithm = $state<'v2_bitplane' | 'v1_two_pixels' | 'v3_serpentine' | 'naive'>('v2_bitplane');
   let selectedHeight = $state<number>(1024); // default 20 Hz limit (1024 frequency bins)
   let selectedWaveletType = $state<number>(0); // 0 = CDF 5/3, 1 = Haar (CDF 1/1)
 
@@ -273,6 +275,8 @@
         rgbaBytes = encode_wavelet_v2_bitplane(originalBytes, selectedHeight, selectedWaveletType);
       } else if (selectedAlgorithm === 'v1_two_pixels') {
         rgbaBytes = encode_wavelet_v1_two_pixels(originalBytes, selectedHeight, selectedWaveletType);
+      } else if (selectedAlgorithm === 'v3_serpentine') {
+        rgbaBytes = encode_wavelet_v3_serpentine(originalBytes, selectedHeight, selectedWaveletType);
       } else {
         rgbaBytes = encode_naive(originalBytes);
       }
@@ -295,6 +299,8 @@
         decodedBytes = decode_wavelet_v2_bitplane(rgbaBytes);
       } else if (selectedAlgorithm === 'v1_two_pixels') {
         decodedBytes = decode_wavelet_v1_two_pixels(rgbaBytes);
+      } else if (selectedAlgorithm === 'v3_serpentine') {
+        decodedBytes = decode_wavelet_v3_serpentine(rgbaBytes);
       } else {
         decodedBytes = decode_naive(rgbaBytes);
       }
@@ -435,6 +441,7 @@
           >
             <option value="v2_bitplane">V2: Bit-Plane Hierárquico (1 Pixel, Gray Code - Recomendável!)</option>
             <option value="v1_two_pixels">V1: Two-Pixel Sólido (8-Bytes por Amostra, RGB Ativo)</option>
+            <option value="v3_serpentine">V3: Two-Pixel Serpentina (8-Bytes, Aritmética Pura - Estudo!)</option>
             <option value="naive">Naive Byte Packing (Lossless Baseline, Sem Transformação)</option>
           </select>
           
@@ -469,6 +476,8 @@
               <strong>Estratégia V2 Hierárquica:</strong> Comprime cada amostra estéreo em apenas <strong>1 pixel (4 bytes)</strong>. Separa os MSBs (Estrutura) nos canais Vermelho/Azul para brilho sólido, e os LSBs (Refinamento) nos canais Verde/Alpha mapeados por código Gray para máxima compressão.
             {:else if selectedAlgorithm === 'v1_two_pixels'}
               <strong>Estratégia V1 Sólida:</strong> Empacota cada amostra em <strong>2 pixels (8 bytes)</strong>. Salva Mid e Side nos canais Red e Green de pixels separados e fixa o Alpha em 255. Excelente precisão visual, porém dobra a largura física do PNG.
+            {:else if selectedAlgorithm === 'v3_serpentine'}
+              <strong>Estratégia V3 Serpentina:</strong> Empacota cada amostra em <strong>2 pixels (8 bytes)</strong>. Utiliza o novo decodificador aritmético de tempo real $O(\log M)$ sobre as cascas concêntricas de Chebyshev sem alocação ou tabelas de busca. Garante bijeção estrita e fusão suave de cores térmicas no espectrograma.
             {:else}
               <strong>Naive Packing:</strong> Mapeia os bytes binários brutos do arquivo diretamente nos canais de cor RGBA, gerando ruído cinza de TV.
             {/if}
