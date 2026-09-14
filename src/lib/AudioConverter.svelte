@@ -11,7 +11,9 @@
     encode_wavelet_v3_serpentine,
     decode_wavelet_v3_serpentine,
     encode_wavelet_v4_dyadic_dwt,
-    decode_wavelet_v4_dyadic_dwt
+    decode_wavelet_v4_dyadic_dwt,
+    encode_wavelet_v5_dyadic_lifting,
+    decode_wavelet_v5_dyadic_lifting
   } from '../wasm/core_wasm.js';
   import CanvasVisualizer from './CanvasVisualizer.svelte';
 
@@ -20,7 +22,7 @@
   let wasmError = $state<string | null>(null);
 
   // Selected conversion algorithm (v2_bitplane is the highly compressed, 1-pixel default)
-  let selectedAlgorithm = $state<'v2_bitplane' | 'v1_two_pixels' | 'v3_serpentine' | 'v4_dyadic_dwt' | 'naive'>('v2_bitplane');
+  let selectedAlgorithm = $state<'v2_bitplane' | 'v1_two_pixels' | 'v3_serpentine' | 'v4_dyadic_dwt' | 'v5_dyadic_lifting' | 'naive'>('v2_bitplane');
   let selectedHeight = $state<number>(1024); // default 20 Hz limit (1024 frequency bins)
   let selectedWaveletType = $state<number>(0); // 0 = CDF 5/3, 1 = Haar (CDF 1/1)
 
@@ -281,6 +283,8 @@
         rgbaBytes = encode_wavelet_v3_serpentine(originalBytes, selectedHeight, selectedWaveletType);
       } else if (selectedAlgorithm === 'v4_dyadic_dwt') {
         rgbaBytes = encode_wavelet_v4_dyadic_dwt(originalBytes, selectedHeight, selectedWaveletType);
+      } else if (selectedAlgorithm === 'v5_dyadic_lifting') {
+        rgbaBytes = encode_wavelet_v5_dyadic_lifting(originalBytes, selectedHeight);
       } else {
         rgbaBytes = encode_naive(originalBytes);
       }
@@ -307,6 +311,8 @@
         decodedBytes = decode_wavelet_v3_serpentine(rgbaBytes);
       } else if (selectedAlgorithm === 'v4_dyadic_dwt') {
         decodedBytes = decode_wavelet_v4_dyadic_dwt(rgbaBytes);
+      } else if (selectedAlgorithm === 'v5_dyadic_lifting') {
+        decodedBytes = decode_wavelet_v5_dyadic_lifting(rgbaBytes);
       } else {
         decodedBytes = decode_naive(rgbaBytes);
       }
@@ -451,20 +457,23 @@
             <option value="v1_two_pixels">V1: Two-Pixel Sólido (8-Bytes por Amostra, RGB Ativo)</option>
             <option value="v3_serpentine">V3: Two-Pixel Serpentina (8-Bytes, Aritmética Pura - Estudo!)</option>
             <option value="v4_dyadic_dwt">V4: Two-Pixel Serpentina Diádica (8-Bytes, Mallat DWT - Semântico!)</option>
+            <option value="v5_dyadic_lifting">V5: Two-Pixel Serpentina Diádica CDF 5/3 (8-Bytes, Lifting - Teoria!)</option>
             <option value="naive">Naive Byte Packing (Lossless Baseline, Sem Transformação)</option>
           </select>
           
           {#if selectedAlgorithm !== 'naive'}
-            <!-- Wavelet Family Selector -->
-            <label for="wavelet-type-select" class="algorithm-label" style="margin-top: 0.75rem;">Família Wavelet:</label>
-            <select 
-              id="wavelet-type-select" 
-              bind:value={selectedWaveletType}
-              class="algorithm-select-dropdown"
-            >
-              <option value={0}>Cohen-Daubechies-Feauveau 5/3 (Biorogonal Suave)</option>
-              <option value={1}>Haar (CDF 1/1 / Localização Temporal Máxima)</option>
-            </select>
+            {#if selectedAlgorithm !== 'v5_dyadic_lifting'}
+              <!-- Wavelet Family Selector -->
+              <label for="wavelet-type-select" class="algorithm-label" style="margin-top: 0.75rem;">Família Wavelet:</label>
+              <select 
+                id="wavelet-type-select" 
+                bind:value={selectedWaveletType}
+                class="algorithm-select-dropdown"
+              >
+                <option value={0}>Cohen-Daubechies-Feauveau 5/3 (Biorogonal Suave)</option>
+                <option value={1}>Haar (CDF 1/1 / Localização Temporal Máxima)</option>
+              </select>
+            {/if}
 
             <!-- Height / Frequency Resolution Selector -->
             <label for="height-select" class="algorithm-label" style="margin-top: 0.75rem;">Frequência Mínima (Altura H):</label>
@@ -488,7 +497,9 @@
             {:else if selectedAlgorithm === 'v3_serpentine'}
               <strong>Estratégia V3 Serpentina:</strong> Empacota cada amostra em <strong>2 pixels (8 bytes)</strong>. Utiliza o novo decodificador aritmético de tempo real $O(\log M)$ sobre as cascas concêntricas de Chebyshev sem alocação ou tabelas de busca. Garante bijeção estrita e fusão suave de cores térmicas no espectrograma.
             {:else if selectedAlgorithm === 'v4_dyadic_dwt'}
-              <strong>Estratégia V4 Serpentina Diádica (Mallat DWT):</strong> Decompõe o áudio em oitavas de escala logarítmica exponenciais $j$. Organiza e exibe os coeficientes em uma grade contínua com expansão horizontal automática de tamanho $2^j$ para renderização de scalograma visível, mantendo bijeção matemática integral de alto contraste e bijeção bit-perfect absoluta!
+              <strong>Estratégia V4 Serpentina Diádica (Mallat DWT):</strong> Decompõe o áudio em oitavas de escala logarítmica exponenciais $j$ utilizando wavelets diádicas clássicas em blocos contíguos de tempo. Garante bijeção perfeita e uma visualização sem ruídos orientada a oitavas e tempo.
+            {:else if selectedAlgorithm === 'v5_dyadic_lifting'}
+              <strong>Estratégia V5 Serpentina Diádica CDF 5/3 (Lifting):</strong> Aplica um banco de filtros wavelet por lifting com etapas de predição e atualização inteiras exatas baseadas em oitavas $H_j$ e canal passa-baixa residual $L_J$. Garante bijeção inteira rigorosa ($W^{-1}W(x)=x$) livre de perdas de arredondamento em tempo real, aliada à complementaridade perfeita de resolução tempo-frequência.
             {:else}
               <strong>Naive Packing:</strong> Mapeia os bytes binários brutos do arquivo diretamente nos canais de cor RGBA, gerando ruído cinza de TV.
             {/if}

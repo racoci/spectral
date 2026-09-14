@@ -25,6 +25,8 @@ const {
   decode_wavelet_v3_serpentine,
   encode_wavelet_v4_dyadic_dwt,
   decode_wavelet_v4_dyadic_dwt,
+  encode_wavelet_v5_dyadic_lifting,
+  decode_wavelet_v5_dyadic_lifting,
   wasm_encode_n,
   wasm_decode_n
 } = await import(WASM_JS_PATH) as any;
@@ -156,8 +158,8 @@ function verifySignalSparsity(rgba: Uint8Array): { sparsityFactor: number, avera
       let m_energy = 0;
       let s_energy = 0;
 
-      if (packingVersion === 3) {
-        // V3 (Two-Pixel Serpentine Pure Arithmetic) - Read Red of Pixel A and B
+      if (packingVersion === 3 || packingVersion === 4 || packingVersion === 5) {
+        // V3/V4/V5 (Two-Pixel Serpentine Pure Arithmetic) - Read Red of Pixel A and B
         const idx_a = r * w_png + (c * 2);
         const offset_a = coefOffset + idx_a * 4;
         const offset_b = offset_a + 4;
@@ -255,6 +257,15 @@ const ALGORITHMS = [
     decode: decode_wavelet_v4_dyadic_dwt,
     hasSparsity: true,
     isLossy: false
+  },
+  {
+    id: 'v5_dyadic_lifting',
+    name: 'V5: Two-Pixel Dyadic Lifting (Octave Scale)',
+    folder: 'v5_dyadic_lifting',
+    encode: (bytes: Uint8Array) => encode_wavelet_v5_dyadic_lifting(bytes, 1024),
+    decode: decode_wavelet_v5_dyadic_lifting,
+    hasSparsity: true,
+    isLossy: false
   }
 ];
 
@@ -301,7 +312,7 @@ async function run(): Promise<void> {
       let passesAntiNoiseGate = true;
       if (algo.hasSparsity) {
         const { sparsityFactor, averageEnergy } = verifySignalSparsity(encodedRGBA);
-        const requiredSparsity = algo.id === 'v4_dyadic_dwt' ? 5.0 : sample.minSparsity;
+        const requiredSparsity = (algo.id === 'v4_dyadic_dwt' || algo.id === 'v5_dyadic_lifting') ? 5.0 : sample.minSparsity;
         console.log(`    Sparsity factor: ${sparsityFactor.toFixed(2)}% (Min Required: ${requiredSparsity}%)`);
         console.log(`    Average macro-energy: ${averageEnergy.toFixed(2)}`);
         

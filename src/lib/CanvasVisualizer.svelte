@@ -111,7 +111,7 @@
               
               if (offset_b + 3 >= rgbaBytes.length) break;
 
-              if (packingVersion === 3 || packingVersion === 4) {
+              if (packingVersion === 3 || packingVersion === 4 || packingVersion === 5) {
                 // V3: Two-Pixel Serpentine Pure Arithmetic
                 mid_high  = rgbaBytes[offset_a];     // R of Pixel A
                 mid_low   = rgbaBytes[offset_a + 1]; // G of Pixel A
@@ -162,7 +162,7 @@
             const out_idx = (r * width + c) * 4;
             
             if (visualMode === 'full') {
-              if (packingVersion === 3 || packingVersion === 4) {
+              if (packingVersion === 3 || packingVersion === 4 || packingVersion === 5) {
                 imageData.data[out_idx]     = mid_high;
                 imageData.data[out_idx + 1] = mid_low;
                 imageData.data[out_idx + 2] = side_high;
@@ -177,7 +177,7 @@
               }
               imageData.data[out_idx + 3] = 255;       // Opaque display
             } else if (visualMode === 'mid') {
-              if (packingVersion === 3 || packingVersion === 4) {
+              if (packingVersion === 3 || packingVersion === 4 || packingVersion === 5) {
                 imageData.data[out_idx]     = mid_high;
                 imageData.data[out_idx + 1] = mid_low;
                 imageData.data[out_idx + 2] = mid_blue;
@@ -192,7 +192,7 @@
               }
               imageData.data[out_idx + 3] = 255;
             } else {
-              if (packingVersion === 3 || packingVersion === 4) {
+              if (packingVersion === 3 || packingVersion === 4 || packingVersion === 5) {
                 imageData.data[out_idx]     = side_high;
                 imageData.data[out_idx + 1] = side_low;
                 imageData.data[out_idx + 2] = side_blue;
@@ -335,7 +335,7 @@
         const offset_b = offset_a + 4;
         
         if (offset_b + 3 < rgbaBytes.length) {
-          if (packingVersion === 3 || packingVersion === 4) {
+          if (packingVersion === 3 || packingVersion === 4 || packingVersion === 5) {
             // Inspect V3 or V4 (Two-Pixel Serpentine Pure Arithmetic)
             const r_m = rgbaBytes[offset_a];
             const g_m = rgbaBytes[offset_a + 1];
@@ -355,7 +355,7 @@
             hoverR = m_val;
             hoverG = s_val;
 
-            if (packingVersion === 4) {
+            if (packingVersion === 4 || packingVersion === 5) {
               isDyadicMode = true;
               
               // Calculate Octave scale level j

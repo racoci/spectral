@@ -1145,6 +1145,265 @@ pub fn decode_wavelet_v4_dyadic_dwt(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue
     Ok(original_data)
 }
 
+// ==========================================
+// 7. V5: Serpentina Diádica por Lifting CDF 5/3 (Lifting Wavelet Transform)
+// ==========================================
+
+pub fn forward_lifting_53(a: &mut [i16], depth: usize) {
+    if depth == 0 { return; }
+    let len = a.len();
+    if len < 2 { return; }
+    let half = len / 2;
+    
+    let mut even = vec![0i16; half];
+    let mut odd = vec![0i16; half];
+    
+    // Split
+    for i in 0..half {
+        even[i] = a[2 * i];
+        odd[i] = a[2 * i + 1];
+    }
+    
+    // Predict step: d[i] = o[i] - floor((e[i] + e[i+1]) / 2)
+    for i in 0..half {
+        let left = even[i] as i32;
+        let right = if i + 1 < half { even[i + 1] as i32 } else { even[i] as i32 };
+        let pred = (left + right) >> 1;
+        odd[i] = odd[i].wrapping_sub(pred as i16);
+    }
+    
+    // Update step: s[i] = e[i] + floor((d[i-1] + d[i] + 2) / 4)
+    for i in 0..half {
+        let left = if i > 0 { odd[i - 1] as i32 } else { odd[0] as i32 };
+        let right = odd[i] as i32;
+        let upd = (left + right + 2) >> 2;
+        even[i] = even[i].wrapping_add(upd as i16);
+    }
+    
+    // Interleave back into `a` so that low-pass is in the first half and high-pass is in the second half
+    for i in 0..half {
+        a[i] = even[i];
+        a[half + i] = odd[i];
+    }
+    
+    // Recurse ONLY on the low-pass branch (first half)
+    forward_lifting_53(&mut a[0..half], depth - 1);
+}
+
+pub fn inverse_lifting_53(a: &mut [i16], depth: usize) {
+    if depth == 0 { return; }
+    let len = a.len();
+    if len < 2 { return; }
+    let half = len / 2;
+    
+    // Recurse ONLY on the low-pass branch (first half) first
+    inverse_lifting_53(&mut a[0..half], depth - 1);
+    
+    let mut even = vec![0i16; half];
+    let mut odd = vec![0i16; half];
+    
+    // Extract from `a`
+    for i in 0..half {
+        even[i] = a[i];
+        odd[i] = a[half + i];
+    }
+    
+    // Inverse Update: e[i] = s[i] - floor((d[i-1] + d[i] + 2) / 4)
+    for i in 0..half {
+        let left = if i > 0 { odd[i - 1] as i32 } else { odd[0] as i32 };
+        let right = odd[i] as i32;
+        let upd = (left + right + 2) >> 2;
+        even[i] = even[i].wrapping_sub(upd as i16);
+    }
+    
+    // Inverse Predict: o[i] = d[i] + floor((e[i] + e[i+1]) / 2)
+    for i in 0..half {
+        let left = even[i] as i32;
+        let right = if i + 1 < half { even[i + 1] as i32 } else { even[i] as i32 };
+        let pred = (left + right) >> 1;
+        odd[i] = odd[i].wrapping_add(pred as i16);
+    }
+    
+    // Interleave back to original order
+    for i in 0..half {
+        a[2 * i] = even[i];
+        a[2 * i + 1] = odd[i];
+    }
+}
+
+// V5: Reversible Pure Arithmetic Dyadic Wavelet Transform by Lifting CDF 5/3 (8-bytes, RGB-only)
+#[wasm_bindgen]
+pub fn encode_wavelet_v5_dyadic_lifting(data: &[u8], h_custom: usize) -> Vec<u8> {
+    let original_len = data.len() as u32;
+    let mut h = h_custom;
+    if !h.is_power_of_two() || h < 4 { h = 1024; }
+    let w = calculate_grid_width(data.len(), h);
+    let grid_size = w * h;
+    
+    let mut mid_grid = vec![0i16; grid_size];
+    let mut side_grid = vec![0i16; grid_size];
+    
+    // Unpack and MS conversion into contiguous vertical blocks
+    for c in 0..w {
+        for r in 0..h {
+            let i = c * h + r;
+            let offset = i * 4;
+            
+            let b0 = if offset < data.len() { data[offset] } else { 0 };
+            let b1 = if offset + 1 < data.len() { data[offset + 1] } else { 0 };
+            let b2 = if offset + 2 < data.len() { data[offset + 2] } else { 0 };
+            let b3 = if offset + 3 < data.len() { data[offset + 3] } else { 0 };
+            
+            let l_sample = (((b1 as u16) << 8) | (b0 as u16)) as i16;
+            let r_sample = (((b3 as u16) << 8) | (b2 as u16)) as i16;
+            
+            let (m, s) = lr_to_ms(l_sample, r_sample);
+            mid_grid[r * w + c] = m;
+            side_grid[r * w + c] = s;
+        }
+    }
+    
+    let depth = (h as f64).log2() as usize;
+    
+    // Process columns of size H with Forward Lifting 5/3
+    for c in 0..w {
+        let mut col_m = vec![0i16; h];
+        let mut col_s = vec![0i16; h];
+        for r in 0..h {
+            col_m[r] = mid_grid[r * w + c];
+            col_s[r] = side_grid[r * w + c];
+        }
+        
+        forward_lifting_53(&mut col_m, depth);
+        forward_lifting_53(&mut col_s, depth);
+        
+        for r in 0..h {
+            mid_grid[r * w + c] = col_m[r];
+            side_grid[r * w + c] = col_s[r];
+        }
+    }
+    
+    let mut output = Vec::with_capacity(16 + grid_size * 8);
+    output.extend_from_slice(&original_len.to_be_bytes());
+    let w_png = (w * 2) as u32;
+    output.extend_from_slice(&w_png.to_be_bytes());
+    output.extend_from_slice(&(h as u32).to_be_bytes());
+    
+    output.push(0u8); // wavelet_type default
+    output.push(5u8); // Packing Version 5!
+    output.extend_from_slice(&44100u16.to_be_bytes());
+    
+    for r in 0..h {
+        for c in 0..w {
+            let idx = r * w + c;
+            
+            let u16_m = zigzag_encode(mid_grid[idx] as i32);
+            let u16_s = zigzag_encode(side_grid[idx] as i32);
+            
+            let rgb_m = decode_n(u16_m, 40);
+            let rgb_s = decode_n(u16_s, 40);
+            
+            output.push(scale_coordinate(rgb_m.r));
+            output.push(scale_coordinate(rgb_m.g));
+            output.push(scale_coordinate(rgb_m.b));
+            output.push(255u8);
+            
+            output.push(scale_coordinate(rgb_s.r));
+            output.push(scale_coordinate(rgb_s.g));
+            output.push(scale_coordinate(rgb_s.b));
+            output.push(255u8);
+        }
+    }
+    output
+}
+
+#[wasm_bindgen]
+pub fn decode_wavelet_v5_dyadic_lifting(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
+    if rgba_data.len() < 16 { return Err(JsValue::from_str("Invalid V5 data")); }
+    let mut len_bytes = [0u8; 4];
+    let mut w_png_bytes = [0u8; 4];
+    let mut h_bytes = [0u8; 4];
+    
+    len_bytes.copy_from_slice(&rgba_data[0..4]);
+    w_png_bytes.copy_from_slice(&rgba_data[4..8]);
+    h_bytes.copy_from_slice(&rgba_data[8..12]);
+    
+    let original_len = u32::from_be_bytes(len_bytes) as usize;
+    let w_png = u32::from_be_bytes(w_png_bytes) as usize;
+    let h = u32::from_be_bytes(h_bytes) as usize;
+    let w = w_png / 2;
+    
+    let grid_size = w * h;
+    let mut mid_grid = vec![0i16; grid_size];
+    let mut side_grid = vec![0i16; grid_size];
+    
+    for r in 0..h {
+        for c in 0..w {
+            let idx = r * w + c;
+            let offset_a = 16 + (r * w_png + (c * 2)) * 4;
+            let offset_b = offset_a + 4;
+            
+            let rgb_m = Rgb {
+                r: unscale_coordinate(rgba_data[offset_a]),
+                g: unscale_coordinate(rgba_data[offset_a + 1]),
+                b: unscale_coordinate(rgba_data[offset_a + 2]),
+            };
+            let rgb_s = Rgb {
+                r: unscale_coordinate(rgba_data[offset_b]),
+                g: unscale_coordinate(rgba_data[offset_b + 1]),
+                b: unscale_coordinate(rgba_data[offset_b + 2]),
+            };
+            
+            let u16_m = encode_n(rgb_m, 40);
+            let u16_s = encode_n(rgb_s, 40);
+            
+            mid_grid[idx] = zigzag_decode(u16_m) as i16;
+            side_grid[idx] = zigzag_decode(u16_s) as i16;
+        }
+    }
+    
+    let depth = (h as f64).log2() as usize;
+    
+    // Process columns of size H with Inverse Lifting 5/3
+    for c in 0..w {
+        let mut col_m = vec![0i16; h];
+        let mut col_s = vec![0i16; h];
+        for r in 0..h {
+            col_m[r] = mid_grid[r * w + c];
+            col_s[r] = side_grid[r * w + c];
+        }
+        
+        inverse_lifting_53(&mut col_m, depth);
+        inverse_lifting_53(&mut col_s, depth);
+        
+        for r in 0..h {
+            mid_grid[r * w + c] = col_m[r];
+            side_grid[r * w + c] = col_s[r];
+        }
+    }
+    
+    let mut original_data = Vec::with_capacity(original_len);
+    for c in 0..w {
+        for r in 0..h {
+            let i = c * h + r;
+            let offset = i * 4;
+            if offset >= original_len { break; }
+            
+            let m = mid_grid[r * w + c];
+            let s = side_grid[r * w + c];
+            let (l, r_sample) = ms_to_lr(m, s);
+            let u16_l = l as u16;
+            let u16_r = r_sample as u16;
+            
+            original_data.push((u16_l & 0xFF) as u8);
+            if original_data.len() < original_len { original_data.push((u16_l >> 8) as u8); }
+            if original_data.len() < original_len { original_data.push((u16_r & 0xFF) as u8); }
+            if original_data.len() < original_len { original_data.push((u16_r >> 8) as u8); }
+        }
+    }
+    Ok(original_data)
+}
+
 // Map default encode_wavelet/decode_wavelet to point to V2 (Single Pixel Bitplane)
 #[wasm_bindgen]
 pub fn encode_wavelet(data: &[u8], h_custom: usize, wavelet_type: u32) -> Vec<u8> {
@@ -1216,6 +1475,26 @@ mod tests {
         let encoded = encode_wavelet_v3_serpentine(&original, 256, 0);
         let decoded = decode_wavelet_v3_serpentine(&encoded).unwrap();
         assert_eq!(original, decoded, "V3 pipeline failed for large audio!");
+    }
+
+    #[test]
+    fn test_v5_pipeline_large() {
+        let mut original = vec![0u8; 4000];
+        for i in 0..4000 {
+            original[i] = (i % 256) as u8;
+        }
+        let encoded = encode_wavelet_v5_dyadic_lifting(&original, 256);
+        let decoded = decode_wavelet_v5_dyadic_lifting(&encoded).unwrap();
+        assert_eq!(original, decoded, "V5 pipeline failed for large audio!");
+    }
+
+    #[test]
+    fn test_lifting_53_lossless() {
+        let mut original = vec![100, -50, 200, 300, -400, 500, 600, 700];
+        let cloned = original.clone();
+        forward_lifting_53(&mut original, 3);
+        inverse_lifting_53(&mut original, 3);
+        assert_eq!(cloned, original, "Lifting 5/3 failed!");
     }
 
     #[test]
