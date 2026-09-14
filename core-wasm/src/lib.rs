@@ -1000,23 +1000,9 @@ pub fn encode_wavelet_v4_dyadic_dwt(data: &[u8], h_custom: usize, wavelet_type: 
     
     let depth = (h as f64).log2() as usize;
     
-    // Process columns of size H with Forward DWT
-    for c in 0..w {
-        let mut col_m = vec![0i16; h];
-        let mut col_s = vec![0i16; h];
-        for r in 0..h {
-            col_m[r] = mid_grid[r * w + c];
-            col_s[r] = side_grid[r * w + c];
-        }
-        
-        forward_dwt(&mut col_m, depth, wavelet_type);
-        forward_dwt(&mut col_s, depth, wavelet_type);
-        
-        for r in 0..h {
-            mid_grid[r * w + c] = col_m[r];
-            side_grid[r * w + c] = col_s[r];
-        }
-    }
+    // Apply Forward DWT directly on the entire flat contiguous grids!
+    forward_dwt(&mut mid_grid, depth, wavelet_type);
+    forward_dwt(&mut side_grid, depth, wavelet_type);
     
     let mut output = Vec::with_capacity(16 + grid_size * 8);
     output.extend_from_slice(&original_len.to_be_bytes());
@@ -1100,23 +1086,9 @@ pub fn decode_wavelet_v4_dyadic_dwt(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue
         }
     }
     
-    // Process columns of size H with Inverse DWT
-    for c in 0..w {
-        let mut col_m = vec![0i16; h];
-        let mut col_s = vec![0i16; h];
-        for r in 0..h {
-            col_m[r] = mid_grid[r * w + c];
-            col_s[r] = side_grid[r * w + c];
-        }
-        
-        inverse_dwt(&mut col_m, depth, wavelet_type);
-        inverse_dwt(&mut col_s, depth, wavelet_type);
-        
-        for r in 0..h {
-            mid_grid[r * w + c] = col_m[r];
-            side_grid[r * w + c] = col_s[r];
-        }
-    }
+    // Apply Inverse DWT directly on the entire flat contiguous grids!
+    inverse_dwt(&mut mid_grid, depth, wavelet_type);
+    inverse_dwt(&mut side_grid, depth, wavelet_type);
     
     let mut original_data = Vec::with_capacity(original_len);
     for i in 0..((original_len + 3) / 4) {
