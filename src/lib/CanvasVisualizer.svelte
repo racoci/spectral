@@ -53,6 +53,11 @@
   let hoverY = $state(-1);
   let hoverR = $state(0); // Holds exact C_M value
   let hoverG = $state(0); // Holds exact C_S value
+  let hoverOctave = $state(-1); // scale level j
+  let hoverK = $state(-1); // temporal index k
+  let hoverFreqRange = $state(''); // "[lo, hi) Hz"
+  let hoverCenterFreq = $state(''); // center frequency
+  let isDyadicMode = $state(false); // true if packingVersion is 4
 
   // Intermediate Visual Mode: full (Complex), mid (Mono energy), side (Stereo width)
   let visualMode = $state<'full' | 'mid' | 'side'>('full');
@@ -106,7 +111,7 @@
               
               if (offset_b + 3 >= rgbaBytes.length) break;
 
-              if (packingVersion === 3) {
+              if (packingVersion === 3 || packingVersion === 4) {
                 // V3: Two-Pixel Serpentine Pure Arithmetic
                 mid_high  = rgbaBytes[offset_a];     // R of Pixel A
                 mid_low   = rgbaBytes[offset_a + 1]; // G of Pixel A
@@ -157,7 +162,7 @@
             const out_idx = (r * width + c) * 4;
             
             if (visualMode === 'full') {
-              if (packingVersion === 3) {
+              if (packingVersion === 3 || packingVersion === 4) {
                 imageData.data[out_idx]     = mid_high;
                 imageData.data[out_idx + 1] = mid_low;
                 imageData.data[out_idx + 2] = side_high;
@@ -172,7 +177,7 @@
               }
               imageData.data[out_idx + 3] = 255;       // Opaque display
             } else if (visualMode === 'mid') {
-              if (packingVersion === 3) {
+              if (packingVersion === 3 || packingVersion === 4) {
                 imageData.data[out_idx]     = mid_high;
                 imageData.data[out_idx + 1] = mid_low;
                 imageData.data[out_idx + 2] = mid_blue;
@@ -187,7 +192,7 @@
               }
               imageData.data[out_idx + 3] = 255;
             } else {
-              if (packingVersion === 3) {
+              if (packingVersion === 3 || packingVersion === 4) {
                 imageData.data[out_idx]     = side_high;
                 imageData.data[out_idx + 1] = side_low;
                 imageData.data[out_idx + 2] = side_blue;
@@ -330,8 +335,8 @@
         const offset_b = offset_a + 4;
         
         if (offset_b + 3 < rgbaBytes.length) {
-          if (packingVersion === 3) {
-            // Inspect V3 (Two-Pixel Serpentine Pure Arithmetic)
+          if (packingVersion === 3 || packingVersion === 4) {
+            // Inspect V3 or V4 (Two-Pixel Serpentine Pure Arithmetic)
             const r_m = rgbaBytes[offset_a];
             const g_m = rgbaBytes[offset_a + 1];
             const b_m = rgbaBytes[offset_a + 2];
@@ -340,14 +345,45 @@
             const g_s = rgbaBytes[offset_b + 1];
             const b_s = rgbaBytes[offset_b + 2];
 
-            const u16_m = wasm_encode_n(r_m, g_m, b_m, 255);
-            const u16_s = wasm_encode_n(r_s, g_s, b_s, 255);
+            const unscale = (v: number) => Math.round((v * 40) / 255);
+            const u16_m = wasm_encode_n(unscale(r_m), unscale(g_m), unscale(b_m), 40);
+            const u16_s = wasm_encode_n(unscale(r_s), unscale(g_s), unscale(b_s), 40);
 
             const m_val = (u16_m >> 1) ^ (-(u16_m & 1));
             const s_val = (u16_s >> 1) ^ (-(u16_s & 1));
 
             hoverR = m_val;
             hoverG = s_val;
+
+            if (packingVersion === 4) {
+              isDyadicMode = true;
+              
+              // Calculate Octave scale level j
+              let temp_y = imgY;
+              let j = 0;
+              let limit = height / 2;
+              while (temp_y >= limit && j < 9) {
+                temp_y -= limit;
+                limit = Math.floor(limit / 2);
+                j++;
+              }
+              hoverOctave = j;
+              
+              // Calculate Temporal Position k within scale j
+              const block_size = 1 << j;
+              hoverK = Math.floor(imgX / block_size);
+              
+              // Dynamic frequency bounds (fs)
+              const fs = (rgbaBytes[14] << 8) | rgbaBytes[15];
+              const lo_freq = fs / Math.pow(2, j + 1);
+              const hi_freq = fs / Math.pow(2, j);
+              const center_freq = fs / Math.pow(2, j + 1.5);
+              
+              hoverFreqRange = `${lo_freq.toFixed(2)} Hz – ${hi_freq.toFixed(2)} Hz`;
+              hoverCenterFreq = `${center_freq.toFixed(2)} Hz`;
+            } else {
+              isDyadicMode = false;
+            }
           } else {
             // Inspect V1 (Two-Pixel Packing)
             const u16_m = (rgbaBytes[offset_a] << 8) | rgbaBytes[offset_a + 1];
@@ -542,8 +578,14 @@
       </div>
       <div class="inspector">
         {#if hoverX !== -1}
-          <strong>Pixel:</strong> X: {hoverX}, Y: {hoverY} | 
-          <span class="color-text" style="color: #38bdf8;">C_M (Mid): {hoverR} | C_S (Side): {hoverG}</span>
+          {#if isDyadicMode}
+            <strong>Escala:</strong> Oitava j: <span style="color: #a855f7;">{hoverOctave}</span> (k: {hoverK}) | 
+            <strong>Banda:</strong> <span style="color: #e2e8f0;">{hoverFreqRange}</span> (Centro: <span style="color: #38bdf8;">{hoverCenterFreq}</span>) | 
+            <span class="color-text" style="color: #f43f5e;">C_j (Mid): {hoverR} | C_j (Side): {hoverG}</span>
+          {:else}
+            <strong>Pixel:</strong> X: {hoverX}, Y: {hoverY} | 
+            <span class="color-text" style="color: #38bdf8;">C_M (Mid): {hoverR} | C_S (Side): {hoverG}</span>
+          {/if}
         {:else}
           <em>Passe o mouse sobre os pixels para inspecionar</em>
         {/if}

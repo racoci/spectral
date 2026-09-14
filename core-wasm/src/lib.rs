@@ -945,6 +945,195 @@ pub fn decode_wavelet_v3_serpentine(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue
     Ok(original_data)
 }
 
+// ==========================================
+// 6. Transformada Wavelet Diádica de Mallat (DWT)
+// ==========================================
+
+pub fn forward_dwt(a: &mut [i16], depth: usize, wavelet_type: u32) {
+    if depth == 0 { return; }
+    let len = a.len();
+    if len < 2 { return; }
+    
+    forward_1d(a, wavelet_type);
+    
+    let half = len / 2;
+    forward_dwt(&mut a[0..half], depth - 1, wavelet_type);
+}
+
+pub fn inverse_dwt(a: &mut [i16], depth: usize, wavelet_type: u32) {
+    if depth == 0 { return; }
+    let len = a.len();
+    if len < 2 { return; }
+    
+    let half = len / 2;
+    inverse_dwt(&mut a[0..half], depth - 1, wavelet_type);
+    
+    inverse_1d(a, wavelet_type);
+}
+
+// V4: Reversible Pure Arithmetic Dyadic Wavelet Transform (8-bytes, RGB-only)
+#[wasm_bindgen]
+pub fn encode_wavelet_v4_dyadic_dwt(data: &[u8], h_custom: usize, wavelet_type: u32) -> Vec<u8> {
+    let original_len = data.len() as u32;
+    let mut h = h_custom;
+    if !h.is_power_of_two() || h < 4 { h = 1024; }
+    let w = calculate_grid_width(data.len(), h);
+    let grid_size = w * h;
+    
+    let mut mid_grid = vec![0i16; grid_size];
+    let mut side_grid = vec![0i16; grid_size];
+    
+    for i in 0..((data.len() + 3) / 4) {
+        let offset = i * 4;
+        let b0 = if offset < data.len() { data[offset] } else { 0 };
+        let b1 = if offset + 1 < data.len() { data[offset + 1] } else { 0 };
+        let b2 = if offset + 2 < data.len() { data[offset + 2] } else { 0 };
+        let b3 = if offset + 3 < data.len() { data[offset + 3] } else { 0 };
+        
+        let l_sample = (((b1 as u16) << 8) | (b0 as u16)) as i16;
+        let r_sample = (((b3 as u16) << 8) | (b2 as u16)) as i16;
+        
+        let (m, s) = lr_to_ms(l_sample, r_sample);
+        mid_grid[i] = m;
+        side_grid[i] = s;
+    }
+    
+    let depth = (h as f64).log2() as usize;
+    
+    // Process columns of size H with Forward DWT
+    for c in 0..w {
+        let mut col_m = vec![0i16; h];
+        let mut col_s = vec![0i16; h];
+        for r in 0..h {
+            col_m[r] = mid_grid[r * w + c];
+            col_s[r] = side_grid[r * w + c];
+        }
+        
+        forward_dwt(&mut col_m, depth, wavelet_type);
+        forward_dwt(&mut col_s, depth, wavelet_type);
+        
+        for r in 0..h {
+            mid_grid[r * w + c] = col_m[r];
+            side_grid[r * w + c] = col_s[r];
+        }
+    }
+    
+    let mut output = Vec::with_capacity(16 + grid_size * 8);
+    output.extend_from_slice(&original_len.to_be_bytes());
+    let w_png = (w * 2) as u32;
+    output.extend_from_slice(&w_png.to_be_bytes());
+    output.extend_from_slice(&(h as u32).to_be_bytes());
+    
+    output.push(wavelet_type as u8);
+    output.push(4u8); // Packing Version 4!
+    output.extend_from_slice(&44100u16.to_be_bytes());
+    
+    for r in 0..h {
+        for c in 0..w {
+            let idx = r * w + c;
+            
+            let u16_m = zigzag_encode(mid_grid[idx] as i32);
+            let u16_s = zigzag_encode(side_grid[idx] as i32);
+            
+            let rgb_m = decode_n(u16_m, 40);
+            let rgb_s = decode_n(u16_s, 40);
+            
+            output.push(scale_coordinate(rgb_m.r));
+            output.push(scale_coordinate(rgb_m.g));
+            output.push(scale_coordinate(rgb_m.b));
+            output.push(255u8);
+            
+            output.push(scale_coordinate(rgb_s.r));
+            output.push(scale_coordinate(rgb_s.g));
+            output.push(scale_coordinate(rgb_s.b));
+            output.push(255u8);
+        }
+    }
+    output
+}
+
+#[wasm_bindgen]
+pub fn decode_wavelet_v4_dyadic_dwt(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
+    if rgba_data.len() < 16 { return Err(JsValue::from_str("Invalid V4 data")); }
+    let mut len_bytes = [0u8; 4];
+    let mut w_png_bytes = [0u8; 4];
+    let mut h_bytes = [0u8; 4];
+    
+    len_bytes.copy_from_slice(&rgba_data[0..4]);
+    w_png_bytes.copy_from_slice(&rgba_data[4..8]);
+    h_bytes.copy_from_slice(&rgba_data[8..12]);
+    
+    let original_len = u32::from_be_bytes(len_bytes) as usize;
+    let w_png = u32::from_be_bytes(w_png_bytes) as usize;
+    let h = u32::from_be_bytes(h_bytes) as usize;
+    let w = w_png / 2;
+    
+    let wavelet_type = rgba_data[12] as u32;
+    let grid_size = w * h;
+    let mut mid_grid = vec![0i16; grid_size];
+    let mut side_grid = vec![0i16; grid_size];
+    
+    let depth = (h as f64).log2() as usize;
+    
+    for r in 0..h {
+        for c in 0..w {
+            let idx = r * w + c;
+            let offset_a = 16 + (r * w_png + (c * 2)) * 4;
+            let offset_b = offset_a + 4;
+            
+            let rgb_m = Rgb {
+                r: unscale_coordinate(rgba_data[offset_a]),
+                g: unscale_coordinate(rgba_data[offset_a + 1]),
+                b: unscale_coordinate(rgba_data[offset_a + 2]),
+            };
+            let rgb_s = Rgb {
+                r: unscale_coordinate(rgba_data[offset_b]),
+                g: unscale_coordinate(rgba_data[offset_b + 1]),
+                b: unscale_coordinate(rgba_data[offset_b + 2]),
+            };
+            
+            let u16_m = encode_n(rgb_m, 40);
+            let u16_s = encode_n(rgb_s, 40);
+            
+            mid_grid[idx] = zigzag_decode(u16_m) as i16;
+            side_grid[idx] = zigzag_decode(u16_s) as i16;
+        }
+    }
+    
+    // Process columns of size H with Inverse DWT
+    for c in 0..w {
+        let mut col_m = vec![0i16; h];
+        let mut col_s = vec![0i16; h];
+        for r in 0..h {
+            col_m[r] = mid_grid[r * w + c];
+            col_s[r] = side_grid[r * w + c];
+        }
+        
+        inverse_dwt(&mut col_m, depth, wavelet_type);
+        inverse_dwt(&mut col_s, depth, wavelet_type);
+        
+        for r in 0..h {
+            mid_grid[r * w + c] = col_m[r];
+            side_grid[r * w + c] = col_s[r];
+        }
+    }
+    
+    let mut original_data = Vec::with_capacity(original_len);
+    for i in 0..((original_len + 3) / 4) {
+        let m = mid_grid[i];
+        let s = side_grid[i];
+        let (l, r) = ms_to_lr(m, s);
+        let u16_l = l as u16;
+        let u16_r = r as u16;
+        
+        original_data.push((u16_l & 0xFF) as u8);
+        if original_data.len() < original_len { original_data.push((u16_l >> 8) as u8); }
+        if original_data.len() < original_len { original_data.push((u16_r & 0xFF) as u8); }
+        if original_data.len() < original_len { original_data.push((u16_r >> 8) as u8); }
+    }
+    Ok(original_data)
+}
+
 // Map default encode_wavelet/decode_wavelet to point to V2 (Single Pixel Bitplane)
 #[wasm_bindgen]
 pub fn encode_wavelet(data: &[u8], h_custom: usize, wavelet_type: u32) -> Vec<u8> {
