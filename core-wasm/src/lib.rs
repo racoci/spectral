@@ -1524,6 +1524,11 @@ pub fn decode_wavelet_v6_reassigned(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue
     decode_wavelet_v5_dyadic_lifting(rgba_data)
 }
 
+struct FilterChannel {
+    center_freq: f32,
+    scale_s: f32,
+}
+
 #[wasm_bindgen]
 pub fn wasm_generate_v6_spectrogram(rgba_data: &[u8]) -> Result<Vec<f32>, JsValue> {
     if rgba_data.len() < 16 {
@@ -1565,73 +1570,125 @@ pub fn wasm_generate_v6_spectrogram(rgba_data: &[u8]) -> Result<Vec<f32>, JsValu
         mid_channel[i] = (l + r) * 0.5;
     }
     
-    let n = 1024; // Window size
-    let sigma_sec = 0.050f32; // 50ms Gaussian window
+    // Power buffer of size W * H
     let mut spec = vec![0.0f32; w * h];
     
-    if num_samples <= n {
+    // Precompute 120 geometrically-spaced filter channels (1/12th octave spacing)
+    let num_filters = h.min(120); // Match height H (up to 120 filters)
+    let cycles = 6.0f32; // Number of cycles to capture in Gaussian window
+    let mut channels = Vec::with_capacity(num_filters);
+    
+    for j in 0..num_filters {
+        let step = 1.0f32 / 12.0f32;
+        let fc = 20.0f32 * 2.0f32.powf(j as f32 * step);
+        channels.push(FilterChannel {
+            center_freq: fc,
+            scale_s: cycles / fc,
+        });
+    }
+    
+    let total_duration_s = num_samples as f32 / fs_f32;
+    
+    if num_samples < 10 {
         return Ok(spec);
     }
     
-    let hop = ((num_samples - n) as f32 / (w as f32 - 1.0)).max(1.0).floor() as usize;
+    let hop = (num_samples as f32 / w as f32).max(1.0).floor() as usize;
+    let ln2 = std::f32::consts::LN_2;
+    let two_pi = 2.0 * std::f32::consts::PI;
     
-    use rustfft::{FftPlanner, num_complex::Complex};
-    let mut planner = FftPlanner::new();
-    let fft = planner.plan_fft_forward(n);
-    
-    let center = (n as f32 - 1.0) * 0.5;
-    let alpha = 0.69314718056 / (sigma_sec * sigma_sec);
-    
+    // Process frames and apply Non-Uniform Constant-Q Phase-Gradient 2D Reassignment
     for c in 0..w {
-        let start = c * hop;
-        if start + n > num_samples { break; }
+        let tau_sample = c * hop;
+        let tau_s = tau_sample as f32 / fs_f32;
         
-        let mut buffer = vec![Complex::<f32>::new(0.0, 0.0); n];
-        for i in 0..n {
-            let val = mid_channel[start + i];
-            let t = (i as f32 - center) / fs_f32;
-            let g = (-alpha * t * t).exp();
+        for (j, ch) in channels.iter().enumerate() {
+            let a = ch.scale_s;
+            let inv_a2 = 1.0 / (a * a);
             
-            let a = val * g;
-            let b = val * t * g;
-            buffer[i] = Complex::new(a, b);
-        }
-        
-        fft.process(&mut buffer);
-        
-        for k in 1..(n / 2) {
-            let kn = n - k;
-            let z1 = buffer[k];
-            let z2 = buffer[kn].conj();
+            // Dynamic window half-size (4 * a * fs_hz) capped at 1024 for real-time safety
+            let half = ((4.0 * a * fs_f32).ceil() as isize).max(1).min(1024);
             
-            // Reconstruct hermit-symmetric real FFTs of windowed real signals a[n] and b[n]
-            let x = (z1 + z2) * 0.5;
-            let y = Complex::new(
-                (z1.im - z2.im) * 0.5,
-                -(z1.re - z2.re) * 0.5,
-            );
+            let mut c_re = 0.0f32;
+            let mut c_im = 0.0f32;
+            let mut cg_re = 0.0f32;
+            let mut cg_im = 0.0f32;
+            let mut ct_re = 0.0f32;
+            let mut ct_im = 0.0f32;
             
-            let power = x.re * x.re + x.im * x.im;
+            for ni in -half..=half {
+                let n = tau_sample as isize + ni;
+                if n >= 0 && n < num_samples as isize {
+                    let val = mid_channel[n as usize];
+                    let u = ni as f32 / fs_f32; // relative time coordinate
+                    
+                    let q = u / a;
+                    let g = (-ln2 * q * q).exp();
+                    
+                    // Analytical derivative of Gaussian window: g'(u) = -2*ln(2)/a^2 * u * g(u)
+                    let gp = -(2.0 * ln2 * inv_a2) * u * g;
+                    
+                    // Complex exponential carriers (relative phase to avoid wrapping and keep stable)
+                    let phase = ch.center_freq * two_pi * u;
+                    let (s, co) = phase.sin_cos();
+                    
+                    // Complex multiplication components (using conjugate carrier e^-i*omega*t)
+                    c_re  += val * g * co;
+                    c_im  -= val * g * s;
+                    
+                    cg_re += val * gp * co;
+                    cg_im -= val * gp * s;
+                    
+                    let ut = val * u * g;
+                    ct_re += ut * co;
+                    ct_im -= ut * s;
+                }
+            }
+            
+            let eps = 1e-14_f32;
+            let denom = (c_re * c_re + c_im * c_im).max(eps);
+            
+            // Phase-gradient frequency reassignment (using stable conjugate division B * conj(A) / |A|^2)
+            // ratio_g = cg * conj(c) / denom
+            let ratio_g_im = (cg_im * c_re - cg_re * c_im) / denom;
+            let fhat = ch.center_freq - (ratio_g_im / two_pi);
+            
+            // Phase-gradient time reassignment (using stable conjugate division ct * conj(c) / denom)
+            // ratio_t = ct * conj(c) / denom
+            let ratio_t_re = (ct_re * c_re + ct_im * c_im) / denom;
+            let that = tau_s + ratio_t_re;
+            
+            // Energy power of the complex coefficient
+            let power = c_re * c_re + c_im * c_im;
             if power < 1e-4 { continue; }
             
-            let ratio_im = (y.im * x.re - y.re * x.im) / power;
-            let freq = k as f32 * fs_f32 / n as f32;
-            let correction = (0.69314718056 / (3.14159265359 * sigma_sec * sigma_sec)) * ratio_im;
-            let reassigned = freq + correction;
+            // Signal confidence metric
+            let conf = (power / (1.0 + power)).sqrt();
+            let energy = power * conf;
             
-            if reassigned >= 20.0 && reassigned <= 20000.0 {
-                // Logarithmic frequency coordinate matching human perception
-                let y_frac = (reassigned / 20.0).ln() / 1000.0f32.ln();
+            if fhat >= 20.0 && fhat <= 20000.0 && that >= 0.0 && that <= total_duration_s {
+                // Logarithmic frequency Mel-Scale Coordinate [20 Hz, 20 kHz]
+                let y_frac = (fhat / 20.0).ln() / 1000.0f32.ln();
                 let pixel_y = y_frac * (h - 1) as f32;
                 
-                if pixel_y >= 0.0 && pixel_y <= (h - 1) as f32 {
+                // Linear time coordinate matching physical duration
+                let x_frac = (that / total_duration_s) * (w - 1) as f32;
+                let pixel_x = x_frac;
+                
+                if pixel_y >= 0.0 && pixel_y <= (h - 1) as f32 && pixel_x >= 0.0 && pixel_x <= (w - 1) as f32 {
                     let y0 = pixel_y.floor() as usize;
                     let y1 = (y0 + 1).min(h - 1);
-                    let frac = pixel_y - y0 as f32;
+                    let frac_y = pixel_y - y0 as f32;
                     
-                    // Accumulate power with bilinear anti-aliasing
-                    spec[y0 * w + c] += power * (1.0 - frac);
-                    spec[y1 * w + c] += power * frac;
+                    let x0 = pixel_x.floor() as usize;
+                    let x1 = (x0 + 1).min(w - 1);
+                    let frac_x = pixel_x - x0 as f32;
+                    
+                    // Bilinear interpolation on BOTH dimensions (2D Reassigned Bilinear Deposit!)
+                    spec[y0 * w + x0] += energy * (1.0 - frac_x) * (1.0 - frac_y);
+                    spec[y0 * w + x1] += energy * frac_x * (1.0 - frac_y);
+                    spec[y1 * w + x0] += energy * (1.0 - frac_x) * frac_y;
+                    spec[y1 * w + x1] += energy * frac_x * frac_y;
                 }
             }
         }
