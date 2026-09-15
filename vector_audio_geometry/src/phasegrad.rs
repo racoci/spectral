@@ -1,19 +1,25 @@
 //! Log-spaced Gaussian filter bank with full phase-gradient reassignment.
 //!
-//! For channel c with center frequency fc and Gaussian
+//! For channel c with center frequency fc and Gaussian:
+//! ```text
 //!     g(t) = exp(-ln(2) * (t/a)^2),
-//! we evaluate the complex coefficient
+//! ```
+//! we evaluate the complex coefficient:
+//! ```text
 //!     C(tau,fc) = integral x(t) g(t-tau) exp(-i 2 pi fc t) dt.
+//! ```
 //!
 //! The two phase gradients are obtained from auxiliary windows:
+//! ```text
 //!     g'(u) = -(2 ln 2 / a^2) u g(u)
 //!     t g(t-tau)
+//! ```
 //!
-//! Since d/dtau C = - C[g'] and
-//! d/df C = -i 2 pi C[t g],
-//!
+//! Since d/dtau C = - C[g'] and d/df C = -i 2 pi C[t g],
+//! ```text
 //!     f_hat = fc + Im((-C[g']) / C) / (2 pi)
 //!     tau_hat = Re(C[t g] / C).
+//! ```
 //!
 //! These are the continuous-time formulas translated directly to the
 //! sampled implementation. The result contains both time reassignment and
