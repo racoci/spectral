@@ -6,6 +6,51 @@ pub mod geometry;
 pub mod model;
 pub mod analysis;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct C32 {
+    pub re: f32,
+    pub im: f32,
+}
+
+impl C32 {
+    #[inline(always)]
+    pub fn new(re: f32, im: f32) -> Self {
+        Self { re, im }
+    }
+    #[inline(always)]
+    pub fn conj(self) -> Self {
+        Self::new(self.re, -self.im)
+    }
+    #[inline(always)]
+    pub fn abs2(self) -> f32 {
+        self.re * self.re + self.im * self.im
+    }
+    #[inline(always)]
+    pub fn mul(self, b: Self) -> Self {
+        Self::new(
+            self.re * b.re - self.im * b.im,
+            self.re * b.im + self.im * b.re,
+        )
+    }
+    #[inline(always)]
+    pub fn add_assign(&mut self, b: Self) {
+        self.re += b.re;
+        self.im += b.im;
+    }
+    #[inline(always)]
+    pub fn scale(self, s: f32) -> Self {
+        Self::new(self.re * s, self.im * s)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Grad {
+    pub coeff: C32,
+    pub freq_hz: f32,
+    pub time_s: f32,
+    pub confidence: f32,
+}
+
 #[wasm_bindgen]
 pub fn init_panic_hook() {
     #[cfg(target_arch = "wasm32")]
@@ -1700,6 +1745,155 @@ pub fn wasm_generate_v6_spectrogram(rgba_data: &[u8]) -> Result<Vec<f32>, JsValu
     }
     
     Ok(spec)
+}
+
+#[wasm_bindgen]
+pub fn wasm_track_multiple(rgba_data: &[u8], num_tracks: usize) -> Result<String, JsValue> {
+    if rgba_data.len() < 16 {
+        return Err(JsValue::from_str("Invalid input data"));
+    }
+    let packing_version = rgba_data[13];
+    
+    // 1. Decode rgba_data back to PCM
+    let pcm = match packing_version {
+        1 => decode_wavelet_v1_two_pixels(rgba_data)?,
+        2 => decode_wavelet_v2_bitplane(rgba_data)?,
+        3 => decode_wavelet_v3_serpentine(rgba_data)?,
+        4 => decode_wavelet_v4_dyadic_dwt(rgba_data)?,
+        5 | 6 => decode_wavelet_v5_dyadic_lifting(rgba_data)?,
+        _ => return Err(JsValue::from_str("Unsupported packing version")),
+    };
+    
+    let w_png = u32::from_be_bytes([rgba_data[4], rgba_data[5], rgba_data[6], rgba_data[7]]) as usize;
+    let h = u32::from_be_bytes([rgba_data[8], rgba_data[9], rgba_data[10], rgba_data[11]]) as usize;
+    let w = if packing_version == 2 { w_png } else { w_png / 2 };
+    
+    let fs = ((rgba_data[14] as u16) << 8) | (rgba_data[15] as u16);
+    let fs_f32 = if fs == 0 { 44100.0 } else { fs as f32 };
+    
+    let original_len = pcm.len();
+    let num_samples = original_len / 4;
+    let mut mid_channel = vec![0.0f32; num_samples];
+    
+    for i in 0..num_samples {
+        let offset = i * 4;
+        let b0 = pcm[offset];
+        let b1 = pcm[offset + 1];
+        let b2 = pcm[offset + 2];
+        let b3 = pcm[offset + 3];
+        
+        let l = (((b1 as u16) << 8) | (b0 as u16)) as i16 as f32;
+        let r = (((b3 as u16) << 8) | (b2 as u16)) as i16 as f32;
+        
+        mid_channel[i] = (l + r) * 0.5;
+    }
+    
+    // Run Phase-Gradient CQT/Filter-bank analysis
+    let num_filters = h.min(120);
+    let cycles = 6.0f32;
+    let mut channels = Vec::with_capacity(num_filters);
+    for j in 0..num_filters {
+        let step = 1.0f32 / 12.0f32;
+        let fc = 20.0f32 * 2.0f32.powf(j as f32 * step);
+        channels.push(FilterChannel {
+            center_freq: fc,
+            scale_s: cycles / fc,
+        });
+    }
+    
+    let total_duration_s = num_samples as f32 / fs_f32;
+    if num_samples < 10 {
+        return Err(JsValue::from_str("Audio too short for tracking"));
+    }
+    
+    let hop = (num_samples as f32 / w as f32).max(1.0).floor() as usize;
+    let ln2 = std::f32::consts::LN_2;
+    let two_pi = 2.0 * std::f32::consts::PI;
+    
+    // Run STFT and compute grads matrix of shape [channels][frames]
+    let mut grads = vec![vec![Grad::default(); w]; num_filters];
+    
+    for c in 0..w {
+        let tau_sample = c * hop;
+        
+        for (j, ch) in channels.iter().enumerate() {
+            let a = ch.scale_s;
+            let inv_a2 = 1.0 / (a * a);
+            let half = ((4.0 * a * fs_f32).ceil() as isize).max(1).min(1024);
+            
+            let mut c_re = 0.0f32;
+            let mut c_im = 0.0f32;
+            let mut cg_re = 0.0f32;
+            let mut cg_im = 0.0f32;
+            
+            for ni in -half..=half {
+                let n = tau_sample as isize + ni;
+                if n >= 0 && n < num_samples as isize {
+                    let val = mid_channel[n as usize];
+                    let u = ni as f32 / fs_f32;
+                    let q = u / a;
+                    let g = (-ln2 * q * q).exp();
+                    let gp = -(2.0 * ln2 * inv_a2) * u * g;
+                    
+                    let phase = ch.center_freq * two_pi * u;
+                    let (s, co) = phase.sin_cos();
+                    
+                    c_re  += val * g * co;
+                    c_im  -= val * g * s;
+                    cg_re += val * gp * co;
+                    cg_im -= val * gp * s;
+                }
+            }
+            
+            let eps = 1e-14_f32;
+            let denom = (c_re * c_re + c_im * c_im).max(eps);
+            let ratio_g_im = (cg_im * c_re - cg_re * c_im) / denom;
+            let fhat = ch.center_freq - (ratio_g_im / two_pi);
+            
+            grads[j][c] = Grad {
+                coeff: C32::new(c_re, c_im),
+                freq_hz: fhat,
+                time_s: tau_sample as f32 / fs_f32,
+                confidence: (denom / (1.0 + denom)).sqrt(),
+            };
+        }
+    }
+    
+    // Run multi-track spline tracker
+    let cfg = analysis::multi_track::TrackingConfig::default();
+    let result = analysis::multi_track::track_multiple(&grads, num_tracks, total_duration_s, &cfg);
+    
+    // Serialize to JSON string
+    let mut json = String::new();
+    json.push_str("[\n");
+    for (i, track) in result.tracks.iter().enumerate() {
+        json.push_str("  {\n");
+        json.push_str("    \"segments\": [\n");
+        for (j, seg) in track.spline.segments.iter().enumerate() {
+            json.push_str(&format!(
+                "      {{\"p0\": [{}, {}], \"p1\": [{}, {}], \"p2\": [{}, {}], \"p3\": [{}, {}]}}",
+                seg.p0.t, seg.p0.u,
+                seg.p1.t, seg.p1.u,
+                seg.p2.t, seg.p2.u,
+                seg.p3.t, seg.p3.u
+            ));
+            if j + 1 < track.spline.segments.len() {
+                json.push_str(",\n");
+            } else {
+                json.push_str("\n");
+            }
+        }
+        json.push_str("    ]\n");
+        json.push_str("  }");
+        if i + 1 < result.tracks.len() {
+            json.push_str(",\n");
+        } else {
+            json.push_str("\n");
+        }
+    }
+    json.push_str("]");
+    
+    Ok(json)
 }
 
 #[cfg(test)]
