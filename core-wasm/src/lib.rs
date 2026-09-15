@@ -1,6 +1,10 @@
 use wasm_bindgen::prelude::*;
 use std::sync::OnceLock;
 
+// V7 Vector Audio Model Modules
+pub mod geometry;
+pub mod model;
+
 #[wasm_bindgen]
 pub fn init_panic_hook() {
     #[cfg(target_arch = "wasm32")]
