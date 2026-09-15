@@ -270,9 +270,9 @@ fn compute_reassignment_coeffs(
 #[derive(Debug, Copy, Clone)]
 struct ReassignmentResult {
     f_hat: f32,
-    _tau_hat: f32,
-    _q: f32,
-    _energy: f32,
+    tau_hat: f32,
+    q: f32,
+    energy: f32,
 }
 
 /// Extracts estimated coordinates (\widehat{\tau}, \widehat{f}) and confidence q from phase gradient.
@@ -299,9 +299,9 @@ fn extract_reassignment(
 
     ReassignmentResult {
         f_hat,
-        _tau_hat: tau_hat,
-        _q: q,
-        _energy: energy,
+        tau_hat,
+        q,
+        energy,
     }
 }
 
@@ -564,6 +564,119 @@ impl Accumulator {
     }
 }
 
+fn run_and_save_fuzz_case(seed: u64, filters: &[Filter], filename: &str) -> std::io::Result<()> {
+    let mut rng = StdRng::seed_from_u64(seed);
+    let fs = 44100.0_f32;
+    let n_samples = 512;
+    let k_trajectories = 3;
+
+    // Generate trajectories
+    let mut trajectories = Vec::with_capacity(k_trajectories);
+    for _ in 0..k_trajectories {
+        let traj = generate_trajectory(n_samples, fs, 100.0, 10000.0, &mut rng);
+        trajectories.push(traj);
+    }
+
+    // Synthesize signal
+    let x = synthesize_signal(&trajectories, fs, &mut rng);
+
+    let n_filters = filters.len();
+    let mut original_spec = vec![0.0f32; n_samples * n_filters];
+    let mut reassigned_spec = vec![0.0f32; n_samples * n_filters];
+
+    let total_duration_s = n_samples as f32 / fs;
+
+    for n in 0..n_samples {
+        let tau = n as f32 / fs;
+        for (j, filter) in filters.iter().enumerate() {
+            let (c, cg, ct) = compute_reassignment_coeffs(&x, n, filter, fs);
+            
+            // Original spectrum is the norm sq
+            let power = c.norm_sq();
+            original_spec[j * n_samples + n] = power;
+
+            // Extract reassigned coordinates
+            let reassigned = extract_reassignment(c, cg, ct, tau, filter.center_freq);
+            
+            if reassigned.f_hat >= 20.0 && reassigned.f_hat <= 20000.0 && reassigned.tau_hat >= 0.0 && reassigned.tau_hat <= total_duration_s {
+                // Logarithmic frequency coordinate matching human perception
+                let y_frac = (reassigned.f_hat / 20.0).ln() / 1000.0f32.ln();
+                let pixel_y = y_frac * (n_filters - 1) as f32;
+                
+                // Linear time coordinate
+                let x_frac = (reassigned.tau_hat / total_duration_s) * (n_samples - 1) as f32;
+                let pixel_x = x_frac;
+                
+                if pixel_y >= 0.0 && pixel_y <= (n_filters - 1) as f32 && pixel_x >= 0.0 && pixel_x <= (n_samples - 1) as f32 {
+                    let y0 = pixel_y.floor() as usize;
+                    let y1 = (y0 + 1).min(n_filters - 1);
+                    let frac_y = pixel_y - y0 as f32;
+                    
+                    let x0 = pixel_x.floor() as usize;
+                    let x1 = (x0 + 1).min(n_samples - 1);
+                    let frac_x = pixel_x - x0 as f32;
+                    
+                    let energy = power * reassigned.q;
+                    
+                    // Bilinear deposit
+                    reassigned_spec[y0 * n_samples + x0] += energy * (1.0 - frac_x) * (1.0 - frac_y);
+                    reassigned_spec[y0 * n_samples + x1] += energy * frac_x * (1.0 - frac_y);
+                    reassigned_spec[y1 * n_samples + x0] += energy * (1.0 - frac_x) * frac_y;
+                    reassigned_spec[y1 * n_samples + x1] += energy * frac_x * frac_y;
+                }
+            }
+        }
+    }
+
+    // Now, save to JSON file
+    use std::fs::File;
+    use std::io::Write;
+    let mut file = File::create(filename)?;
+    writeln!(file, "{{")?;
+    writeln!(file, "  \"width\": {},", n_samples)?;
+    writeln!(file, "  \"height\": {},", n_filters)?;
+    
+    // Write trajectories
+    writeln!(file, "  \"trajectories\": [")?;
+    for (i, t) in trajectories.iter().enumerate() {
+        writeln!(file, "    {{")?;
+        write!(file, "      \"freq_hz\": [")?;
+        for (j, &f) in t.frequencies.iter().enumerate() {
+            if j > 0 { write!(file, ", ")?; }
+            write!(file, "{:.4}", f)?;
+        }
+        writeln!(file, "],")?;
+        write!(file, "      \"amp\": [")?;
+        for (j, &a) in t.amplitudes.iter().enumerate() {
+            if j > 0 { write!(file, ", ")?; }
+            write!(file, "{:.4}", a)?;
+        }
+        writeln!(file, "]")?;
+        write!(file, "    }}")?;
+        if i + 1 < trajectories.len() { writeln!(file, ",")?; } else { writeln!(file)?; }
+    }
+    writeln!(file, "  ],")?;
+    
+    // Write original spec
+    write!(file, "  \"original_spec\": [")?;
+    for (i, &v) in original_spec.iter().enumerate() {
+        if i > 0 { write!(file, ", ")?; }
+        write!(file, "{:.4e}", v)?;
+    }
+    writeln!(file, "],")?;
+    
+    // Write reassigned spec
+    write!(file, "  \"reassigned_spec\": [")?;
+    for (i, &v) in reassigned_spec.iter().enumerate() {
+        if i > 0 { write!(file, ", ")?; }
+        write!(file, "{:.4e}", v)?;
+    }
+    writeln!(file, "]")?;
+    
+    writeln!(file, "}}")?;
+    Ok(())
+}
+
 fn main() {
     println!(
         r#"
@@ -599,6 +712,10 @@ fn main() {
     loop {
         iter += 1;
         let seed = global_rng.gen_range(0..u64::MAX);
+
+        if iter == 1 {
+            let _ = run_and_save_fuzz_case(seed, &filters, "tests/test-outputs/tf_monte_carlo_case.json");
+        }
 
         let stats = run_fuzz_iteration(seed, &filters);
 
