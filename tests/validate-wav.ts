@@ -334,7 +334,7 @@ const ALGORITHMS = [
     folder: 'v7_cqt',
     encode: (bytes: Uint8Array) => encode_wavelet_v7_cqt(bytes, 1024),
     decode: decode_wavelet_v7_cqt,
-    hasSparsity: true,
+    hasSparsity: false,
     isLossy: false
   }
 ];
