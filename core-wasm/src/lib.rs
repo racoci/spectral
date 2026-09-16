@@ -1997,32 +1997,39 @@ pub fn encode_wavelet_v7_cqt(data: &[u8], h_custom: usize) -> Vec<u8> {
     output.push(7u8); // Packing Version 7!
     output.extend_from_slice(&44100u16.to_be_bytes());
     
+    // Find maximum power in grads to scale dynamically and preserve rich dynamic range
+    let mut max_power = 1e-5f32;
+    for r in 0..num_filters {
+        for c in 0..w {
+            let power = grads[r][c].coeff.re * grads[r][c].coeff.re + grads[r][c].coeff.im * grads[r][c].coeff.im;
+            if power > max_power { max_power = power; }
+        }
+    }
+    
     for r in 0..h {
         for c in 0..w {
             let g = if r < num_filters { grads[r][c] } else { Grad::default() };
+            let power = g.coeff.re * g.coeff.re + g.coeff.im * g.coeff.im;
             
-            // Quantize complex CQT to 24-bit integer [-8388608, 8388607]
-            let cr = (g.coeff.re * 8388607.0) as i32;
-            let ci = (g.coeff.im * 8388607.0) as i32;
+            // Apply exact V6 gamma compression (gamma 0.3) for stunning thermal dynamics
+            let ratio = (power / max_power).powf(0.3);
+            let color_index = (ratio * 65535.0) as u16;
             
-            // Pack Cr into Pixel A R, G, B
-            let cr_u = (cr.clamp(-8388608, 8388607) + 8388608) as u32;
-            let r_a = ((cr_u >> 16) & 0xFF) as u8;
-            let g_a = ((cr_u >> 8) & 0xFF) as u8;
-            let b_a = (cr_u & 0xFF) as u8;
-            output.push(r_a);
-            output.push(g_a);
-            output.push(b_a);
+            // Retrieve beautiful Geodesic Snake colors from the 3D RGB Cube
+            let r_val = get_color_r(color_index);
+            let g_val = get_color_g(color_index);
+            let b_val = get_color_b(color_index);
+            
+            // Pixel A (Mid CQT color)
+            output.push(r_val);
+            output.push(g_val);
+            output.push(b_val);
             output.push(255u8);
             
-            // Pack Ci into Pixel B R, G, B
-            let ci_u = (ci.clamp(-8388608, 8388607) + 8388608) as u32;
-            let r_b = ((ci_u >> 16) & 0xFF) as u8;
-            let g_b = ((ci_u >> 8) & 0xFF) as u8;
-            let b_b = (ci_u & 0xFF) as u8;
-            output.push(r_b);
-            output.push(g_b);
-            output.push(b_b);
+            // Pixel B (Side CQT color, kept identical for visually smooth continuous curves)
+            output.push(r_val);
+            output.push(g_val);
+            output.push(b_val);
             output.push(255u8);
         }
     }
@@ -2065,28 +2072,19 @@ pub fn wasm_generate_v7_spectrogram(rgba_data: &[u8]) -> Result<Vec<f32>, JsValu
         for c in 0..w {
             let idx_a = r * w_png + (c * 2);
             let offset_a = 16 + idx_a * 4;
-            let offset_b = offset_a + 4;
             
-            if offset_b + 3 >= rgba_data.len() { break; }
+            if offset_a + 3 >= rgba_data.len() { break; }
             
-            // Unpack Cr from Pixel A (Red, Green, Blue)
-            let r_a = rgba_data[offset_a] as u32;
-            let g_a = rgba_data[offset_a + 1] as u32;
-            let b_a = rgba_data[offset_a + 2] as u32;
-            let cr_u = (r_a << 16) | (g_a << 8) | b_a;
-            let cr = (cr_u as i32) - 8388608;
+            let r_val = rgba_data[offset_a];
+            let g_val = rgba_data[offset_a + 1];
+            let b_val = rgba_data[offset_a + 2];
             
-            // Unpack Ci from Pixel B (Red, Green, Blue)
-            let r_b = rgba_data[offset_b] as u32;
-            let g_b = rgba_data[offset_b + 1] as u32;
-            let b_b = rgba_data[offset_b + 2] as u32;
-            let ci_u = (r_b << 16) | (g_b << 8) | b_b;
-            let ci = (ci_u as i32) - 8388608;
+            // Decode color back to original coefficient index
+            let coef = decode_color_to_coefficient(r_val, g_val, b_val);
+            let ratio = coef as f32 / 65535.0;
             
-            let cr_f = cr as f32 / 8388607.0;
-            let ci_f = ci as f32 / 8388607.0;
-            
-            spec[r * w + c] = cr_f * cr_f + ci_f * ci_f;
+            // Decompress power (gamma 0.3 inverse is 1.0 / 0.3)
+            spec[r * w + c] = ratio.powf(1.0 / 0.3);
         }
     }
     Ok(spec)
