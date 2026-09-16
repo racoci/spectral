@@ -2092,9 +2092,141 @@ pub fn wasm_generate_v7_spectrogram(rgba_data: &[u8]) -> Result<Vec<f32>, JsValu
     Ok(spec)
 }
 
+fn lift_forward_float(v: &[f32], p: &[f32; 3], u_coefs: &[f32; 3]) -> Vec<f32> {
+    let len = v.len();
+    let half_e = (len + 1) / 2;
+    let half_o = len / 2;
+    let mut e = vec![0.0f32; half_e];
+    let mut o = vec![0.0f32; half_o];
+    for i in 0..len {
+        if i % 2 == 0 { e[i / 2] = v[i]; }
+        else { o[i / 2] = v[i]; }
+    }
+    
+    let mut pred = vec![0.0f32; half_o];
+    for k in 0..half_o {
+        let em2 = e[k.saturating_sub(2)];
+        let em1 = e[k.saturating_sub(1)];
+        let ec  = e[k];
+        let ep1 = e[std::cmp::min(k + 1, half_e - 1)];
+        let ep2 = e[std::cmp::min(k + 2, half_e - 1)];
+        
+        pred[k] = p[0] * ec + p[1] * (em1 + ep1) + p[2] * (em2 + ep2);
+    }
+    
+    let mut d = vec![0.0f32; half_o];
+    for k in 0..half_o {
+        d[k] = o[k] - pred[k];
+    }
+    
+    let mut upd = vec![0.0f32; half_e];
+    for k in 0..half_e {
+        let dm2 = d[k.saturating_sub(2)];
+        let dm1 = d[k.saturating_sub(1)];
+        let dc  = d[k];
+        let dp1 = d[std::cmp::min(k + 1, half_o - 1)];
+        let dp2 = d[std::cmp::min(k + 2, half_o - 1)];
+        
+        upd[k] = u_coefs[0] * dc + u_coefs[1] * (dm1 + dp1) + u_coefs[2] * (dm2 + dp2);
+    }
+    
+    let mut s = e.clone();
+    for k in 0..half_e {
+        s[k] += upd[k];
+    }
+    
+    let mut out = vec![0.0f32; len];
+    for i in 0..half_e { out[i * 2] = s[i]; }
+    for i in 0..half_o { out[i * 2 + 1] = d[i]; }
+    out
+}
+
+fn evaluate_cqt_lifting_rmse(p: &[f32; 3], u_coefs: &[f32; 3]) -> f32 {
+    let n_test = 61;
+    let center = 30;
+    let mut cur = vec![0.0f32; n_test];
+    cur[center] = 1.0;
+    
+    // Apply 3 stages of forward float lifting
+    for _ in 0..3 {
+        cur = lift_forward_float(&cur, p, u_coefs);
+    }
+    
+    // Rescale response
+    let mut max_val = 1e-30f32;
+    for &v in &cur {
+        if v.abs() > max_val { max_val = v.abs(); }
+    }
+    
+    let target_sigma_bins = 1.65 / 2.355;
+    let mut error = 0.0f32;
+    
+    for i in 0..n_test {
+        let val = cur[i].abs() / max_val;
+        let x_idx = i as f32 - center as f32;
+        let gauss_target = (-0.5 * (x_idx / target_sigma_bins).powi(2)).exp();
+        
+        let yd = 20.0 * (val.max(1e-8)).log10();
+        let gd = 20.0 * (gauss_target.max(1e-8)).log10();
+        
+        // Weight emphasizing the main lobe
+        let w = (-0.5 * (x_idx / 12.0).powi(2)).exp();
+        error += w * (yd - gd).powi(2);
+    }
+    error
+}
+
+#[wasm_bindgen]
+pub fn wasm_optimize_cqt_lifting() -> Vec<f32> {
+    let mut p = [0.25f32, 0.125f32, 0.05f32];
+    let mut u_coefs = [0.25f32, 0.125f32, 0.05f32];
+    
+    let mut step = 0.05f32;
+    let mut best_error = evaluate_cqt_lifting_rmse(&p, &u_coefs);
+    
+    for _pass in 0..10 {
+        for i in 0..3 {
+            // Perturb p[i]
+            for &dir in &[-1.0f32, 1.0f32] {
+                let mut cand_p = p;
+                cand_p[i] = (p[i] + dir * step).clamp(0.0, 0.49);
+                let err = evaluate_cqt_lifting_rmse(&cand_p, &u_coefs);
+                if err < best_error {
+                    best_error = err;
+                    p = cand_p;
+                }
+            }
+            // Perturb u_coefs[i]
+            for &dir in &[-1.0f32, 1.0f32] {
+                let mut cand_u = u_coefs;
+                cand_u[i] = (u_coefs[i] + dir * step).clamp(0.0, 0.49);
+                let err = evaluate_cqt_lifting_rmse(&p, &cand_u);
+                if err < best_error {
+                    best_error = err;
+                    u_coefs = cand_u;
+                }
+            }
+        }
+        step *= 0.5;
+    }
+    
+    vec![p[0], p[1], p[2], u_coefs[0], u_coefs[1], u_coefs[2]]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_v7_pipeline_large() {
+        let mut original = vec![0u8; 4000];
+        for i in 0..4000 {
+            original[i] = (i % 256) as u8;
+        }
+        let encoded = encode_wavelet_v7_cqt(&original, 128);
+        let decoded = decode_wavelet_v7_cqt(&encoded).unwrap();
+        assert_eq!(original, decoded, "V7 CQT pipeline failed for large audio!");
+    }
 
     #[test]
     fn test_serpentine_arithmetic_bijection() {
