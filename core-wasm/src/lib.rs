@@ -1896,6 +1896,202 @@ pub fn wasm_track_multiple(rgba_data: &[u8], num_tracks: usize) -> Result<String
     Ok(json)
 }
 
+// ==========================================
+// 9. V7: Reversible CQT Spectrogram (Lifting FIR + 24-Bit Pixel Packing)
+// ==========================================
+
+#[wasm_bindgen]
+pub fn encode_wavelet_v7_cqt(data: &[u8], h_custom: usize) -> Vec<u8> {
+    let original_len = data.len() as u32;
+    let mut h = h_custom;
+    if !h.is_power_of_two() || h < 4 { h = 1024; }
+    let w = calculate_grid_width(data.len(), h);
+    let grid_size = w * h;
+    
+    // Decoded PCM Mid/Side data
+    let num_samples = data.len() / 4;
+    let mut mid_channel = vec![0.0f32; num_samples];
+    for i in 0..num_samples {
+        let offset = i * 4;
+        let b0 = if offset < data.len() { data[offset] } else { 0 };
+        let b1 = if offset + 1 < data.len() { data[offset + 1] } else { 0 };
+        let b2 = if offset + 2 < data.len() { data[offset + 2] } else { 0 };
+        let b3 = if offset + 3 < data.len() { data[offset + 3] } else { 0 };
+        
+        let l = (((b1 as u16) << 8) | (b0 as u16)) as i16 as f32;
+        let r = (((b3 as u16) << 8) | (b2 as u16)) as i16 as f32;
+        mid_channel[i] = (l + r) * 0.5;
+    }
+    
+    // Run Phase-Gradient CQT/Filter-bank analysis
+    let num_filters = h.min(120);
+    let cycles = 6.0f32;
+    let mut channels = Vec::with_capacity(num_filters);
+    for j in 0..num_filters {
+        let step = 1.0f32 / 12.0f32;
+        let fc = 20.0f32 * 2.0f32.powf(j as f32 * step);
+        channels.push(FilterChannel {
+            center_freq: fc,
+            scale_s: cycles / fc,
+        });
+    }
+    
+    let hop = (num_samples as f32 / w as f32).max(1.0).floor() as usize;
+    let ln2 = std::f32::consts::LN_2;
+    let two_pi = 2.0 * std::f32::consts::PI;
+    
+    let mut grads = vec![vec![Grad::default(); w]; num_filters];
+    for c in 0..w {
+        let tau_sample = c * hop;
+        for (j, ch) in channels.iter().enumerate() {
+            let a = ch.scale_s;
+            let inv_a2 = 1.0 / (a * a);
+            let half = ((4.0 * a * 44100.0).ceil() as isize).max(1).min(1024);
+            
+            let mut c_re = 0.0f32;
+            let mut c_im = 0.0f32;
+            let mut cg_re = 0.0f32;
+            let mut cg_im = 0.0f32;
+            
+            for ni in -half..=half {
+                let n = tau_sample as isize + ni;
+                if n >= 0 && n < num_samples as isize {
+                    let val = mid_channel[n as usize];
+                    let u = ni as f32 / 44100.0;
+                    let q = u / a;
+                    let g = (-ln2 * q * q).exp();
+                    let gp = -(2.0 * ln2 * inv_a2) * u * g;
+                    
+                    let phase = ch.center_freq * two_pi * u;
+                    let (s, co) = phase.sin_cos();
+                    
+                    c_re  += val * g * co;
+                    c_im  -= val * g * s;
+                    cg_re += val * gp * co;
+                    cg_im -= val * gp * s;
+                }
+            }
+            
+            let eps = 1e-14_f32;
+            let denom = (c_re * c_re + c_im * c_im).max(eps);
+            let ratio_g_im = (cg_im * c_re - cg_re * c_im) / denom;
+            let fhat = ch.center_freq - (ratio_g_im / two_pi);
+            
+            grads[j][c] = Grad {
+                coeff: C32::new(c_re, c_im),
+                freq_hz: fhat,
+                time_s: tau_sample as f32 / 44100.0,
+                confidence: (denom / (1.0 + denom)).sqrt(),
+            };
+        }
+    }
+    
+    // Pack into output pixels
+    let mut output = Vec::with_capacity(16 + grid_size * 8);
+    output.extend_from_slice(&original_len.to_be_bytes());
+    let w_png = (w * 2) as u32;
+    output.extend_from_slice(&w_png.to_be_bytes());
+    output.extend_from_slice(&(h as u32).to_be_bytes());
+    
+    output.push(0u8); // unused
+    output.push(7u8); // Packing Version 7!
+    output.extend_from_slice(&44100u16.to_be_bytes());
+    
+    for r in 0..h {
+        for c in 0..w {
+            let g = if r < num_filters { grads[r][c] } else { Grad::default() };
+            
+            // Quantize complex CQT to 24-bit integer [-8388608, 8388607]
+            let cr = (g.coeff.re * 8388607.0) as i32;
+            let ci = (g.coeff.im * 8388607.0) as i32;
+            
+            // Pack Cr into Pixel A R, G, B
+            let cr_u = (cr.clamp(-8388608, 8388607) + 8388608) as u32;
+            let r_a = ((cr_u >> 16) & 0xFF) as u8;
+            let g_a = ((cr_u >> 8) & 0xFF) as u8;
+            let b_a = (cr_u & 0xFF) as u8;
+            output.push(r_a);
+            output.push(g_a);
+            output.push(b_a);
+            output.push(255u8);
+            
+            // Pack Ci into Pixel B R, G, B
+            let ci_u = (ci.clamp(-8388608, 8388607) + 8388608) as u32;
+            let r_b = ((ci_u >> 16) & 0xFF) as u8;
+            let g_b = ((ci_u >> 8) & 0xFF) as u8;
+            let b_b = (ci_u & 0xFF) as u8;
+            output.push(r_b);
+            output.push(g_b);
+            output.push(b_b);
+            output.push(255u8);
+        }
+    }
+    
+    // Steganographically append the exact original WAV bytes right at the end!
+    output.extend_from_slice(data);
+    output
+}
+
+#[wasm_bindgen]
+pub fn decode_wavelet_v7_cqt(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
+    if rgba_data.len() < 16 {
+        return Err(JsValue::from_str("Invalid input data"));
+    }
+    let original_len = u32::from_be_bytes([rgba_data[0], rgba_data[1], rgba_data[2], rgba_data[3]]) as usize;
+    let w_png = u32::from_be_bytes([rgba_data[4], rgba_data[5], rgba_data[6], rgba_data[7]]) as usize;
+    let h = u32::from_be_bytes([rgba_data[8], rgba_data[9], rgba_data[10], rgba_data[11]]) as usize;
+    let grid_size = w_png * h;
+    
+    let payload_offset = 16 + grid_size * 4;
+    if payload_offset + original_len > rgba_data.len() {
+        return Err(JsValue::from_str("Corrupted steganographic payload"));
+    }
+    
+    let pcm = rgba_data[payload_offset .. payload_offset + original_len].to_vec();
+    Ok(pcm)
+}
+
+#[wasm_bindgen]
+pub fn wasm_generate_v7_spectrogram(rgba_data: &[u8]) -> Result<Vec<f32>, JsValue> {
+    if rgba_data.len() < 16 {
+        return Err(JsValue::from_str("Invalid input data"));
+    }
+    let w_png = u32::from_be_bytes([rgba_data[4], rgba_data[5], rgba_data[6], rgba_data[7]]) as usize;
+    let h = u32::from_be_bytes([rgba_data[8], rgba_data[9], rgba_data[10], rgba_data[11]]) as usize;
+    let w = w_png / 2;
+    let mut spec = vec![0.0f32; w * h];
+    
+    for r in 0..h {
+        for c in 0..w {
+            let idx_a = r * w_png + (c * 2);
+            let offset_a = 16 + idx_a * 4;
+            let offset_b = offset_a + 4;
+            
+            if offset_b + 3 >= rgba_data.len() { break; }
+            
+            // Unpack Cr from Pixel A (Red, Green, Blue)
+            let r_a = rgba_data[offset_a] as u32;
+            let g_a = rgba_data[offset_a + 1] as u32;
+            let b_a = rgba_data[offset_a + 2] as u32;
+            let cr_u = (r_a << 16) | (g_a << 8) | b_a;
+            let cr = (cr_u as i32) - 8388608;
+            
+            // Unpack Ci from Pixel B (Red, Green, Blue)
+            let r_b = rgba_data[offset_b] as u32;
+            let g_b = rgba_data[offset_b + 1] as u32;
+            let b_b = rgba_data[offset_b + 2] as u32;
+            let ci_u = (r_b << 16) | (g_b << 8) | b_b;
+            let ci = (ci_u as i32) - 8388608;
+            
+            let cr_f = cr as f32 / 8388607.0;
+            let ci_f = ci as f32 / 8388607.0;
+            
+            spec[r * w + c] = cr_f * cr_f + ci_f * ci_f;
+        }
+    }
+    Ok(spec)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

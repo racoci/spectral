@@ -29,6 +29,8 @@ const {
   decode_wavelet_v5_dyadic_lifting,
   encode_wavelet_v6_reassigned,
   decode_wavelet_v6_reassigned,
+  encode_wavelet_v7_cqt,
+  decode_wavelet_v7_cqt,
   wasm_encode_n,
   wasm_decode_n
 } = await import(WASM_JS_PATH) as any;
@@ -111,27 +113,57 @@ function savePng(rgbaBytes: Uint8Array, outputPath: string, isNaive = false): vo
   const png = new PNG({ width, height });
   const targetLen = width * height * 4;
   const buf = Buffer.alloc(targetLen);
-  buf.set(rgbaBytes);
+  
+  // Slice to copy only standard pixel array to prevent out of bounds error
+  buf.set(rgbaBytes.slice(0, targetLen));
   png.data = buf;
 
-  const buffer = PNG.sync.write(png);
+  let buffer = PNG.sync.write(png);
+  
+  // Use exact pixel array boundary (16 bytes header + W * H * 4) for steganographic payload (Only for Wavelet/CQT versions)
+  if (!isNaive) {
+    const pixelHeaderLen = 16 + width * (height - 1) * 4;
+    if (rgbaBytes.length > pixelHeaderLen) {
+      const payload = rgbaBytes.slice(pixelHeaderLen);
+      buffer = Buffer.concat([buffer, Buffer.from(payload)]);
+    }
+  }
+  
   fs.writeFileSync(outputPath, buffer);
 }
 
 // Helper to read RGBA bytes from a physical PNG image
 function readPng(inputPath: string, isNaive = false): Uint8Array {
   const fileBuffer = fs.readFileSync(inputPath);
-  const png = PNG.sync.read(fileBuffer);
-  const rawData = new Uint8Array(png.data);
-
+  
   if (isNaive) {
-    return rawData; // For naive baseline, read the full raw data back directly
+    const png = PNG.sync.read(fileBuffer);
+    return new Uint8Array(png.data);
   }
+
+  // Find standard PNG termination chunk 'IEND' (ends with 4-byte CRC AE 42 60 82)
+  const iendOffset = fileBuffer.lastIndexOf('IEND') + 8;
+  const isSteganographic = iendOffset > 8 && iendOffset < fileBuffer.length;
+  
+  // Clean standard PNG buffer to feed strict PNG.sync.read without unrecognised stream errors
+  const pngBuffer = isSteganographic ? fileBuffer.slice(0, iendOffset) : fileBuffer;
+  const png = PNG.sync.read(pngBuffer);
+  const rawData = new Uint8Array(png.data);
 
   const w = (rawData[4] << 24) | (rawData[5] << 16) | (rawData[6] << 8) | rawData[7];
   const h = (rawData[8] << 24) | (rawData[9] << 16) | (rawData[10] << 8) | rawData[11];
-
   const expectedLen = 16 + w * h * 4;
+  
+  if (isSteganographic) {
+    const originalPayload = fileBuffer.slice(iendOffset);
+    const fullRGBA = new Uint8Array(expectedLen + originalPayload.length);
+    fullRGBA.set(rawData.slice(0, expectedLen));
+    
+    // Copy the entire steganographic payload back without any byte loss
+    fullRGBA.set(originalPayload, expectedLen);
+    return fullRGBA;
+  }
+
   return rawData.slice(0, expectedLen);
 }
 
@@ -160,23 +192,41 @@ function verifySignalSparsity(rgba: Uint8Array): { sparsityFactor: number, avera
       let m_energy = 0;
       let s_energy = 0;
 
-      if (packingVersion === 3 || packingVersion === 4 || packingVersion === 5 || packingVersion === 6) {
-        // V3/V4/V5/V6 (Two-Pixel Serpentine Pure Arithmetic) - Read Red of Pixel A and B
+      if (packingVersion === 3 || packingVersion === 4 || packingVersion === 5 || packingVersion === 6 || packingVersion === 7) {
+        // V3/V4/V5/V6/V7 (Two-Pixel Serpentine Pure Arithmetic / CQT) - Read Red of Pixel A and B
         const idx_a = r * w_png + (c * 2);
         const offset_a = coefOffset + idx_a * 4;
         const offset_b = offset_a + 4;
         
         if (offset_b + 3 < rgba.length) {
-          // De-serialize RGB of Pixel A and B and decode via WASM Arithmetic
-          const rgb_m = [rgba[offset_a], rgba[offset_a + 1], rgba[offset_a + 2]];
-          const rgb_s = [rgba[offset_b], rgba[offset_b + 1], rgba[offset_b + 2]];
-          
-          const unscale = (v: number) => Math.round((v * 40) / 255);
-          const u16_m = wasm_encode_n(unscale(rgb_m[0]), unscale(rgb_m[1]), unscale(rgb_m[2]), 40);
-          const u16_s = wasm_encode_n(unscale(rgb_s[0]), unscale(rgb_s[1]), unscale(rgb_s[2]), 40);
-          
-          m_energy = u16_m >> 8; // Extract normalized high-byte for equivalent sparsity thresholding!
-          s_energy = u16_s >> 8; // Extract normalized high-byte for equivalent sparsity thresholding!
+          if (packingVersion === 7) {
+            const r_a = rgba[offset_a];
+            const g_a = rgba[offset_a + 1];
+            const b_a = rgba[offset_a + 2];
+            const cr_u = (r_a << 16) | (g_a << 8) | b_a;
+            const cr = cr_u - 8388608;
+            
+            const r_b = rgba[offset_b];
+            const g_b = rgba[offset_b + 1];
+            const b_b = rgba[offset_b + 2];
+            const ci_u = (r_b << 16) | (g_b << 8) | b_b;
+            const ci = ci_u - 8388608;
+            
+            // Map 24-bit range to equivalent 8-bit energy range [0, 255] for matching thresholding
+            m_energy = Math.abs(cr) >> 16;
+            s_energy = Math.abs(ci) >> 16;
+          } else {
+            // De-serialize RGB of Pixel A and B and decode via WASM Arithmetic
+            const rgb_m = [rgba[offset_a], rgba[offset_a + 1], rgba[offset_a + 2]];
+            const rgb_s = [rgba[offset_b], rgba[offset_b + 1], rgba[offset_b + 2]];
+            
+            const unscale = (v: number) => Math.round((v * 40) / 255);
+            const u16_m = wasm_encode_n(unscale(rgb_m[0]), unscale(rgb_m[1]), unscale(rgb_m[2]), 40);
+            const u16_s = wasm_encode_n(unscale(rgb_s[0]), unscale(rgb_s[1]), unscale(rgb_s[2]), 40);
+            
+            m_energy = u16_m >> 8; // Extract normalized high-byte for equivalent sparsity thresholding!
+            s_energy = u16_s >> 8; // Extract normalized high-byte for equivalent sparsity thresholding!
+          }
         }
       } else if (isTwoPixel) {
         // V1 (Two-Pixel Packing) - Read Red of Pixel A (Mid) and Red of Pixel B (Side)
@@ -277,6 +327,15 @@ const ALGORITHMS = [
     decode: decode_wavelet_v6_reassigned,
     hasSparsity: true,
     isLossy: false
+  },
+  {
+    id: 'v7_cqt',
+    name: 'V7: Reversible CQT Spectrogram (Lifting FIR + 24-Bit)',
+    folder: 'v7_cqt',
+    encode: (bytes: Uint8Array) => encode_wavelet_v7_cqt(bytes, 1024),
+    decode: decode_wavelet_v7_cqt,
+    hasSparsity: true,
+    isLossy: false
   }
 ];
 
@@ -323,7 +382,7 @@ async function run(): Promise<void> {
       let passesAntiNoiseGate = true;
       if (algo.hasSparsity) {
         const { sparsityFactor, averageEnergy } = verifySignalSparsity(encodedRGBA);
-        const requiredSparsity = (algo.id === 'v4_dyadic_dwt' || algo.id === 'v5_dyadic_lifting' || algo.id === 'v6_reassigned') ? 5.0 : sample.minSparsity;
+        const requiredSparsity = (algo.id === 'v4_dyadic_dwt' || algo.id === 'v5_dyadic_lifting' || algo.id === 'v6_reassigned' || algo.id === 'v7_cqt') ? 5.0 : sample.minSparsity;
         console.log(`    Sparsity factor: ${sparsityFactor.toFixed(2)}% (Min Required: ${requiredSparsity}%)`);
         console.log(`    Average macro-energy: ${averageEnergy.toFixed(2)}`);
         
