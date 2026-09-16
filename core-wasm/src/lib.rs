@@ -1923,66 +1923,69 @@ pub fn encode_wavelet_v7_cqt(data: &[u8], h_custom: usize) -> Vec<u8> {
         mid_channel[i] = (l + r) * 0.5;
     }
     
-    // Run Phase-Gradient CQT/Filter-bank analysis
-    let num_filters = h.min(120);
-    let cycles = 6.0f32;
-    let mut channels = Vec::with_capacity(num_filters);
-    for j in 0..num_filters {
-        let step = 1.0f32 / 12.0f32;
-        let fc = 20.0f32 * 2.0f32.powf(j as f32 * step);
-        channels.push(FilterChannel {
-            center_freq: fc,
-            scale_s: cycles / fc,
-        });
-    }
+    let fs_f32 = 44100.0f32;
+    let n_stft = 4096;
+    
+    use rustfft::{FftPlanner, num_complex::Complex};
+    let mut planner = FftPlanner::new();
+    let fft = planner.plan_fft_forward(n_stft);
+    
+    // Constant relative standard deviation Q = 12 bins/octave (approx. 0.0833)
+    let sigma = 1.0f32 / 12.0f32;
+    
+    // Logarithmic center frequencies spanning from 20 Hz to 20000 Hz
+    let fmin = 20.0f32;
+    let fmax = 20000.0f32.min(fs_f32 / 2.0);
+    let step = (fmax / fmin).log2() / (h as f32 - 1.0);
+    
+    let mut c_ref_real = vec![0.0f32; h * w];
+    let mut c_ref_imag = vec![0.0f32; h * w];
     
     let hop = (num_samples as f32 / w as f32).max(1.0).floor() as usize;
-    let ln2 = std::f32::consts::LN_2;
-    let two_pi = 2.0 * std::f32::consts::PI;
     
-    let mut grads = vec![vec![Grad::default(); w]; num_filters];
+    // Process frames using STFT Hann-windowing and Gaussian warping
     for c in 0..w {
-        let tau_sample = c * hop;
-        for (j, ch) in channels.iter().enumerate() {
-            let a = ch.scale_s;
-            let inv_a2 = 1.0 / (a * a);
-            let half = ((4.0 * a * 44100.0).ceil() as isize).max(1).min(1024);
+        let start = c * hop;
+        let mut buffer = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
+        
+        for i in 0..n_stft {
+            let idx = start as isize + i as isize - (n_stft as isize / 2);
+            if idx >= 0 && idx < num_samples as isize {
+                let w_val = 0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (n_stft as f32 - 1.0)).cos());
+                buffer[i] = Complex::new(mid_channel[idx as usize] * w_val, 0.0);
+            }
+        }
+        
+        fft.process(&mut buffer);
+        
+        // Warp linear frequency bins to logarithmic CQT bins
+        for j in 0..h {
+            let fc = fmin * 2.0f32.powf(j as f32 * step);
             
-            let mut c_re = 0.0f32;
-            let mut c_im = 0.0f32;
-            let mut cg_re = 0.0f32;
-            let mut cg_im = 0.0f32;
+            let mut sum_re = 0.0f32;
+            let mut sum_im = 0.0f32;
+            let mut sum_w = 0.0f32;
             
-            for ni in -half..=half {
-                let n = tau_sample as isize + ni;
-                if n >= 0 && n < num_samples as isize {
-                    let val = mid_channel[n as usize];
-                    let u = ni as f32 / 44100.0;
-                    let q = u / a;
-                    let g = (-ln2 * q * q).exp();
-                    let gp = -(2.0 * ln2 * inv_a2) * u * g;
-                    
-                    let phase = ch.center_freq * two_pi * u;
-                    let (s, co) = phase.sin_cos();
-                    
-                    c_re  += val * g * co;
-                    c_im  -= val * g * s;
-                    cg_re += val * gp * co;
-                    cg_im -= val * gp * s;
-                }
+            // Dynamic window centering with 3-sigma octave boundaries to ensure perfect low-frequency overlap
+            let k_start = ((fc * 0.80f32) * n_stft as f32 / fs_f32).round() as isize;
+            let k_end = ((fc * 1.25f32) * n_stft as f32 / fs_f32).round() as isize;
+            let k_start = k_start.max(1) as usize;
+            let k_end = k_end.min((n_stft / 2 - 1) as isize) as usize;
+            
+            for k in k_start..=k_end {
+                let fk = k as f32 * fs_f32 / n_stft as f32;
+                let d = (fk / fc).log2();
+                let w_val = (-0.5 * (d / sigma).powi(2)).exp();
+                
+                sum_re += buffer[k].re * w_val;
+                sum_im += buffer[k].im * w_val;
+                sum_w += w_val;
             }
             
-            let eps = 1e-14_f32;
-            let denom = (c_re * c_re + c_im * c_im).max(eps);
-            let ratio_g_im = (cg_im * c_re - cg_re * c_im) / denom;
-            let fhat = ch.center_freq - (ratio_g_im / two_pi);
-            
-            grads[j][c] = Grad {
-                coeff: C32::new(c_re, c_im),
-                freq_hz: fhat,
-                time_s: tau_sample as f32 / 44100.0,
-                confidence: (denom / (1.0 + denom)).sqrt(),
-            };
+            if sum_w > 1e-12 {
+                c_ref_real[j * w + c] = sum_re / sum_w;
+                c_ref_imag[j * w + c] = sum_im / sum_w;
+            }
         }
     }
     
@@ -1997,19 +2000,18 @@ pub fn encode_wavelet_v7_cqt(data: &[u8], h_custom: usize) -> Vec<u8> {
     output.push(7u8); // Packing Version 7!
     output.extend_from_slice(&44100u16.to_be_bytes());
     
-    // Find maximum power in grads to scale dynamically and preserve rich dynamic range
+    // Find maximum power in CQT matrix to scale dynamically and preserve rich dynamic range
     let mut max_power = 1e-5f32;
-    for r in 0..num_filters {
+    for r in 0..h {
         for c in 0..w {
-            let power = grads[r][c].coeff.re * grads[r][c].coeff.re + grads[r][c].coeff.im * grads[r][c].coeff.im;
+            let power = c_ref_real[r * w + c] * c_ref_real[r * w + c] + c_ref_imag[r * w + c] * c_ref_imag[r * w + c];
             if power > max_power { max_power = power; }
         }
     }
     
     for r in 0..h {
         for c in 0..w {
-            let g = if r < num_filters { grads[r][c] } else { Grad::default() };
-            let power = g.coeff.re * g.coeff.re + g.coeff.im * g.coeff.im;
+            let power = c_ref_real[r * w + c] * c_ref_real[r * w + c] + c_ref_imag[r * w + c] * c_ref_imag[r * w + c];
             
             // Apply exact V6 gamma compression (gamma 0.3) for stunning thermal dynamics
             let ratio = (power / max_power).powf(0.3);
