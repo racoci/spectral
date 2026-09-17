@@ -8,7 +8,8 @@
     decode_color_to_coefficient,
     wasm_encode_n,
     wasm_generate_v6_spectrogram,
-    wasm_generate_v7_spectrogram
+    wasm_generate_v7_spectrogram,
+    wasm_generate_v8_spectrogram
   } from '../wasm/core_wasm.js';
 
   // Props using Svelte 5 standard runes
@@ -97,7 +98,32 @@
         const isTwoPixel = w_png * height > num_samples * 1.5;
         const packingVersion = rgbaBytes[13];
         
-        if (packingVersion === 7) {
+        if (packingVersion === 8) {
+          // V8: Reversible M-Band Polyphase Lifting Spectrogram Rendering!
+          const powerBuffer = wasm_generate_v8_spectrogram(rgbaBytes);
+          let maxPower = 1e-5;
+          for (let i = 0; i < powerBuffer.length; i++) {
+            if (powerBuffer[i] > maxPower) maxPower = powerBuffer[i];
+          }
+          
+          for (let r = 0; r < height; r++) {
+            for (let c = 0; c < width; c++) {
+              // y=0 in powerBuffer is low frequency, draw inverted vertically so low frequency is at the bottom
+              const power_idx = (height - 1 - r) * width + c;
+              const power = powerBuffer[power_idx] || 0;
+              
+              // Logarithmic/gamma compression for stunning heat-map dynamics
+              const ratio = Math.pow(power / maxPower, 0.3);
+              const color_index = Math.floor(ratio * 65535);
+              
+              const out_idx = (r * width + c) * 4;
+              imageData.data[out_idx]     = get_color_r(color_index);
+              imageData.data[out_idx + 1] = get_color_g(color_index);
+              imageData.data[out_idx + 2] = get_color_b(color_index);
+              imageData.data[out_idx + 3] = 255;
+            }
+          }
+        } else if (packingVersion === 7) {
           // V7: Reversible CQT Spectrogram Rendering!
           const powerBuffer = wasm_generate_v7_spectrogram(rgbaBytes);
           let maxPower = 1e-5;

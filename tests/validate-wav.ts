@@ -31,6 +31,8 @@ const {
   decode_wavelet_v6_reassigned,
   encode_wavelet_v7_cqt,
   decode_wavelet_v7_cqt,
+  encode_wavelet_v8_mband,
+  decode_wavelet_v8_mband,
   wasm_encode_n,
   wasm_decode_n
 } = await import(WASM_JS_PATH) as any;
@@ -192,7 +194,16 @@ function verifySignalSparsity(rgba: Uint8Array): { sparsityFactor: number, avera
       let m_energy = 0;
       let s_energy = 0;
 
-      if (packingVersion === 3 || packingVersion === 4 || packingVersion === 5 || packingVersion === 6 || packingVersion === 7) {
+      if (packingVersion === 8) {
+        const offset_a = coefOffset + (r * w_png + c * 4) * 4;
+        const offset_c = offset_a + 8;
+        if (offset_c + 3 < rgba.length) {
+          const sm_u = (rgba[offset_a] << 8) | rgba[offset_a + 1];
+          const ss_u = (rgba[offset_c] << 8) | rgba[offset_c + 1];
+          m_energy = Math.abs(sm_u - 32768) >> 8;
+          s_energy = Math.abs(ss_u - 32768) >> 8;
+        }
+      } else if (packingVersion === 3 || packingVersion === 4 || packingVersion === 5 || packingVersion === 6 || packingVersion === 7) {
         // V3/V4/V5/V6/V7 (Two-Pixel Serpentine Pure Arithmetic / CQT) - Read Red of Pixel A and B
         const idx_a = r * w_png + (c * 2);
         const offset_a = coefOffset + idx_a * 4;
@@ -334,6 +345,15 @@ const ALGORITHMS = [
     folder: 'v7_cqt',
     encode: (bytes: Uint8Array) => encode_wavelet_v7_cqt(bytes, 1024),
     decode: decode_wavelet_v7_cqt,
+    hasSparsity: false,
+    isLossy: false
+  },
+  {
+    id: 'v8_mband',
+    name: 'V8: Reversible M-Band Polyphase Lifting Spectrogram',
+    folder: 'v8_mband',
+    encode: (bytes: Uint8Array) => encode_wavelet_v8_mband(bytes, 1024),
+    decode: decode_wavelet_v8_mband,
     hasSparsity: false,
     isLossy: false
   }

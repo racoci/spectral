@@ -1897,8 +1897,372 @@ pub fn wasm_track_multiple(rgba_data: &[u8], num_tracks: usize) -> Result<String
 }
 
 // ==========================================
-// 9. V7: Reversible CQT Spectrogram (Lifting FIR + 24-Bit Pixel Packing)
+// 10. V8: Reversible M-Band Polyphase Lifting Spectrogram (Lossless & Semantic)
 // ==========================================
+
+fn round_fixed_rust(x: i64, bits: u32) -> i64 {
+    let den = 1i64 << bits;
+    let half = den / 2;
+    if x >= 0 {
+        (x + half) / den
+    } else {
+        -((-x + half) / den)
+    }
+}
+
+fn filter_fir_rust(e: &[i64], coefs: &[i64; 3]) -> Vec<i64> {
+    let len = e.len();
+    if len == 0 { return Vec::new(); }
+    let mut out = vec![0i64; len];
+    for k in 0..len {
+        let em2 = e[k.saturating_sub(2)];
+        let em1 = e[k.saturating_sub(1)];
+        let ec  = e[k];
+        let ep1 = e[std::cmp::min(k + 1, len - 1)];
+        let ep2 = e[std::cmp::min(k + 2, len - 1)];
+        
+        let acc = coefs[0] * ec + coefs[1] * (em1 + ep1) + coefs[2] * (em2 + ep2);
+        out[k] = round_fixed_rust(acc, 20);
+    }
+    out
+}
+
+fn forward_mband_4_rust(x: &[i64]) -> (Vec<i64>, Vec<i64>, Vec<i64>, Vec<i64>) {
+    let len = x.len();
+    let half = len / 4;
+    let mut e  = Vec::with_capacity(half);
+    let mut o1 = Vec::with_capacity(half);
+    let mut o2 = Vec::with_capacity(half);
+    let mut o3 = Vec::with_capacity(half);
+    
+    for i in 0..half {
+        e.push(x[i * 4]);
+        o1.push(x[i * 4 + 1]);
+        o2.push(x[i * 4 + 2]);
+        o3.push(x[i * 4 + 3]);
+    }
+    
+    let p1 = [300000i64, 100000i64, 20000i64];
+    let p2 = [450000i64, 150000i64, 30000i64];
+    let p3 = [300000i64, 100000i64, 20000i64];
+    let u_coefs = [200000i64, 80000i64, 15000i64];
+    
+    let pred1 = filter_fir_rust(&e, &p1);
+    let pred2 = filter_fir_rust(&e, &p2);
+    let pred3 = filter_fir_rust(&e, &p3);
+    
+    let mut d1 = vec![0i64; half];
+    let mut d2 = vec![0i64; half];
+    let mut d3 = vec![0i64; half];
+    for i in 0..half {
+        d1[i] = o1[i] - pred1[i];
+        d2[i] = o2[i] - pred2[i];
+        d3[i] = o3[i] - pred3[i];
+    }
+    
+    let upd1 = filter_fir_rust(&d1, &u_coefs);
+    let upd2 = filter_fir_rust(&d2, &u_coefs);
+    let upd3 = filter_fir_rust(&d3, &u_coefs);
+    
+    let mut s = e.clone();
+    for i in 0..half {
+        s[i] += upd1[i] + upd2[i] + upd3[i];
+    }
+    (s, d1, d2, d3)
+}
+
+fn inverse_mband_4_rust(s: &[i64], d1: &[i64], d2: &[i64], d3: &[i64], original_len: usize) -> Vec<i64> {
+    let half = s.len();
+    let p1 = [300000i64, 100000i64, 20000i64];
+    let p2 = [450000i64, 150000i64, 30000i64];
+    let p3 = [300000i64, 100000i64, 20000i64];
+    let u_coefs = [200000i64, 80000i64, 15000i64];
+    
+    let upd1 = filter_fir_rust(d1, &u_coefs);
+    let upd2 = filter_fir_rust(d2, &u_coefs);
+    let upd3 = filter_fir_rust(d3, &u_coefs);
+    
+    let mut e = s.to_vec();
+    for i in 0..half {
+        e[i] -= upd1[i] + upd2[i] + upd3[i];
+    }
+    
+    let pred1 = filter_fir_rust(&e, &p1);
+    let pred2 = filter_fir_rust(&e, &p2);
+    let pred3 = filter_fir_rust(&e, &p3);
+    
+    let mut o1 = vec![0i64; half];
+    let mut o2 = vec![0i64; half];
+    let mut o3 = vec![0i64; half];
+    for i in 0..half {
+        o1[i] = d1[i] + pred1[i];
+        o2[i] = d2[i] + pred2[i];
+        o3[i] = d3[i] + pred3[i];
+    }
+    
+    let mut out = vec![0i64; original_len];
+    for i in 0..half {
+        if i * 4 < original_len { out[i * 4] = e[i]; }
+        if i * 4 + 1 < original_len { out[i * 4 + 1] = o1[i]; }
+        if i * 4 + 2 < original_len { out[i * 4 + 2] = o2[i]; }
+        if i * 4 + 3 < original_len { out[i * 4 + 3] = o3[i]; }
+    }
+    out
+}
+
+#[wasm_bindgen]
+pub fn encode_wavelet_v8_mband(data: &[u8], h_custom: usize) -> Vec<u8> {
+    let original_len = data.len() as u32;
+    let mut h = h_custom;
+    if !h.is_power_of_two() || h < 4 { h = 1024; }
+    let w = calculate_grid_width(data.len(), h);
+    let grid_size = w * h;
+    
+    // We pad the raw PCM Mid/Side data up to the grid boundary (grid_size * 4 samples)
+    let num_samples = data.len() / 4;
+    let mut mid_input = vec![0i64; grid_size * 4];
+    let mut side_input = vec![0i64; grid_size * 4];
+    
+    for i in 0..num_samples {
+        let offset = i * 4;
+        let b0 = if offset < data.len() { data[offset] } else { 0 };
+        let b1 = if offset + 1 < data.len() { data[offset + 1] } else { 0 };
+        let b2 = if offset + 2 < data.len() { data[offset + 2] } else { 0 };
+        let b3 = if offset + 3 < data.len() { data[offset + 3] } else { 0 };
+        
+        let l_sample = (((b1 as u16) << 8) | (b0 as u16)) as i16;
+        let r_sample = (((b3 as u16) << 8) | (b2 as u16)) as i16;
+        
+        let (m, s) = lr_to_ms(l_sample, r_sample);
+        mid_input[i] = m as i64;
+        side_input[i] = s as i64;
+    }
+    
+    // Process entire mono and side sequences through the 4-band polyphase lifting cascade
+    let (s_m, d1_m, d2_m, d3_m) = forward_mband_4_rust(&mid_input);
+    let (s_s, d1_s, d2_s, d3_s) = forward_mband_4_rust(&side_input);
+    
+    let mut output = Vec::with_capacity(24 + grid_size * 32);
+    output.extend_from_slice(&original_len.to_be_bytes());
+    let w_png = (w * 8) as u32; // 8 pixels per sample point to pack Mid & Side 24-bit coefficients with Alpha=255
+    output.extend_from_slice(&w_png.to_be_bytes());
+    output.extend_from_slice(&(h as u32).to_be_bytes());
+    
+    let rem_bytes = (original_len % 4) as u8;
+    output.push(rem_bytes); // byte 12: rem_bytes count!
+    output.push(8u8); // byte 13: Packing Version 8!
+    output.extend_from_slice(&44100u16.to_be_bytes());
+    
+    // Store 24-bit odd-byte residuals into metadata bytes 16-18
+    let b1_odd = if rem_bytes >= 1 { data[num_samples * 4] } else { 0 };
+    let b2_odd = if rem_bytes >= 2 { data[num_samples * 4 + 1] } else { 0 };
+    let b3_odd = if rem_bytes == 3 { data[num_samples * 4 + 2] } else { 0 };
+    output.push(b1_odd); // byte 16
+    output.push(b2_odd); // byte 17
+    output.push(b3_odd); // byte 18
+    
+    // Bytes 19-23: Padding up to 24 bytes
+    output.push(0u8);
+    output.push(0u8);
+    output.push(0u8);
+    output.push(0u8);
+    output.push(0u8);
+    
+    for r in 0..h {
+        for c in 0..w {
+            let idx = r * w + c;
+            
+            // Unsigned shift for 24-bit integers [-8388608, 8388607] -> [0, 16777215]
+            let sm_u = (s_m[idx].clamp(-8388608, 8388607) + 8388608) as u32;
+            let d1m_u = (d1_m[idx].clamp(-8388608, 8388607) + 8388608) as u32;
+            let d2m_u = (d2_m[idx].clamp(-8388608, 8388607) + 8388608) as u32;
+            let d3m_u = (d3_m[idx].clamp(-8388608, 8388607) + 8388608) as u32;
+            
+            let ss_u = (s_s[idx].clamp(-8388608, 8388607) + 8388608) as u32;
+            let d1s_u = (d1_s[idx].clamp(-8388608, 8388607) + 8388608) as u32;
+            let d2s_u = (d2_s[idx].clamp(-8388608, 8388607) + 8388608) as u32;
+            let d3s_u = (d3_s[idx].clamp(-8388608, 8388607) + 8388608) as u32;
+            
+            // Pixel A: sm_u (Mid Lowpass)
+            output.push(((sm_u >> 16) & 0xFF) as u8);
+            output.push(((sm_u >> 8) & 0xFF) as u8);
+            output.push((sm_u & 0xFF) as u8);
+            output.push(255u8);
+            
+            // Pixel B: d1m_u (Mid Detail 1)
+            output.push(((d1m_u >> 16) & 0xFF) as u8);
+            output.push(((d1m_u >> 8) & 0xFF) as u8);
+            output.push((d1m_u & 0xFF) as u8);
+            output.push(255u8);
+            
+            // Pixel C: d2m_u (Mid Detail 2)
+            output.push(((d2m_u >> 16) & 0xFF) as u8);
+            output.push(((d2m_u >> 8) & 0xFF) as u8);
+            output.push((d2m_u & 0xFF) as u8);
+            output.push(255u8);
+            
+            // Pixel D: d3m_u (Mid Detail 3)
+            output.push(((d3m_u >> 16) & 0xFF) as u8);
+            output.push(((d3m_u >> 8) & 0xFF) as u8);
+            output.push((d3m_u & 0xFF) as u8);
+            output.push(255u8);
+            
+            // Pixel E: ss_u (Side Lowpass)
+            output.push(((ss_u >> 16) & 0xFF) as u8);
+            output.push(((ss_u >> 8) & 0xFF) as u8);
+            output.push((ss_u & 0xFF) as u8);
+            output.push(255u8);
+            
+            // Pixel F: d1s_u (Side Detail 1)
+            output.push(((d1s_u >> 16) & 0xFF) as u8);
+            output.push(((d1s_u >> 8) & 0xFF) as u8);
+            output.push((d1s_u & 0xFF) as u8);
+            output.push(255u8);
+            
+            // Pixel G: d2s_u (Side Detail 2)
+            output.push(((d2s_u >> 16) & 0xFF) as u8);
+            output.push(((d2s_u >> 8) & 0xFF) as u8);
+            output.push((d2s_u & 0xFF) as u8);
+            output.push(255u8);
+            
+            // Pixel H: d3s_u (Side Detail 3)
+            output.push(((d3s_u >> 16) & 0xFF) as u8);
+            output.push(((d3s_u >> 8) & 0xFF) as u8);
+            output.push((d3s_u & 0xFF) as u8);
+            output.push(255u8);
+        }
+    }
+    output
+}
+
+#[wasm_bindgen]
+pub fn decode_wavelet_v8_mband(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
+    if rgba_data.len() < 24 {
+        return Err(JsValue::from_str("Invalid input data"));
+    }
+    let original_len = u32::from_be_bytes([rgba_data[0], rgba_data[1], rgba_data[2], rgba_data[3]]) as usize;
+    let w_png = u32::from_be_bytes([rgba_data[4], rgba_data[5], rgba_data[6], rgba_data[7]]) as usize;
+    let h = u32::from_be_bytes([rgba_data[8], rgba_data[9], rgba_data[10], rgba_data[11]]) as usize;
+    
+    let w = w_png / 8;
+    let grid_size = w * h;
+    
+    let mut s_m = vec![0i64; grid_size];
+    let mut d1_m = vec![0i64; grid_size];
+    let mut d2_m = vec![0i64; grid_size];
+    let mut d3_m = vec![0i64; grid_size];
+    
+    let mut s_s = vec![0i64; grid_size];
+    let mut d1_s = vec![0i64; grid_size];
+    let mut d2_s = vec![0i64; grid_size];
+    let mut d3_s = vec![0i64; grid_size];
+    
+    let rem_bytes = rgba_data[12] as usize;
+    let byte1 = rgba_data[16];
+    let byte2 = rgba_data[17];
+    let byte3 = rgba_data[18];
+    
+    for r in 0..h {
+        for c in 0..w {
+            let idx = r * w + c;
+            let offset_a = 24 + (r * w_png + c * 8) * 4;
+            let offset_b = offset_a + 4;
+            let offset_c = offset_a + 8;
+            let offset_d = offset_a + 12;
+            let offset_e = offset_a + 16;
+            let offset_f = offset_a + 20;
+            let offset_g = offset_a + 24;
+            let offset_h = offset_a + 28;
+            
+            if offset_h + 3 >= rgba_data.len() {
+                return Err(JsValue::from_str("Truncated image buffer in V8 decoding"));
+            }
+            
+            let sm_u = ((rgba_data[offset_a] as u32) << 16) | ((rgba_data[offset_a + 1] as u32) << 8) | (rgba_data[offset_a + 2] as u32);
+            let d1m_u = ((rgba_data[offset_b] as u32) << 16) | ((rgba_data[offset_b + 1] as u32) << 8) | (rgba_data[offset_b + 2] as u32);
+            let d2m_u = ((rgba_data[offset_c] as u32) << 16) | ((rgba_data[offset_c + 1] as u32) << 8) | (rgba_data[offset_c + 2] as u32);
+            let d3m_u = ((rgba_data[offset_d] as u32) << 16) | ((rgba_data[offset_d + 1] as u32) << 8) | (rgba_data[offset_d + 2] as u32);
+            
+            let ss_u = ((rgba_data[offset_e] as u32) << 16) | ((rgba_data[offset_e + 1] as u32) << 8) | (rgba_data[offset_e + 2] as u32);
+            let d1s_u = ((rgba_data[offset_f] as u32) << 16) | ((rgba_data[offset_f + 1] as u32) << 8) | (rgba_data[offset_f + 2] as u32);
+            let d2s_u = ((rgba_data[offset_g] as u32) << 16) | ((rgba_data[offset_g + 1] as u32) << 8) | (rgba_data[offset_g + 2] as u32);
+            let d3s_u = ((rgba_data[offset_h] as u32) << 16) | ((rgba_data[offset_h + 1] as u32) << 8) | (rgba_data[offset_h + 2] as u32);
+            
+            s_m[idx] = (sm_u as i32 - 8388608) as i64;
+            d1_m[idx] = (d1m_u as i32 - 8388608) as i64;
+            d2_m[idx] = (d2m_u as i32 - 8388608) as i64;
+            d3_m[idx] = (d3m_u as i32 - 8388608) as i64;
+            
+            s_s[idx] = (ss_u as i32 - 8388608) as i64;
+            d1_s[idx] = (d1s_u as i32 - 8388608) as i64;
+            d2_s[idx] = (d2s_u as i32 - 8388608) as i64;
+            d3_s[idx] = (d3s_u as i32 - 8388608) as i64;
+        }
+    }
+    
+    // Reconstruct through the 4-band inverse lifting cascade
+    let mid_reconstructed = inverse_mband_4_rust(&s_m, &d1_m, &d2_m, &d3_m, grid_size * 4);
+    let side_reconstructed = inverse_mband_4_rust(&s_s, &d1_s, &d2_s, &d3_s, grid_size * 4);
+    
+    let num_samples = original_len / 4;
+    let mut pcm = vec![0u8; original_len];
+    
+    for i in 0..num_samples {
+        let m = mid_reconstructed[i] as i16;
+        let s = side_reconstructed[i] as i16;
+        let (l, r) = ms_to_lr(m, s);
+        
+        let offset = i * 4;
+        pcm[offset]     = (l & 0xFF) as u8;
+        pcm[offset + 1] = ((l >> 8) & 0xFF) as u8;
+        pcm[offset + 2] = (r & 0xFF) as u8;
+        pcm[offset + 3] = ((r >> 8) & 0xFF) as u8;
+    }
+    
+    // Re-inject the odd-byte residuals at the end of the PCM stream
+    if rem_bytes >= 1 && num_samples * 4 < original_len {
+        pcm[num_samples * 4] = byte1;
+    }
+    if rem_bytes >= 2 && num_samples * 4 + 1 < original_len {
+        pcm[num_samples * 4 + 1] = byte2;
+    }
+    if rem_bytes == 3 && num_samples * 4 + 2 < original_len {
+        pcm[num_samples * 4 + 2] = byte3;
+    }
+    
+    Ok(pcm)
+}
+
+#[wasm_bindgen]
+pub fn wasm_generate_v8_spectrogram(rgba_data: &[u8]) -> Result<Vec<f32>, JsValue> {
+    if rgba_data.len() < 16 {
+        return Err(JsValue::from_str("Invalid input data"));
+    }
+    let w_png = u32::from_be_bytes([rgba_data[4], rgba_data[5], rgba_data[6], rgba_data[7]]) as usize;
+    let h = u32::from_be_bytes([rgba_data[8], rgba_data[9], rgba_data[10], rgba_data[11]]) as usize;
+    let w = w_png / 8;
+    let mut spec = vec![0.0f32; w * h];
+    
+    for r in 0..h {
+        for c in 0..w {
+            let offset_a = 16 + (r * w_png + c * 8) * 4;
+            let offset_b = offset_a + 4;
+            let offset_c = offset_a + 8;
+            
+            if offset_c + 3 >= rgba_data.len() { break; }
+            
+            // Extract bandpass details from Pixels B and C
+            let d1m_u = ((rgba_data[offset_b] as u32) << 16) | ((rgba_data[offset_b + 1] as u32) << 8) | (rgba_data[offset_b + 2] as u32);
+            let d2m_u = ((rgba_data[offset_c] as u32) << 16) | ((rgba_data[offset_c + 1] as u32) << 8) | (rgba_data[offset_c + 2] as u32);
+            
+            let d1 = (d1m_u as i32 - 8388608) as f32;
+            let d2 = (d2m_u as i32 - 8388608) as f32;
+            
+            spec[r * w + c] = d1 * d1 + d2 * d2;
+        }
+    }
+    Ok(spec)
+}
 
 #[wasm_bindgen]
 pub fn encode_wavelet_v7_cqt(data: &[u8], h_custom: usize) -> Vec<u8> {
