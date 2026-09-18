@@ -91,7 +91,8 @@
       float x = (a_position.x / u_zoomX) + u_panX;
       float y = a_position.y;
       
-      v_uv = vec2(x * 0.5 + 0.5, 0.5 - y * 0.5); // Flip Y for spectrogram coordinates
+      // Flip Y axis: Low frequencies (row 0 in texture, v_uv.y = 0.0) at the bottom (y = -1.0)
+      v_uv = vec2(x * 0.5 + 0.5, y * 0.5 + 0.5);
       gl_Position = vec4(a_position, 0.0, 1.0);
   }`;
 
@@ -102,7 +103,7 @@
     gl.shaderSource(shader, source);
     gl.compileShader(shader);
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      console.error('Shader compilation error:', gl.getShaderInfoLog(shader));
+      console.error('❌ Shader compilation error:', gl.getShaderInfoLog(shader));
       gl.deleteShader(shader);
       return null;
     }
@@ -111,9 +112,9 @@
 
   function initWebGL() {
     if (!canvas) return;
-    gl = canvas.getContext('webgl2');
+    gl = canvas.getContext('webgl2', { antialias: true, alpha: false });
     if (!gl) {
-      console.error('WebGL2 is not supported.');
+      console.error('❌ WebGL2 is not supported by your browser or machine.');
       return;
     }
 
@@ -128,7 +129,7 @@
     gl.linkProgram(program);
 
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      console.error('Program linking error:', gl.getProgramInfoLog(program));
+      console.error('❌ Program linking error:', gl.getProgramInfoLog(program));
       return;
     }
 
@@ -151,12 +152,20 @@
     gl.enableVertexAttribArray(posLoc);
     gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
 
+    // Create the active texture
     texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+    // CRITICAL: Linear filtering of float textures requires 'OES_texture_float_linear' extension.
+    // If missing, LINEAR filtering causes rendering to fail completely (returns black). We fallback to NEAREST.
+    const hasFloatLinear = gl.getExtension('OES_texture_float_linear');
+    const filterMode = hasFloatLinear ? gl.LINEAR : gl.NEAREST;
+    console.log(`📢 WebGL Float linear filtering support: ${hasFloatLinear ? 'YES (Linear)' : 'NO (Nearest Fallback)'}`);
+    
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filterMode);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filterMode);
 
     render();
   }
@@ -164,7 +173,13 @@
   $effect(() => {
     if (gl && texture && complexGrid && width > 0 && height > 0) {
       gl.bindTexture(gl.TEXTURE_2D, texture);
+      
+      // CRITICAL: Disable unpack alignment restrictions to support non-power-of-two arbitrary widths cleanly
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      
+      // Upload the complex grid Floats directly to the GPU as RG32F
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG32F, width, height, 0, gl.RG, gl.FLOAT, complexGrid);
+      console.log(`📢 WebGL uploaded complex grid texture: size ${width} x ${height} (Float32 format)`);
       render();
     }
   });
@@ -173,11 +188,17 @@
     if (!gl || !program || !complexGrid) return;
     gl.viewport(0, 0, canvas.width, canvas.height);
     
+    // Explicitly bind the active texture unit and texture object
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    
     const zoomLoc = gl.getUniformLocation(program, 'u_zoomX');
     const panLoc = gl.getUniformLocation(program, 'u_panX');
+    const texLoc = gl.getUniformLocation(program, 'u_complexTexture');
     
     gl.uniform1f(zoomLoc, zoomX);
     gl.uniform1f(panLoc, panX);
+    gl.uniform1i(texLoc, 0); // Point sampler to texture unit 0
     
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
