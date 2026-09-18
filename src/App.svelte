@@ -28,7 +28,8 @@
       gridH = h;
       gridW = (complexGrid.length / 2) / h;
       console.log(`✅ App.svelte generated complexGrid of size ${complexGrid.length} floats (dimensions: ${gridW} x ${gridH}) in ${(performance.now() - t0).toFixed(3)} ms.`);
-      currentView = 'editor';
+      // We do NOT force currentView = 'editor' here to prevent infinite redirection loops on re-mounting!
+      // The user can manually switch views via the header tabs at their own discretion.
     } catch (e) {
       console.error("❌ App.svelte failed to generate WebGL Editor payload:", e);
     }
