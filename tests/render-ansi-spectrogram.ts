@@ -113,9 +113,11 @@ function renderAnsiSpectrogram(pngPath: string, title: string) {
   console.log('\x1b[1;33m   [LEGEND]: \x1b[0;41m  Low Energy (Black)  \x1b[0;42m  Medium Energy (Green)  \x1b[0;43m  High Energy (Vibrant Amber/Yellow)  \x1b[0m\n');
 }
 
-// Render both the smooth Logarithmic and the ultra-sharp Reassigned Spectrograms side-by-side!
+// Render the smooth Logarithmic, the ultra-sharp Reassigned, and the phase-coded YCbCr Spectrograms!
 const logPng = path.join(PROJECT_ROOT, 'tests', 'test-outputs', 'stft_cqt', 'logarithmic_spectrogram', 'log_hann_voice.png');
 const rePng = path.join(PROJECT_ROOT, 'tests', 'test-outputs', 'stft_cqt', 'reassigned_spectrogram', 'reassigned_hann_voice.png');
+const ycbcrPng = path.join(PROJECT_ROOT, 'tests', 'test-outputs', 'stft_cqt', 'logarithmic_spectrogram', 'complex_ycbcr_voice.png');
 
 renderAnsiSpectrogram(logPng, 'SMOOTH LOGARITHMIC SPECTROGRAM (AUDACITY REFERENCE)');
 renderAnsiSpectrogram(rePng, 'AUGER-FLANDRIN REASSIGNED SPECTROGRAM (INFINITE SHARPNESS)');
+renderAnsiSpectrogram(ycbcrPng, 'YCBCR MAGNITUDE-PHASE COMPLEX SPECTROGRAM (BT.601 PHASE-CODEDVOICE)');
