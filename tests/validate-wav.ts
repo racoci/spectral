@@ -54,7 +54,8 @@ const {
 const TARGET_DIR = path.join(PROJECT_ROOT, 'tests', 'temp-samples');
 const OUTPUT_ROOT_DIR = path.join(PROJECT_ROOT, 'tests', 'test-outputs');
 
-// Ensure output root directory exists
+// Ensure target download and output root directories exist recursively
+fs.mkdirSync(TARGET_DIR, { recursive: true });
 fs.mkdirSync(OUTPUT_ROOT_DIR, { recursive: true });
 
 // Initialize WebAssembly module synchronously
