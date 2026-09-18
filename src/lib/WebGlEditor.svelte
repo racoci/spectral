@@ -1,10 +1,9 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
 
-  // Svelte 5 strict typing: Receive the properties as a reactive object (props)
-  // to avoid losing reactivity due to destructuring primitives like width and height!
+  // Svelte 5 strict typing: Receive the 8-bit pre-rendered RGBA texture from WebAssembly
   let props: { 
-    complexGrid: Float32Array | null, 
+    rgbaGrid: Uint8Array | null, 
     width: number, 
     height: number,
     onAudioUploaded: (bytes: Uint8Array) => void,
@@ -30,64 +29,16 @@
   let histogramBins = $state<number[]>(new Array(30).fill(0));
   let maxBinValue = $state(1);
 
-  // Fragment Shader: Applies Y^2-log mapping, Radial Residual w, and BT.601 YCbCr directly on the GPU
+  // Fragment Shader: High-performance texture sampler drawing the CPU-rendered YCbCr spectrogram
   const fragmentShaderSource = `#version 300 es
   precision highp float;
   in vec2 v_uv;
   out vec4 outColor;
   
-  uniform sampler2D u_complexTexture;
+  uniform sampler2D u_spectrogramTexture;
   
   void main() {
-      // Texture returns vec2(Re, Im)
-      vec2 z_raw = texture(u_complexTexture, v_uv).rg;
-      
-      // CRITICAL: Normalize raw FFT coefficients (which scale up to 4M due to STFT window length N=4096)
-      // Dividing by 2^22 (4,194,304.0) brings the complex amplitude perfectly into [0.0, 1.0] range
-      vec2 z = z_raw / 4194304.0;
-      float r = length(z);
-      
-      // Absolute silence threshold (Y = 0)
-      if (r < 3.0517578e-5) { // 2^-15
-          outColor = vec4(0.0, 0.0, 0.0, 1.0);
-          return;
-      }
-      
-      // Y^2 - log encoding scale
-      // Y = round( sqrt(1.0 + 65024.0 * (log2(r) + 15.0) / 15.0) )
-      float log2_r = log2(r);
-      float y_val = sqrt(1.0 + 65024.0 * (log2_r + 15.0) / 15.0);
-      float Y = floor(y_val);
-      Y = clamp(Y, 1.0, 255.0);
-      
-      // Lower bound of the magnitude interval for this Y
-      float Amin_pow = -15.0 + 15.0 * (Y * Y - 1.0) / 65024.0;
-      float A_min = exp2(Amin_pow);
-      
-      // Radial residual w = (r - A_min) * (z / r)
-      float r_resid = r - A_min;
-      
-      // Upper bound to normalize residual
-      float A_max = exp2(-15.0 + 15.0 * ((Y + 1.0) * (Y + 1.0) - 1.0) / 65024.0);
-      float delta_A = A_max - A_min;
-      
-      // Normalize radial residual to [0, 1)
-      float r_norm = r_resid / delta_A;
-      vec2 w_norm = r_norm * (z / r);
-      
-      // Chrominance mappings
-      float Cr_norm = -w_norm.x; // Inverted Real part (Green/Red phase-coded)
-      float Cb_norm = w_norm.y;  // Imaginary part (Quadrature)
-      
-      float Y_norm = Y / 255.0;
-      
-      // BT.601 YCbCr to RGB
-      float R = Y_norm + 1.402 * Cr_norm;
-      float G = Y_norm - 0.344136 * Cb_norm - 0.714136 * Cr_norm;
-      float B = Y_norm + 1.772 * Cb_norm;
-      
-      // Clamp and output with beautiful glowing alpha
-      outColor = vec4(clamp(R, 0.0, 1.0), clamp(G, 0.0, 1.0), clamp(B, 0.0, 1.0), 1.0);
+      outColor = texture(u_spectrogramTexture, v_uv);
   }`;
 
   const vertexShaderSource = `#version 300 es
@@ -122,7 +73,7 @@
 
   function initWebGL() {
     if (!canvas) return;
-    // CRITICAL: Set preserveDrawingBuffer to true so test runners (like Puppeteer) can read canvas pixels using gl.readPixels!
+    // Set preserveDrawingBuffer to true for Puppeteer integration test readback
     gl = canvas.getContext('webgl2', { antialias: true, alpha: false, preserveDrawingBuffer: true });
     if (!gl) {
       console.error('❌ WebGL2 is not supported by your browser or machine.');
@@ -163,29 +114,22 @@
     gl.enableVertexAttribArray(posLoc);
     gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
 
-    // Create the active texture
+    // Create the active standard texture
     texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
-    // CRITICAL: Linear filtering of float textures requires 'OES_texture_float_linear' extension.
-    // If missing, LINEAR filtering causes rendering to fail completely (returns black). We fallback to NEAREST.
-    const hasFloatLinear = gl.getExtension('OES_texture_float_linear');
-    const filterMode = hasFloatLinear ? gl.LINEAR : gl.NEAREST;
-    console.log(`📢 WebGL Float linear filtering support: ${hasFloatLinear ? 'YES (Linear)' : 'NO (Nearest Fallback)'}`);
-    
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filterMode);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filterMode);
+    // Standard 8-bit textures support bilinear filtering universally out-of-the-box on every device!
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 
     render();
   }
 
-  // Reactive effect to update texture on GPU and compute energy distribution histogram
+  // Reactive effect to upload standard 8-bit texture to GPU and update logarithmic histogram
   $effect(() => {
-    // CRITICAL: Read all reactive props at the very top of the effect to register them 
-    // in Svelte 5's dependency tracking! Early short-circuiting on gl/texture would prevent tracking.
-    const grid = props.complexGrid;
+    const grid = props.rgbaGrid;
     const w = props.width;
     const h = props.height;
 
@@ -193,40 +137,40 @@
 
     gl.bindTexture(gl.TEXTURE_2D, texture);
     
-    // CRITICAL: Disable unpack alignment restrictions to support non-power-of-two arbitrary widths cleanly
+    // Disable unpacking restrictions to support arbitrary non-power-of-two widths
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     
-    // Upload the complex grid Floats directly to the GPU as RG32F
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG32F, w, h, 0, gl.RG, gl.FLOAT, grid);
-    console.log(`📢 WebGL uploaded complex grid texture: size ${w} x ${h} (Float32 format)`);
+    // Upload the standard RGBA 8-bit pixel buffer to the GPU (universally supported, zero extensions required)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, grid);
+    console.log(`📢 WebGL uploaded 8-bit RGBA spectrogram texture: size ${w} x ${h}`);
     
-    // Compute the Logarithmic Histogram of reassignment coefficients
+    // Compute the Logarithmic Histogram from pixel colors
     computeLogHistogram();
     
     render();
   });
 
-  // Calculate logarithmic magnitude energy distribution histogram (from -90 dB to 0 dB)
+  // Calculate logarithmic magnitude energy distribution histogram directly from pre-rendered pixels
   function computeLogHistogram() {
-    if (!props.complexGrid) return;
+    if (!props.rgbaGrid) return;
     const bins = new Array(30).fill(0);
-    const numElements = props.complexGrid.length / 2;
+    const numPixels = props.rgbaGrid.length / 4;
     
     // Sparsely sample the matrix to prevent frame locks (60 FPS safe)
-    const step = Math.max(1, Math.floor(numElements / 25000));
+    const step = Math.max(1, Math.floor(numPixels / 25000));
     
-    for (let i = 0; i < numElements; i += step) {
-      const re = props.complexGrid[i * 2];
-      const im = props.complexGrid[i * 2 + 1];
-      const abs_z = Math.sqrt(re * re + im * im);
-      if (abs_z < 1e-12) continue;
+    for (let i = 0; i < numPixels; i += step) {
+      const idx = i * 4;
+      const r = props.rgbaGrid[idx];
+      const g = props.rgbaGrid[idx + 1];
+      const b = props.rgbaGrid[idx + 2];
       
-      // Convert to dB relative to full-scale (2^22 = 4194304.0)
-      const abs_z_norm = abs_z / 4194304.0;
-      const db = 20.0 * Math.log10(abs_z_norm);
+      // Calculate BT.601 perceived luminance (which is mathematically proportional to Y^2-log dB!)
+      const Y = 0.299 * r + 0.587 * g + 0.114 * b;
+      if (Y < 1.0) continue; // Skip silence
       
-      // Map -90dB to bin 0, 0dB to bin 29
-      const binIdx = Math.floor(((db + 90.0) / 90.0) * 30);
+      // Map Y in [1, 255] to 30 bins
+      const binIdx = Math.floor((Y / 255.0) * 30);
       const clampedIdx = Math.max(0, Math.min(29, binIdx));
       bins[clampedIdx]++;
     }
@@ -236,7 +180,7 @@
   }
 
   function render() {
-    if (!gl || !program || !props.complexGrid) return;
+    if (!gl || !program || !props.rgbaGrid) return;
     gl.viewport(0, 0, canvas.width, canvas.height);
     
     // Explicitly bind the active texture unit and texture object
@@ -245,7 +189,7 @@
     
     const zoomLoc = gl.getUniformLocation(program, 'u_zoomX');
     const panLoc = gl.getUniformLocation(program, 'u_panX');
-    const texLoc = gl.getUniformLocation(program, 'u_complexTexture');
+    const texLoc = gl.getUniformLocation(program, 'u_spectrogramTexture');
     
     gl.uniform1f(zoomLoc, zoomX);
     gl.uniform1f(panLoc, panX);

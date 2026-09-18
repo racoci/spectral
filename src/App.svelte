@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import AudioConverter from './lib/AudioConverter.svelte';
   import WebGlEditor from './lib/WebGlEditor.svelte';
-  import init, { wasm_calculate_complex_reassigned_spectrogram } from './wasm/core_wasm.js';
+  import init, { wasm_generate_complex_reassigned_ycbcr_spectrogram } from './wasm/core_wasm.js';
 
   let currentView = $state<'converter' | 'editor'>('converter');
   
@@ -10,14 +10,14 @@
   let originalBytes = $state<Uint8Array | null>(null);
   let selectedHeight = $state<number>(1024);
   
-  let complexGrid = $state<Float32Array | null>(null);
+  let rgbaGrid = $state<Uint8Array | null>(null);
   let gridW = $state(0);
   let gridH = $state(0);
 
   // Hash-based client router
   function updateRoute() {
     const hash = window.location.hash;
-    if (hash === '#/editor') {
+    if (hash === '#/editor' && rgbaGrid) {
       currentView = 'editor';
     } else {
       currentView = 'converter';
@@ -68,10 +68,10 @@
     console.log('📢 App.svelte handleAudioLoaded callback received data with length:', data?.length, 'height:', h);
     try {
       const t0 = performance.now();
-      complexGrid = wasm_calculate_complex_reassigned_spectrogram(data, h, 'hann') as Float32Array;
+      rgbaGrid = wasm_generate_complex_reassigned_ycbcr_spectrogram(data, h, 'hann') as Uint8Array;
       gridH = h;
-      gridW = (complexGrid.length / 2) / h;
-      console.log(`✅ App.svelte generated complexGrid of size ${complexGrid.length} floats (dimensions: ${gridW} x ${gridH}) in ${(performance.now() - t0).toFixed(3)} ms.`);
+      gridW = (rgbaGrid.length / 4) / h;
+      console.log(`✅ App.svelte generated rgbaGrid of size ${rgbaGrid.length} bytes (dimensions: ${gridW} x ${gridH}) in ${(performance.now() - t0).toFixed(3)} ms.`);
     } catch (e) {
       console.error("❌ App.svelte failed to generate WebGL Editor payload:", e);
     }
@@ -86,7 +86,7 @@
 
   // Switch to route helpers
   function navigateTo(view: 'converter' | 'editor') {
-    if (view === 'editor' && !complexGrid) return;
+    if (view === 'editor' && !rgbaGrid) return;
     window.location.hash = view === 'editor' ? '#/editor' : '#/converter';
   }
 </script>
@@ -102,12 +102,14 @@
         
         <div class="view-toggles" style="margin-left: auto;">
           <button class="active" onclick={() => navigateTo('converter')}>1. Converter</button>
-          <button onclick={() => navigateTo('editor')} disabled={!complexGrid}>2. WebGL Editor</button>
+          <button onclick={() => navigateTo('editor')} disabled={!rgbaGrid}>2. WebGL Editor</button>
         </div>
       </div>
       <p class="tagline">
         Conversão bit-a-bit perfeitamente reversível de áudio em imagens
       </p>
+      
+      <!-- Rest of header code ... -->
     </header>
 
     <section class="main-content">
@@ -126,7 +128,7 @@
   {:else if currentView === 'editor'}
     <!-- In editor view, the WebGlEditor fills 100% of the screen as a transparent overlay background -->
     <WebGlEditor 
-      complexGrid={complexGrid} 
+      rgbaGrid={rgbaGrid} 
       width={gridW} 
       height={gridH} 
       onAudioUploaded={handleDirectAudioUpload}
