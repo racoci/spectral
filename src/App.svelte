@@ -17,7 +17,7 @@
   // Hash-based client router
   function updateRoute() {
     const hash = window.location.hash;
-    if (hash === '#/editor' && complexGrid) {
+    if (hash === '#/editor') {
       currentView = 'editor';
     } else {
       currentView = 'converter';
