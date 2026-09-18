@@ -75,32 +75,47 @@
   // Color scheme selector: 'snake' (default Geodesic Snake) or 'ycbcr' (BT.601 Complex Phase-Magnitude)
   let colorScheme = $state<'snake' | 'ycbcr'>('snake');
 
-  // Mathematical decoder mapping complex coefficient z = re + i * im to YCbCr Magnitude-Phase space
+  // Mathematical decoder mapping complex coefficient z = re + i * im to YCbCr Magnitude-Phase space (254-step log base 2^(15/254))
   const decibelLuminance = (re: number, im: number): { r_u: number, g_u: number, b_u: number } => {
     const abs_z = Math.sqrt(re * re + im * im);
     if (abs_z < 1e-12) {
-      return { r_u: 0, g_u: 0, b_u: 0 };
+      return { r_u: 0, g_u: 0, b_u: 0 }; // Reserved Y = 0 for absolute silence!
     }
     
-    // Y_db = floor(10 * log10(|z|))
-    const Y_db = Math.floor(10.0 * Math.log10(abs_z));
+    // Normalize to [2^-15, 1.0] range based on maximum 16-bit signed PCM amplitude
+    const abs_z_norm = abs_z / 32768.0;
     
-    // Normalize Y to standard [0, 255] luminance (scaling from [-40, 46] dB to [0, 255] range)
-    const y_norm = Math.max(0.0, Math.min(1.0, (Y_db + 40.0) / 86.0)) * 255.0;
+    // Logarithmic base b = 2^(15/254)
+    const logBaseFactor = 15.0 / 254.0;
+    const b = Math.pow(2.0, logBaseFactor);
     
-    // Scaled residuals (Cr, Cb in range [-1.0, 1.0])
-    const denom = Math.pow(10.0, Y_db / 10.0);
-    const Cr = -re / denom;
-    const Cb = im / denom;
+    // Y = floor(log_b(|z_norm|)) + 255
+    let Y = Math.floor(Math.log2(abs_z_norm) / logBaseFactor) + 255;
+    Y = Math.max(1, Math.min(255, Y));
+    
+    // Recalculated estimate of Abs(z): A_z = b^(Y - 255)
+    const A_z = Math.pow(2.0, (Y - 255) * logBaseFactor);
+    
+    const re_norm = re / 32768.0;
+    const im_norm = im / 32768.0;
+    
+    // Denominator to scale the residual vector w to [-1.0, 1.0] perfectly
+    const denom = A_z * (b - 1.0);
+    const w_re = (re_norm - A_z * (re_norm / abs_z_norm)) / (denom > 1e-15 ? denom : 1e-15);
+    const w_im = (im_norm - A_z * (im_norm / abs_z_norm)) / (denom > 1e-15 ? denom : 1e-15);
+    
+    // Cr = -Re(w), Cb = Im(w)
+    const Cr = -w_re;
+    const Cb = w_im;
     
     // Map chrominance offsets Cb, Cr to [16, 240] centered around 128
     const cb_byte = Math.max(16.0, Math.min(240.0, Cb * 112.0 + 128.0));
     const cr_byte = Math.max(16.0, Math.min(240.0, Cr * 112.0 + 128.0));
     
-    // Convert YCbCr BT.601 to RGB color space
-    const r_val = y_norm + 1.402 * (cr_byte - 128.0);
-    const g_val = y_norm - 0.344136 * (cb_byte - 128.0) - 0.714136 * (cr_byte - 128.0);
-    const b_val = y_norm + 1.772 * (cb_byte - 128.0);
+    // Convert YCbCr BT.601 to RGB color space, using the actual Y in [1, 255] as luminance
+    const r_val = Y + 1.402 * (cr_byte - 128.0);
+    const g_val = Y - 0.344136 * (cb_byte - 128.0) - 0.714136 * (cr_byte - 128.0);
+    const b_val = Y + 1.772 * (cb_byte - 128.0);
     
     return {
       r_u: Math.max(0, Math.min(255, Math.round(r_val))),
