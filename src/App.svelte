@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import AudioConverter from './lib/AudioConverter.svelte';
   import WebGlEditor from './lib/WebGlEditor.svelte';
   import init, { wasm_generate_complex_reassigned_ycbcr_spectrogram } from './wasm/core_wasm.js';
@@ -13,6 +13,14 @@
   let rgbaGrid = $state<Uint8Array | null>(null);
   let gridW = $state(0);
   let gridH = $state(0);
+
+  // Global Audio Looping State
+  let originalAudio = $state<HTMLAudioElement | null>(null);
+  let isPlaying = $state(false);
+  let selectionStart = $state<number | null>(null); // normalized [0, 1]
+  let selectionEnd = $state<number | null>(null);   // normalized [0, 1]
+  let loopEnabled = $state(true);
+  let playbackTimer: any = null;
 
   // Hash-based client router
   function updateRoute() {
@@ -44,6 +52,13 @@
     }
   });
 
+  onDestroy(() => {
+    if (playbackTimer) clearInterval(playbackTimer);
+    if (originalAudio) {
+      originalAudio.pause();
+    }
+  });
+
   // Asynchronously fetch and preload the default voice sample globally
   async function loadDefaultSample() {
     try {
@@ -63,7 +78,7 @@
     }
   }
 
-  // When a file is loaded and converted, we generate the complex grid
+  // When a file is loaded and converted, we generate the complex grid and initialize global Audio element
   function handleAudioLoaded(data: Uint8Array, h: number) {
     console.log('📢 App.svelte handleAudioLoaded callback received data with length:', data?.length, 'height:', h);
     try {
@@ -72,8 +87,64 @@
       gridH = h;
       gridW = (rgbaGrid.length / 4) / h;
       console.log(`✅ App.svelte generated rgbaGrid of size ${rgbaGrid.length} bytes (dimensions: ${gridW} x ${gridH}) in ${(performance.now() - t0).toFixed(3)} ms.`);
+      
+      // Initialize or rebuild global Audio element
+      if (originalAudio) {
+        originalAudio.pause();
+      }
+      const blob = new Blob([data as any], { type: 'audio/wav' });
+      const url = URL.createObjectURL(blob);
+      originalAudio = new Audio(url);
+      originalAudio.onended = () => {
+        isPlaying = false;
+        if (playbackTimer) clearInterval(playbackTimer);
+      };
+      
+      // Clear selection bounds upon loading new audio
+      selectionStart = null;
+      selectionEnd = null;
     } catch (e) {
       console.error("❌ App.svelte failed to generate WebGL Editor payload:", e);
+    }
+  }
+
+  // High-Resolution 15ms DAW-Loop Controller
+  function triggerAudioPlayback() {
+    if (!originalAudio) return;
+    
+    if (isPlaying) {
+      // Pause
+      originalAudio.pause();
+      isPlaying = false;
+      if (playbackTimer) clearInterval(playbackTimer);
+    } else {
+      // Play
+      isPlaying = true;
+      if (playbackTimer) clearInterval(playbackTimer);
+      
+      const duration = originalAudio.duration || 1.0;
+      const startSec = selectionStart !== null ? selectionStart * duration : 0.0;
+      const endSec = selectionEnd !== null ? selectionEnd * duration : duration;
+      
+      // Set start point
+      originalAudio.currentTime = startSec;
+      originalAudio.play();
+      
+      playbackTimer = setInterval(() => {
+        if (!originalAudio) return;
+        
+        const current = originalAudio.currentTime;
+        // Seamless loop boundaries check
+        if (current >= endSec || current >= duration) {
+          if (loopEnabled) {
+            originalAudio.currentTime = startSec;
+          } else {
+            originalAudio.pause();
+            isPlaying = false;
+            if (playbackTimer) clearInterval(playbackTimer);
+          }
+        }
+      }, 15); // Tight 15ms interval for seamless gaps!
     }
   }
 
@@ -108,8 +179,6 @@
       <p class="tagline">
         Conversão bit-a-bit perfeitamente reversível de áudio em imagens
       </p>
-      
-      <!-- Rest of header code ... -->
     </header>
 
     <section class="main-content">
@@ -131,6 +200,12 @@
       rgbaGrid={rgbaGrid} 
       width={gridW} 
       height={gridH} 
+      bind:selectionStart={selectionStart}
+      bind:selectionEnd={selectionEnd}
+      bind:loopEnabled={loopEnabled}
+      originalAudio={originalAudio}
+      isPlaying={isPlaying}
+      onPlayToggle={triggerAudioPlayback}
       onAudioUploaded={handleDirectAudioUpload}
       onBackToConverter={() => navigateTo('converter')}
     />

@@ -1,11 +1,29 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount } from 'svelte';
 
-  // Svelte 5 strict typing: Receive the 8-bit pre-rendered RGBA texture from WebAssembly
-  let props: { 
+  // Svelte 5 strict typing with $bindable properties for bidirectional sync
+  let { 
+    rgbaGrid, 
+    width, 
+    height, 
+    selectionStart = $bindable(null), 
+    selectionEnd = $bindable(null), 
+    loopEnabled = $bindable(true),
+    originalAudio,
+    isPlaying,
+    onPlayToggle,
+    onAudioUploaded,
+    onBackToConverter 
+  }: { 
     rgbaGrid: Uint8Array | null, 
     width: number, 
     height: number,
+    selectionStart: number | null,
+    selectionEnd: number | null,
+    loopEnabled: boolean,
+    originalAudio: HTMLAudioElement | null,
+    isPlaying: boolean,
+    onPlayToggle: () => void,
     onAudioUploaded: (bytes: Uint8Array) => void,
     onBackToConverter: () => void
   } = $props();
@@ -19,9 +37,10 @@
   let zoomX = $state(1.0);
   let panX = $state(0.0);
   let isDragging = false;
+  let isSelecting = false;
   let lastMouseX = 0;
 
-  let selectedTool = $state<'select' | 'gaussian_brush' | 'low_pass' | 'high_pass' | 'eq'>('select');
+  let selectedTool = $state<'select' | 'region_select' | 'gaussian_brush' | 'low_pass' | 'high_pass'>('select');
   let brushSize = $state(50);
   let brushStrength = $state(0.5);
 
@@ -76,7 +95,7 @@
     // Set preserveDrawingBuffer to true for Puppeteer integration test readback
     gl = canvas.getContext('webgl2', { antialias: true, alpha: false, preserveDrawingBuffer: true });
     if (!gl) {
-      console.error('❌ WebGL2 is not supported by your browser or machine.');
+      console.error('❌ WebGL2 is not supported.');
       return;
     }
 
@@ -114,13 +133,10 @@
     gl.enableVertexAttribArray(posLoc);
     gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
 
-    // Create the active standard texture
     texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
-    // Standard 8-bit textures support bilinear filtering universally out-of-the-box on every device!
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 
@@ -129,47 +145,40 @@
 
   // Reactive effect to upload standard 8-bit texture to GPU and update logarithmic histogram
   $effect(() => {
-    const grid = props.rgbaGrid;
-    const w = props.width;
-    const h = props.height;
+    // CRITICAL: Read all reactive props at the very top of the effect to register them 
+    // in Svelte 5's dependency tracking!
+    const grid = rgbaGrid;
+    const w = width;
+    const h = height;
 
     if (!gl || !texture || !grid || w <= 0 || h <= 0) return;
 
     gl.bindTexture(gl.TEXTURE_2D, texture);
-    
-    // Disable unpacking restrictions to support arbitrary non-power-of-two widths
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     
-    // Upload the standard RGBA 8-bit pixel buffer to the GPU (universally supported, zero extensions required)
+    // Upload standard 8-bit texture directly to GPU
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, grid);
-    console.log(`📢 WebGL uploaded 8-bit RGBA spectrogram texture: size ${w} x ${h}`);
     
-    // Compute the Logarithmic Histogram from pixel colors
     computeLogHistogram();
-    
     render();
   });
 
   // Calculate logarithmic magnitude energy distribution histogram directly from pre-rendered pixels
   function computeLogHistogram() {
-    if (!props.rgbaGrid) return;
+    if (!rgbaGrid) return;
     const bins = new Array(30).fill(0);
-    const numPixels = props.rgbaGrid.length / 4;
-    
-    // Sparsely sample the matrix to prevent frame locks (60 FPS safe)
+    const numPixels = rgbaGrid.length / 4;
     const step = Math.max(1, Math.floor(numPixels / 25000));
     
     for (let i = 0; i < numPixels; i += step) {
       const idx = i * 4;
-      const r = props.rgbaGrid[idx];
-      const g = props.rgbaGrid[idx + 1];
-      const b = props.rgbaGrid[idx + 2];
+      const r = rgbaGrid[idx];
+      const g = rgbaGrid[idx + 1];
+      const b = rgbaGrid[idx + 2];
       
-      // Calculate BT.601 perceived luminance (which is mathematically proportional to Y^2-log dB!)
       const Y = 0.299 * r + 0.587 * g + 0.114 * b;
-      if (Y < 1.0) continue; // Skip silence
+      if (Y < 1.0) continue;
       
-      // Map Y in [1, 255] to 30 bins
       const binIdx = Math.floor((Y / 255.0) * 30);
       const clampedIdx = Math.max(0, Math.min(29, binIdx));
       bins[clampedIdx]++;
@@ -180,10 +189,9 @@
   }
 
   function render() {
-    if (!gl || !program || !props.rgbaGrid) return;
+    if (!gl || !program || !rgbaGrid) return;
     gl.viewport(0, 0, canvas.width, canvas.height);
     
-    // Explicitly bind the active texture unit and texture object
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, texture);
     
@@ -193,9 +201,44 @@
     
     gl.uniform1f(zoomLoc, zoomX);
     gl.uniform1f(panLoc, panX);
-    gl.uniform1i(texLoc, 0); // Point sampler to texture unit 0
+    gl.uniform1i(texLoc, 0);
     
     gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
+  // Convert mouse screen X position to normalized audio time coordinate [0, 1]
+  function screenXToNormalizedTime(clientX: number): number {
+    if (!canvas) return 0.0;
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = clientX - rect.left;
+    const clipX = (mouseX / rect.width) * 2.0 - 1.0; // [-1, 1] clip space
+    const viewX = (clipX / zoomX) + panX;             // Apply zoom & pan shifts
+    const t = viewX * 0.5 + 0.5;                     // Scale back to [0, 1]
+    return Math.max(0.0, Math.min(1.0, t));
+  }
+
+  // Convert normalized audio time [0, 1] to screen coordinate percentage (for reactive highlight overlays!)
+  function normalizedTimeToScreenPct(t: number): number {
+    if (!canvas) return 0.0;
+    const clipX = (t * 2.0 - 1.0 - panX) * zoomX;
+    const pct = (clipX * 0.5 + 0.5) * 100.0;
+    return pct;
+  }
+
+  // Computes the CSS style properties for the selection range highlight
+  function getSelectionOverlayStyle(start: number | null, end: number | null) {
+    if (start === null || end === null) return 'display: none;';
+    const pct1 = normalizedTimeToScreenPct(start);
+    const pct2 = normalizedTimeToScreenPct(end);
+    
+    const left = Math.max(0, Math.min(pct1, pct2));
+    const right = Math.min(100, Math.max(pct1, pct2));
+    const width = right - left;
+    
+    if (width <= 0.05 || left >= 100.0 || right <= 0.0) {
+      return 'display: none;';
+    }
+    return `left: ${left.toFixed(2)}%; width: ${width.toFixed(2)}%; display: block;`;
   }
 
   function handleWheel(e: WheelEvent) {
@@ -228,11 +271,16 @@
     if (selectedTool === 'select') {
       isDragging = true;
       lastMouseX = e.clientX;
+    } else if (selectedTool === 'region_select') {
+      isSelecting = true;
+      // Initialize dragging selection
+      const t = screenXToNormalizedTime(e.clientX);
+      selectionStart = t;
+      selectionEnd = t;
     } else {
-      // Simulate spectral displacement or filtration brush strokes
       const rect = canvas.getBoundingClientRect();
       const x = (e.clientX - rect.left) / rect.width;
-      const y = 1.0 - (e.clientY - rect.top) / rect.height; // Invert Y
+      const y = 1.0 - (e.clientY - rect.top) / rect.height;
       console.log(`🖌️ Applying DSP Brush [${selectedTool}] at:`, x.toFixed(3), y.toFixed(3));
     }
   }
@@ -248,11 +296,36 @@
       
       lastMouseX = e.clientX;
       render();
+    } else if (isSelecting && selectedTool === 'region_select') {
+      // Update drag bounds
+      const t = screenXToNormalizedTime(e.clientX);
+      selectionEnd = t;
     }
   }
 
   function handleMouseUp() {
     isDragging = false;
+    isSelecting = false;
+    
+    // Sort bounds if needed so start is always smaller than end
+    if (selectionStart !== null && selectionEnd !== null) {
+      if (selectionStart > selectionEnd) {
+        const temp = selectionStart;
+        selectionStart = selectionEnd;
+        selectionEnd = temp;
+      }
+      
+      // If the selection is extremely tiny, treat it as a click to reset/clear
+      if (Math.abs(selectionEnd - selectionStart) < 0.001) {
+        selectionStart = null;
+        selectionEnd = null;
+      }
+    }
+  }
+
+  function clearSelection() {
+    selectionStart = null;
+    selectionEnd = null;
   }
 
   // Handle direct file uploads inside the WebGL Editor
@@ -264,7 +337,7 @@
         const buffer = await file.arrayBuffer();
         const bytes = new Uint8Array(buffer);
         console.log(`📂 WebGL Editor successfully read custom file: ${file.name} (${bytes.length} bytes)`);
-        props.onAudioUploaded(bytes);
+        onAudioUploaded(bytes);
       } catch (err) {
         console.error("Failed to read uploaded file inside WebGL Editor:", err);
       }
@@ -300,22 +373,35 @@
     style="display: none;" 
   />
 
-  <!-- Interactive WebGL canvas background rendering the complex STFT phase-gradients -->
-  <canvas 
-    bind:this={canvas} 
-    onwheel={handleWheel}
-    onmousedown={handleMouseDown}
-    onmousemove={handleMouseMove}
-    onmouseup={handleMouseUp}
-    onmouseleave={handleMouseUp}
-  ></canvas>
+  <div class="canvas-container">
+    <!-- Interactive WebGL canvas background rendering the complex STFT phase-gradients -->
+    <canvas 
+      bind:this={canvas} 
+      onwheel={handleWheel}
+      onmousedown={handleMouseDown}
+      onmousemove={handleMouseMove}
+      onmouseup={handleMouseUp}
+      onmouseleave={handleMouseUp}
+    ></canvas>
+
+    <!-- Translucent horizontal highlight overlay tracking the selection range -->
+    {#if selectionStart !== null && selectionEnd !== null}
+      <div 
+        class="selection-highlight" 
+        style={getSelectionOverlayStyle(selectionStart, selectionEnd)}
+      >
+        <div class="selection-boundary border-left"></div>
+        <div class="selection-boundary border-right"></div>
+      </div>
+    {/if}
+  </div>
 
   <!-- HUD: Translucent glassy panels floating over the background spectrogram -->
   <div class="hud-layer">
     
     <!-- Top Floating Toolbar -->
     <div class="hud-panel top-navbar">
-      <button class="back-btn" onclick={props.onBackToConverter}>
+      <button class="back-btn" onclick={onBackToConverter}>
         ⬅️ 1. Converter Áudio
       </button>
       
@@ -333,7 +419,7 @@
       </button>
       
       <div class="status-indicator">
-        <span class="pulse-dot"></span> Grid: {props.width} x {props.height} [Complex]
+        <span class="pulse-dot"></span> Grid: {width} x {height} [Complex]
       </div>
     </div>
 
@@ -344,6 +430,10 @@
       <button class:active={selectedTool === 'select'} onclick={() => selectedTool = 'select'}>
         ✋ Mover & Zoom
       </button>
+
+      <button class:active={selectedTool === 'region_select'} onclick={() => selectedTool = 'region_select'}>
+        🎯 Selecionar Região (X)
+      </button>
       
       <div class="sidebar-divider"></div>
       
@@ -351,16 +441,12 @@
         🖌️ Deslocamento Gaussiano
       </button>
       
-      <button class:active={selectedTool === 'high_pass'} onclick={() => selectedTool = 'high_pass'}>
-        🔪 Filtro Passa-Alta (Lasso)
-      </button>
-      
       <button class:active={selectedTool === 'low_pass'} onclick={() => selectedTool = 'low_pass'}>
         🛡️ Filtro Passa-Baixa (Lasso)
       </button>
       
-      <button class:active={selectedTool === 'eq'} onclick={() => selectedTool = 'eq'}>
-        🎛️ Equalizador de Cristas
+      <button class:active={selectedTool === 'high_pass'} onclick={() => selectedTool = 'high_pass'}>
+        🔪 Filtro Passa-Alta (Lasso)
       </button>
 
       {#if selectedTool === 'gaussian_brush'}
@@ -394,11 +480,39 @@
       </div>
     </div>
 
-    <!-- Bottom Status Overlay Bar -->
+    <!-- Bottom Status & Seamless Looping Player Bar -->
     <div class="hud-panel bottom-bar">
-      <span class="coordinate-view">EIXO T: {panX.toFixed(4)}s (Eixo X)</span>
-      <span class="coordinate-view">ZOOM TEMPORAL: {zoomX.toFixed(2)}x</span>
-      <span class="help-text">💡 Dica: Use o rolete do mouse para dar zoom horizontal focado e arraste para mover!</span>
+      
+      <!-- Audio Transport Controls Group -->
+      <div class="transport-group">
+        <button class="play-btn" class:playing={isPlaying} onclick={onPlayToggle}>
+          {isPlaying ? '⏸️ Pausar Áudio' : '▶️ Tocar Áudio'}
+        </button>
+        
+        <label class="loop-checkbox-label">
+          <input type="checkbox" bind:checked={loopEnabled} />
+          🔁 Seamless Loop
+        </label>
+        
+        {#if selectionStart !== null && selectionEnd !== null}
+          <button class="clear-sel-btn" onclick={clearSelection}>
+            🚫 Limpar Seleção
+          </button>
+        {/if}
+      </div>
+
+      <div class="coordinate-group">
+        <span class="coordinate-view">EIXO T: {panX.toFixed(4)}s</span>
+        <span class="coordinate-view">ZOOM: {zoomX.toFixed(2)}x</span>
+        
+        {#if selectionStart !== null && selectionEnd !== null && originalAudio}
+          <span class="coordinate-view selection-coords">
+            🎯 SELECIONADO: {(selectionStart * originalAudio.duration).toFixed(3)}s - {(selectionEnd * originalAudio.duration).toFixed(3)}s ({( (selectionEnd - selectionStart) * originalAudio.duration ).toFixed(3)}s)
+          </span>
+        {/if}
+      </div>
+      
+      <span class="help-text">Dica: Selecione \"🎯 Selecionar Região (X)\" e arraste no gráfico para marcar e dar play em loop!</span>
     </div>
 
   </div>
@@ -415,6 +529,15 @@
     background-color: #020617;
   }
 
+  .canvas-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+  }
+
   canvas {
     position: absolute;
     top: 0;
@@ -424,6 +547,29 @@
     z-index: 1;
     cursor: crosshair;
   }
+
+  /* Beautiful selection translucent overlay tracking the exact spectrogram time window */
+  .selection-highlight {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    background-color: rgba(56, 189, 248, 0.12);
+    border-left: 1px solid rgba(56, 189, 248, 0.4);
+    border-right: 1px solid rgba(56, 189, 248, 0.4);
+    z-index: 2;
+    pointer-events: none; /* Let drag events pass to the underlying canvas */
+    box-shadow: inset 0 0 40px rgba(56, 189, 248, 0.05);
+  }
+
+  .selection-boundary {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: transparent;
+  }
+  .border-left { left: -2px; cursor: ew-resize; }
+  .border-right { right: -2px; cursor: ew-resize; }
 
   /* HUD layer styling with glassmorphism overlays */
   .hud-layer {
@@ -665,32 +811,106 @@
     font-family: monospace;
   }
 
-  /* Bottom HUD Statusbar */
+  /* Bottom HUD Transport and Statusbar */
   .bottom-bar {
     position: absolute;
     bottom: 1.25rem;
     left: 1.25rem;
     right: 1.25rem;
-    height: 3rem;
+    height: 3.5rem;
     display: flex;
     align-items: center;
     padding: 0 1.25rem;
     gap: 1.5rem;
   }
 
+  .transport-group {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .play-btn {
+    background-color: #10b981;
+    color: #020617;
+    border: 1px solid #10b981;
+    padding: 0.5rem 1.25rem;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 800;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
+  }
+
+  .play-btn:hover {
+    background-color: #059669;
+    box-shadow: 0 0 15px rgba(16, 185, 129, 0.5);
+  }
+
+  .play-btn.playing {
+    background-color: #f59e0b;
+    border-color: #f59e0b;
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.4);
+  }
+
+  .loop-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .loop-checkbox-label input[type="checkbox"] {
+    accent-color: #38bdf8;
+    cursor: pointer;
+  }
+
+  .clear-sel-btn {
+    background-color: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .clear-sel-btn:hover {
+    background-color: rgba(239, 68, 68, 0.3);
+  }
+
+  .coordinate-group {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-left: auto;
+  }
+
   .coordinate-view {
     font-family: monospace;
     font-size: 0.8rem;
     color: #94a3b8;
-    background-color: rgba(0, 0, 0, 0.2);
+    background-color: rgba(0, 0, 0, 0.25);
     padding: 0.35rem 0.65rem;
     border-radius: 4px;
     border: 1px solid rgba(255, 255, 255, 0.04);
   }
 
+  .selection-coords {
+    color: #38bdf8;
+    border-color: rgba(56, 189, 248, 0.2);
+    background-color: rgba(56, 189, 248, 0.05);
+    font-weight: 600;
+  }
+
   .help-text {
     font-size: 0.8rem;
     color: #64748b;
-    margin-left: auto;
   }
 </style>
