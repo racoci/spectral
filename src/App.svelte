@@ -6,7 +6,7 @@
 
   let currentView = $state<'converter' | 'editor'>('converter');
   
-  // Globally preserved state to prevent file loss during view re-mounting
+  // Globally preserved state
   let originalBytes = $state<Uint8Array | null>(null);
   let selectedHeight = $state<number>(1024);
   
@@ -32,12 +32,36 @@
       await init();
       console.log('📢 WebAssembly initialized successfully in App.svelte root!');
       
+      // Preload default sample globally on startup so that BOTH the converter and editor are instantly active!
+      if (!originalBytes) {
+        await loadDefaultSample();
+      }
+      
       window.addEventListener('hashchange', updateRoute);
       updateRoute();
     } catch (e) {
       console.error('❌ Failed to initialize WebAssembly in App.svelte root:', e);
     }
   });
+
+  // Asynchronously fetch and preload the default voice sample globally
+  async function loadDefaultSample() {
+    try {
+      const defaultUrl = './voice.wav';
+      console.log('📢 Preloading default sample globally in App.svelte on startup:', defaultUrl);
+      const response = await fetch(defaultUrl);
+      if (response.ok) {
+        const arrayBuffer = await response.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        originalBytes = bytes;
+        handleAudioLoaded(bytes, selectedHeight);
+      } else {
+        console.error("Failed to fetch default sample in App.svelte:", response.statusText);
+      }
+    } catch (e) {
+      console.error("❌ Failed to load default sample globally in App.svelte:", e);
+    }
+  }
 
   // When a file is loaded and converted, we generate the complex grid
   function handleAudioLoaded(data: Uint8Array, h: number) {
@@ -51,6 +75,13 @@
     } catch (e) {
       console.error("❌ App.svelte failed to generate WebGL Editor payload:", e);
     }
+  }
+
+  // Handle direct file uploads inside the WebGL Editor itself
+  function handleDirectAudioUpload(bytes: Uint8Array) {
+    console.log('📢 App.svelte received direct audio upload from WebGL Editor:', bytes.length, 'bytes.');
+    originalBytes = bytes;
+    handleAudioLoaded(bytes, selectedHeight);
   }
 
   // Switch to route helpers
@@ -98,6 +129,7 @@
       complexGrid={complexGrid} 
       width={gridW} 
       height={gridH} 
+      onAudioUploaded={handleDirectAudioUpload}
       onBackToConverter={() => navigateTo('converter')}
     />
   {/if}

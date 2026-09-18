@@ -1,14 +1,16 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
 
-  let { complexGrid, width, height, onBackToConverter }: { 
+  let { complexGrid, width, height, onAudioUploaded, onBackToConverter }: { 
     complexGrid: Float32Array | null, 
     width: number, 
     height: number,
+    onAudioUploaded: (bytes: Uint8Array) => void,
     onBackToConverter: () => void
   } = $props();
 
   let canvas: HTMLCanvasElement;
+  let fileInput: HTMLInputElement;
   let gl: WebGL2RenderingContext | null = null;
   let program: WebGLProgram | null = null;
   let texture: WebGLTexture | null = null;
@@ -237,6 +239,22 @@
     isDragging = false;
   }
 
+  // Handle direct file uploads inside the WebGL Editor
+  async function handleFileUploaded(e: Event) {
+    const target = e.target as HTMLInputElement;
+    if (target.files && target.files.length > 0) {
+      const file = target.files[0];
+      try {
+        const buffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        console.log(`📂 WebGL Editor successfully read custom file: ${file.name} (${bytes.length} bytes)`);
+        onAudioUploaded(bytes);
+      } catch (err) {
+        console.error("Failed to read uploaded file inside WebGL Editor:", err);
+      }
+    }
+  }
+
   onMount(() => {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
@@ -257,6 +275,15 @@
 </script>
 
 <div class="full-screen-editor">
+  <!-- Hidden file input for uploading custom audio -->
+  <input 
+    type="file" 
+    bind:this={fileInput} 
+    accept="audio/wav" 
+    onchange={handleFileUploaded} 
+    style="display: none;" 
+  />
+
   <!-- Interactive WebGL canvas background rendering the complex STFT phase-gradients -->
   <canvas 
     bind:this={canvas} 
@@ -281,6 +308,13 @@
       <div class="brand-title">
         <span>Spectral WebGL</span> Phase-Gradient Editor
       </div>
+      
+      <div class="vertical-divider"></div>
+
+      <!-- Button to load custom audios directly inside the WebGL editor view -->
+      <button class="upload-btn" onclick={() => fileInput.click()}>
+        📁 Carregar Áudio Customizado (.wav)
+      </button>
       
       <div class="status-indicator">
         <span class="pulse-dot"></span> Grid: {width} x {height} [Complex]
@@ -406,6 +440,23 @@
   .back-btn:hover {
     background-color: rgba(56, 189, 248, 0.3);
     transform: translateX(-2px);
+  }
+
+  .upload-btn {
+    background-color: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .upload-btn:hover {
+    background-color: rgba(16, 185, 129, 0.3);
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
   }
 
   .vertical-divider {
