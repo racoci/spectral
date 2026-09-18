@@ -1,5 +1,25 @@
 <script lang="ts">
   import AudioConverter from './lib/AudioConverter.svelte';
+  import WebGlEditor from './lib/WebGlEditor.svelte';
+  import { wasm_calculate_complex_reassigned_spectrogram } from './wasm/core_wasm.js';
+
+  let currentView = $state<'converter' | 'editor'>('converter');
+  let complexGrid = $state<Float32Array | null>(null);
+  let gridW = $state(0);
+  let gridH = $state(0);
+
+  // When a file is loaded and converted, we can trigger the editor view
+  function handleAudioLoaded(data: Uint8Array, h: number) {
+    // Generate the full complex reassigned spectrogram in Rust
+    try {
+      complexGrid = wasm_calculate_complex_reassigned_spectrogram(data, h, 'hann') as Float32Array;
+      gridH = h;
+      gridW = (complexGrid.length / 2) / h;
+      currentView = 'editor';
+    } catch (e) {
+      console.error("Failed to generate WebGL Editor payload:", e);
+    }
+  }
 </script>
 
 <main class="app-container">
@@ -8,6 +28,11 @@
       <span class="icon-brand">🎨🔊</span>
       <h1>Spectral</h1>
       <span class="badge-tag">Lossless Sandbox v0.1</span>
+      
+      <div class="view-toggles" style="margin-left: auto;">
+        <button class:active={currentView === 'converter'} onclick={() => currentView = 'converter'}>1. Converter</button>
+        <button class:active={currentView === 'editor'} onclick={() => currentView = 'editor'} disabled={!complexGrid}>2. WebGL Editor</button>
+      </div>
     </div>
     <p class="tagline">
       Conversão bit-a-bit perfeitamente reversível de áudio em imagens
@@ -15,7 +40,11 @@
   </header>
 
   <section class="main-content">
-    <AudioConverter />
+    {#if currentView === 'converter'}
+      <AudioConverter onAudioLoaded={handleAudioLoaded} />
+    {:else if currentView === 'editor'}
+      <WebGlEditor complexGrid={complexGrid} width={gridW} height={gridH} />
+    {/if}
   </section>
 
   <footer class="app-footer">
@@ -91,5 +120,37 @@
     text-align: center;
     font-size: 0.8rem;
     color: #64748b;
+  }
+
+  .view-toggles {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .view-toggles button {
+    background-color: #1e293b;
+    border: 1px solid #334155;
+    color: #cbd5e1;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.85rem;
+    transition: all 0.2s;
+  }
+
+  .view-toggles button:hover:not(:disabled) {
+    background-color: #334155;
+  }
+
+  .view-toggles button.active {
+    background-color: #0284c7;
+    border-color: #0284c7;
+    color: white;
+  }
+
+  .view-toggles button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 </style>
