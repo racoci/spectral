@@ -3,7 +3,7 @@ import puppeteer from 'puppeteer';
 
 async function runBrowserTest() {
   console.log('================================================================================');
-  console.log('RUNNING BROWSER SIMULATION INTEGRATION TEST (PUPPETEER)');
+  console.log('RUNNING BROWSER SIMULATION INTEGRATION TEST (PUPPETEER + WEBGL AUDIT)');
   console.log('================================================================================');
 
   let viteProcess: any = null;
@@ -49,11 +49,17 @@ async function runBrowserTest() {
 
     console.log(`✅ Vite server is ready at: ${serverUrl}`);
 
-    // 2. Launch headless Puppeteer browser
-    console.log('🌐 Launching headless Chromium browser...');
+    // 2. Launch headless Puppeteer browser with WebGL2 enabled
+    console.log('🌐 Launching headless Chromium browser (WebGL2 active)...');
     browser = await puppeteer.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      args: [
+        '--no-sandbox', 
+        '--disable-setuid-sandbox',
+        '--enable-webgl',
+        '--use-gl=angle',
+        '--use-angle=swiftshader' // Headless software rasterizer for continuous integration
+      ]
     });
 
     const page = await browser.newPage();
@@ -63,8 +69,10 @@ async function runBrowserTest() {
     page.on('console', msg => {
       const type = msg.type();
       const text = msg.text();
-      if (type === 'error') {
+      if (type === 'error' || text.includes('❌')) {
         consoleErrors.push(`[Console Error] ${text}`);
+      } else {
+        console.log(`[Browser Console] ${text}`);
       }
     });
 
@@ -72,53 +80,92 @@ async function runBrowserTest() {
       consoleErrors.push(`[Unhandled JS Exception] ${err.message}`);
     });
 
-    // 3. Navigate to the page (using 'load' to ignore Vite's persistent HMR WebSocket)
-    console.log(`🧭 Navigating page to ${serverUrl}...`);
-    await page.goto(serverUrl, {
+    // 3. Navigate directly to the WebGL Editor route using Hash routing!
+    const editorUrl = `${serverUrl}/#/editor`;
+    console.log(`🧭 Navigating directly to WebGL Editor route: ${editorUrl}...`);
+    await page.goto(editorUrl, {
       waitUntil: 'load',
       timeout: 15000
     });
 
-    console.log('⌛ Waiting for WebAssembly and Svelte lifecycle initialization...');
-    await new Promise(resolve => setTimeout(resolve, 3000)); // Let the audio preloader and WASM compile complete
+    console.log('⌛ Waiting for WebAssembly and Svelte WebGL texture upload...');
+    await new Promise(resolve => setTimeout(resolve, 4000)); // Allow WASM compilation, sample fetch, and texture upload
 
-    // 4. Inspect the DOM to verify Svelte structure and Canvas presence
-    console.log('🔍 Auditing DOM structure and Canvas context...');
-    const domAudit = await page.evaluate(() => {
-      const container = document.querySelector('.visualizer-container');
+    // 4. Audit WebGL Framebuffer and read pixels to guarantee non-black visual data!
+    console.log('🔍 Executing direct GPU pixel audit...');
+    const glAudit = await page.evaluate(() => {
       const canvas = document.querySelector('canvas');
-      const selector = document.querySelector('.visual-mode-selector');
+      if (!canvas) return { error: 'No canvas element found' };
       
+      const gl = canvas.getContext('webgl2');
+      if (!gl) return { error: 'No WebGL2 context found' };
+
+      const w = canvas.width;
+      const h = canvas.height;
+      const pixels = new Uint8Array(w * h * 4);
+      
+      // Read the currently rendered WebGL frame buffer pixels!
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      
+      let nonBlackCount = 0;
+      let r_sum = 0;
+      let g_sum = 0;
+      let b_sum = 0;
+      
+      for (let i = 0; i < pixels.length; i += 4) {
+        const r = pixels[i];
+        const g = pixels[i + 1];
+        const b = pixels[i + 2];
+        
+        r_sum += r;
+        g_sum += g;
+        b_sum += b;
+        
+        if (r > 0 || g > 0 || b > 0) {
+          nonBlackCount++;
+        }
+      }
+      
+      const totalPixels = w * h;
       return {
-        hasContainer: container !== null,
-        hasCanvas: canvas !== null,
-        hasSelector: selector !== null,
-        canvasWidth: canvas ? canvas.width : 0,
-        canvasHeight: canvas ? canvas.height : 0
+        width: w,
+        height: h,
+        totalPixels,
+        nonBlackCount,
+        ratio: nonBlackCount / totalPixels,
+        avgR: r_sum / totalPixels,
+        avgG: g_sum / totalPixels,
+        avgB: b_sum / totalPixels
       };
-    });
+    }) as any;
 
     console.log('--------------------------------------------------------------------------------');
-    console.log(`  Visualizer Container Exists: ${domAudit.hasContainer ? 'YES ✅' : 'NO ❌'}`);
-    console.log(`  Interactive Canvas Exists:   ${domAudit.hasCanvas ? 'YES ✅' : 'NO ❌'}`);
-    console.log(`  Layer Plane Selector Exists: ${domAudit.hasSelector ? 'YES ✅' : 'NO ❌'}`);
-    if (domAudit.hasCanvas) {
-      console.log(`  Canvas Resolution:           ${domAudit.canvasWidth} x ${domAudit.canvasHeight} px`);
-    }
-    console.log('--------------------------------------------------------------------------------');
+    if (glAudit.error) {
+      console.error(`❌ WebGL Audit Failed: ${glAudit.error}`);
+      exitCode = 1;
+    } else {
+      console.log(`  WebGL Canvas Context:     ACTIVE ✅`);
+      console.log(`  Render Resolution:        ${glAudit.width} x ${glAudit.height} px`);
+      console.log(`  Total Pixels Audited:     ${glAudit.totalPixels}`);
+      console.log(`  Non-Black (Active) Pixels: ${glAudit.nonBlackCount} (${(glAudit.ratio * 100).toFixed(2)}%)`);
+      console.log(`  Average RGB Color Vector:  R=${glAudit.avgR.toFixed(1)}, G=${glAudit.avgG.toFixed(1)}, B=${glAudit.avgB.toFixed(1)}`);
+      console.log('--------------------------------------------------------------------------------');
 
-    // 5. Evaluate final assertions
-    if (!domAudit.hasCanvas) {
-      throw new Error('Canvas element was not rendered by Svelte App. Lifecycle failed!');
+      // Assert that at least 1% of the canvas contains colored spectrogram data!
+      if (glAudit.nonBlackCount === 0) {
+        throw new Error('WebGL Canvas is completely black (all-zero pixels). Texture upload or Fragment Shader mapping failed!');
+      } else if (glAudit.ratio < 0.01) {
+        throw new Error(`WebGL Canvas is mostly black (only ${(glAudit.ratio * 100).toFixed(2)}% active). Insufficient signal rendering!`);
+      } else {
+        console.log('🎉 WEBGL AUDIT PASSED: Spectrogram is rendering gorgeous colorful phase-magnitude vectors in hardware!');
+        exitCode = 0;
+      }
     }
 
     if (consoleErrors.length > 0) {
       console.error('❌ Browser reported console errors during execution:');
       consoleErrors.forEach(err => console.error(`  ${err}`));
       exitCode = 1;
-    } else {
-      console.log('🎉 BROWSER SIMULATION PASSED: Svelte + WASM loaded, compiled, and rendered with 0 errors or timeouts!');
-      exitCode = 0;
     }
 
   } catch (error: any) {
@@ -135,7 +182,6 @@ async function runBrowserTest() {
       browser.close().catch(() => {});
     }
     if (viteProcess) {
-      // Gracefully terminate the Vite background process group
       try {
         process.kill(-viteProcess.pid);
       } catch {

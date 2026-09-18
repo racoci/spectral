@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
 
-  let { complexGrid, width, height, onAudioUploaded, onBackToConverter }: { 
+  // Svelte 5 strict typing: Receive the properties as a reactive object (props)
+  // to avoid losing reactivity due to destructuring primitives like width and height!
+  let props: { 
     complexGrid: Float32Array | null, 
     width: number, 
     height: number,
@@ -24,6 +26,10 @@
   let brushSize = $state(50);
   let brushStrength = $state(0.5);
 
+  // Logarithmic Histogram state variables
+  let histogramBins = $state<number[]>(new Array(30).fill(0));
+  let maxBinValue = $state(1);
+
   // Fragment Shader: Applies Y^2-log mapping, Radial Residual w, and BT.601 YCbCr directly on the GPU
   const fragmentShaderSource = `#version 300 es
   precision highp float;
@@ -34,7 +40,11 @@
   
   void main() {
       // Texture returns vec2(Re, Im)
-      vec2 z = texture(u_complexTexture, v_uv).rg;
+      vec2 z_raw = texture(u_complexTexture, v_uv).rg;
+      
+      // CRITICAL: Normalize raw FFT coefficients (which scale up to 4M due to STFT window length N=4096)
+      // Dividing by 2^22 (4,194,304.0) brings the complex amplitude perfectly into [0.0, 1.0] range
+      vec2 z = z_raw / 4194304.0;
       float r = length(z);
       
       // Absolute silence threshold (Y = 0)
@@ -112,7 +122,8 @@
 
   function initWebGL() {
     if (!canvas) return;
-    gl = canvas.getContext('webgl2', { antialias: true, alpha: false });
+    // CRITICAL: Set preserveDrawingBuffer to true so test runners (like Puppeteer) can read canvas pixels using gl.readPixels!
+    gl = canvas.getContext('webgl2', { antialias: true, alpha: false, preserveDrawingBuffer: true });
     if (!gl) {
       console.error('❌ WebGL2 is not supported by your browser or machine.');
       return;
@@ -170,22 +181,62 @@
     render();
   }
 
+  // Reactive effect to update texture on GPU and compute energy distribution histogram
   $effect(() => {
-    if (gl && texture && complexGrid && width > 0 && height > 0) {
-      gl.bindTexture(gl.TEXTURE_2D, texture);
-      
-      // CRITICAL: Disable unpack alignment restrictions to support non-power-of-two arbitrary widths cleanly
-      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-      
-      // Upload the complex grid Floats directly to the GPU as RG32F
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG32F, width, height, 0, gl.RG, gl.FLOAT, complexGrid);
-      console.log(`📢 WebGL uploaded complex grid texture: size ${width} x ${height} (Float32 format)`);
-      render();
-    }
+    // CRITICAL: Read all reactive props at the very top of the effect to register them 
+    // in Svelte 5's dependency tracking! Early short-circuiting on gl/texture would prevent tracking.
+    const grid = props.complexGrid;
+    const w = props.width;
+    const h = props.height;
+
+    if (!gl || !texture || !grid || w <= 0 || h <= 0) return;
+
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    
+    // CRITICAL: Disable unpack alignment restrictions to support non-power-of-two arbitrary widths cleanly
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    
+    // Upload the complex grid Floats directly to the GPU as RG32F
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG32F, w, h, 0, gl.RG, gl.FLOAT, grid);
+    console.log(`📢 WebGL uploaded complex grid texture: size ${w} x ${h} (Float32 format)`);
+    
+    // Compute the Logarithmic Histogram of reassignment coefficients
+    computeLogHistogram();
+    
+    render();
   });
 
+  // Calculate logarithmic magnitude energy distribution histogram (from -90 dB to 0 dB)
+  function computeLogHistogram() {
+    if (!props.complexGrid) return;
+    const bins = new Array(30).fill(0);
+    const numElements = props.complexGrid.length / 2;
+    
+    // Sparsely sample the matrix to prevent frame locks (60 FPS safe)
+    const step = Math.max(1, Math.floor(numElements / 25000));
+    
+    for (let i = 0; i < numElements; i += step) {
+      const re = props.complexGrid[i * 2];
+      const im = props.complexGrid[i * 2 + 1];
+      const abs_z = Math.sqrt(re * re + im * im);
+      if (abs_z < 1e-12) continue;
+      
+      // Convert to dB relative to full-scale (2^22 = 4194304.0)
+      const abs_z_norm = abs_z / 4194304.0;
+      const db = 20.0 * Math.log10(abs_z_norm);
+      
+      // Map -90dB to bin 0, 0dB to bin 29
+      const binIdx = Math.floor(((db + 90.0) / 90.0) * 30);
+      const clampedIdx = Math.max(0, Math.min(29, binIdx));
+      bins[clampedIdx]++;
+    }
+    
+    histogramBins = bins;
+    maxBinValue = Math.max(1, ...bins);
+  }
+
   function render() {
-    if (!gl || !program || !complexGrid) return;
+    if (!gl || !program || !props.complexGrid) return;
     gl.viewport(0, 0, canvas.width, canvas.height);
     
     // Explicitly bind the active texture unit and texture object
@@ -269,7 +320,7 @@
         const buffer = await file.arrayBuffer();
         const bytes = new Uint8Array(buffer);
         console.log(`📂 WebGL Editor successfully read custom file: ${file.name} (${bytes.length} bytes)`);
-        onAudioUploaded(bytes);
+        props.onAudioUploaded(bytes);
       } catch (err) {
         console.error("Failed to read uploaded file inside WebGL Editor:", err);
       }
@@ -320,7 +371,7 @@
     
     <!-- Top Floating Toolbar -->
     <div class="hud-panel top-navbar">
-      <button class="back-btn" onclick={onBackToConverter}>
+      <button class="back-btn" onclick={props.onBackToConverter}>
         ⬅️ 1. Converter Áudio
       </button>
       
@@ -338,7 +389,7 @@
       </button>
       
       <div class="status-indicator">
-        <span class="pulse-dot"></span> Grid: {width} x {height} [Complex]
+        <span class="pulse-dot"></span> Grid: {props.width} x {props.height} [Complex]
       </div>
     </div>
 
@@ -378,6 +429,25 @@
           </label>
         </div>
       {/if}
+
+      <!-- Logarithmic Histogram of Reassignment Coefficients floating inside DSP Sidebar -->
+      <div class="histogram-panel">
+        <h4>Distribuição de Energia Logarítmica</h4>
+        <div class="histogram-bars">
+          {#each histogramBins as count, idx}
+            <div 
+              class="hist-bar" 
+              style="height: {(count / maxBinValue * 100).toFixed(1)}%;"
+              title="Bin {idx}: {count} coeficientes ({~~(idx * 3 - 90)} dB)"
+            ></div>
+          {/each}
+        </div>
+        <div class="histogram-labels">
+          <span>-90 dB</span>
+          <span>-45 dB</span>
+          <span>0 dB</span>
+        </div>
+      </div>
     </div>
 
     <!-- Bottom Status Overlay Bar -->
@@ -565,7 +635,7 @@
   }
 
   .left-sidebar button:hover {
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: rgba(0, 0, 0, 0.05);
     border-color: rgba(255, 255, 255, 0.15);
   }
 
@@ -598,6 +668,57 @@
   .tool-controls input[type="range"] {
     accent-color: #38bdf8;
     cursor: pointer;
+  }
+
+  /* Histogram Panel floated inside Sidebar */
+  .histogram-panel {
+    margin-top: auto;
+    background-color: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 0.75rem;
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .histogram-panel h4 {
+    margin: 0;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #64748b;
+    font-weight: 700;
+  }
+
+  .histogram-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 60px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 2px;
+  }
+
+  .hist-bar {
+    flex: 1;
+    background-color: #38bdf8;
+    border-radius: 1px 1px 0 0;
+    transition: height 0.3s;
+    opacity: 0.75;
+  }
+
+  .hist-bar:hover {
+    background-color: #10b981;
+    opacity: 1.0;
+  }
+
+  .histogram-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.65rem;
+    color: #475569;
+    font-family: monospace;
   }
 
   /* Bottom HUD Statusbar */
