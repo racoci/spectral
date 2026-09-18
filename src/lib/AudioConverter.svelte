@@ -25,8 +25,16 @@
   } from '../wasm/core_wasm.js';
   import CanvasVisualizer from './CanvasVisualizer.svelte';
 
-  // Props
-  let { onAudioLoaded = () => {} }: { onAudioLoaded?: (data: Uint8Array, h: number) => void } = $props();
+  // Props using Svelte 5 standard runes and $bindable for global state synchronization
+  let { 
+    onAudioLoaded = () => {},
+    originalBytes = $bindable(null),
+    selectedHeight = $bindable(1024)
+  }: { 
+    onAudioLoaded?: (data: Uint8Array, h: number) => void,
+    originalBytes?: Uint8Array | null,
+    selectedHeight?: number
+  } = $props();
 
   // State using Svelte 5 standard runes
   let wasmLoaded = $state(false);
@@ -34,12 +42,10 @@
 
   // Selected conversion algorithm (v9_reassigned is the steganographic visual masterpiece default)
   let selectedAlgorithm = $state<'v2_bitplane' | 'v1_two_pixels' | 'v3_serpentine' | 'v4_dyadic_dwt' | 'v5_dyadic_lifting' | 'v6_reassigned' | 'v7_cqt' | 'v8_mband' | 'v9_reassigned' | 'naive'>('v9_reassigned');
-  let selectedHeight = $state<number>(1024); // default 20 Hz limit (1024 frequency bins)
   let selectedWaveletType = $state<number>(0); // 0 = CDF 5/3, 1 = Haar (CDF 1/1)
 
   // Original File State
   let originalFile = $state<File | null>(null);
-  let originalBytes = $state<Uint8Array | null>(null);
   let originalHash = $state<string>('');
   let originalUrl = $state<string>('');
   let originalAudio: HTMLAudioElement | null = null;
@@ -82,8 +88,18 @@
       init_panic_hook();
       wasmLoaded = true;
 
-      // Automatically preload the high-fidelity default audio sample on startup
-      await loadDefaultSample();
+      // Automatically preload the high-fidelity default audio sample on startup if no bytes exist yet
+      if (!originalBytes) {
+        await loadDefaultSample();
+      } else {
+        // If original bytes already exist, compute waveforms and hash to render correctly!
+        originalHash = await computeSHA256(originalBytes);
+        originalFile = new File([originalBytes as any], 'uploaded_audio.wav', { type: 'audio/wav' });
+        originalUrl = URL.createObjectURL(originalFile);
+        originalAudio = new Audio(originalUrl);
+        originalAudio.onended = () => { isOriginalPlaying = false; };
+        parseWavWaveforms(originalBytes);
+      }
     } catch (e: any) {
       console.error('Failed to load WASM:', e);
       wasmError = e.message || String(e);

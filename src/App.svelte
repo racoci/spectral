@@ -5,67 +5,103 @@
   import init, { wasm_calculate_complex_reassigned_spectrogram } from './wasm/core_wasm.js';
 
   let currentView = $state<'converter' | 'editor'>('converter');
+  
+  // Globally preserved state to prevent file loss during view re-mounting
+  let originalBytes = $state<Uint8Array | null>(null);
+  let selectedHeight = $state<number>(1024);
+  
   let complexGrid = $state<Float32Array | null>(null);
   let gridW = $state(0);
   let gridH = $state(0);
+
+  // Hash-based client router
+  function updateRoute() {
+    const hash = window.location.hash;
+    if (hash === '#/editor' && complexGrid) {
+      currentView = 'editor';
+    } else {
+      currentView = 'converter';
+      if (window.location.hash !== '#/converter') {
+        window.location.hash = '#/converter';
+      }
+    }
+  }
 
   onMount(async () => {
     try {
       await init();
       console.log('📢 WebAssembly initialized successfully in App.svelte root!');
+      
+      window.addEventListener('hashchange', updateRoute);
+      updateRoute();
     } catch (e) {
       console.error('❌ Failed to initialize WebAssembly in App.svelte root:', e);
     }
   });
 
-  // When a file is loaded and converted, we can trigger the editor view
+  // When a file is loaded and converted, we generate the complex grid
   function handleAudioLoaded(data: Uint8Array, h: number) {
     console.log('📢 App.svelte handleAudioLoaded callback received data with length:', data?.length, 'height:', h);
-    // Generate the full complex reassigned spectrogram in Rust
     try {
       const t0 = performance.now();
       complexGrid = wasm_calculate_complex_reassigned_spectrogram(data, h, 'hann') as Float32Array;
       gridH = h;
       gridW = (complexGrid.length / 2) / h;
       console.log(`✅ App.svelte generated complexGrid of size ${complexGrid.length} floats (dimensions: ${gridW} x ${gridH}) in ${(performance.now() - t0).toFixed(3)} ms.`);
-      // We do NOT force currentView = 'editor' here to prevent infinite redirection loops on re-mounting!
-      // The user can manually switch views via the header tabs at their own discretion.
     } catch (e) {
       console.error("❌ App.svelte failed to generate WebGL Editor payload:", e);
     }
   }
+
+  // Switch to route helpers
+  function navigateTo(view: 'converter' | 'editor') {
+    if (view === 'editor' && !complexGrid) return;
+    window.location.hash = view === 'editor' ? '#/editor' : '#/converter';
+  }
 </script>
 
-<main class="app-container">
-  <header class="app-header">
-    <div class="logo-area">
-      <span class="icon-brand">🎨🔊</span>
-      <h1>Spectral</h1>
-      <span class="badge-tag">Lossless Sandbox v0.1</span>
-      
-      <div class="view-toggles" style="margin-left: auto;">
-        <button class:active={currentView === 'converter'} onclick={() => currentView = 'converter'}>1. Converter</button>
-        <button class:active={currentView === 'editor'} onclick={() => currentView = 'editor'} disabled={!complexGrid}>2. WebGL Editor</button>
+<main class="app-container" class:full-screen-layout={currentView === 'editor'}>
+  
+  {#if currentView === 'converter'}
+    <header class="app-header">
+      <div class="logo-area">
+        <span class="icon-brand">🎨🔊</span>
+        <h1>Spectral</h1>
+        <span class="badge-tag">Lossless Sandbox v0.1</span>
+        
+        <div class="view-toggles" style="margin-left: auto;">
+          <button class="active" onclick={() => navigateTo('converter')}>1. Converter</button>
+          <button onclick={() => navigateTo('editor')} disabled={!complexGrid}>2. WebGL Editor</button>
+        </div>
       </div>
-    </div>
-    <p class="tagline">
-      Conversão bit-a-bit perfeitamente reversível de áudio em imagens
-    </p>
-  </header>
+      <p class="tagline">
+        Conversão bit-a-bit perfeitamente reversível de áudio em imagens
+      </p>
+    </header>
 
-  <section class="main-content">
-    {#if currentView === 'converter'}
-      <AudioConverter onAudioLoaded={handleAudioLoaded} />
-    {:else if currentView === 'editor'}
-      <WebGlEditor complexGrid={complexGrid} width={gridW} height={gridH} />
-    {/if}
-  </section>
+    <section class="main-content">
+      <AudioConverter 
+        bind:originalBytes={originalBytes} 
+        bind:selectedHeight={selectedHeight}
+        onAudioLoaded={handleAudioLoaded} 
+      />
+    </section>
 
-  <footer class="app-footer">
-    <p>
-      Desenvolvido em Rust (WebAssembly) & Svelte 5. Implantado via GitHub Pages.
-    </p>
-  </footer>
+    <footer class="app-footer">
+      <p>
+        Desenvolvido em Rust (WebAssembly) & Svelte 5. Implantado via GitHub Pages.
+      </p>
+    </footer>
+  {:else if currentView === 'editor'}
+    <!-- In editor view, the WebGlEditor fills 100% of the screen as a transparent overlay background -->
+    <WebGlEditor 
+      complexGrid={complexGrid} 
+      width={gridW} 
+      height={gridH} 
+      onBackToConverter={() => navigateTo('converter')}
+    />
+  {/if}
+
 </main>
 
 <style>
@@ -76,6 +112,17 @@
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    transition: all 0.3s ease-in-out;
+  }
+
+  /* Full Screen Overlay styles for Editor mode */
+  .app-container.full-screen-layout {
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    overflow: hidden !important;
   }
 
   .app-header {
