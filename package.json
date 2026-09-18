@@ -14,7 +14,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
-    "test:integration": "npx tsx tests/validate-wav.ts",
+    "test:integration": "npx tsx tests/validate-wav.ts && npx tsx tests/spectrogram-structure.test.ts",
     "spectral": "npx tsx bin/spectral.ts"
   },
   "devDependencies": {

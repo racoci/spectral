@@ -239,12 +239,12 @@ fn calculate_grid_width(data_len: usize, h: usize) -> usize {
 // Bijeção 3: Codificação Semântica Gray Code
 // ==========================================
 
-#[inline]
+#[wasm_bindgen]
 pub fn zigzag_encode(val: i32) -> u32 {
     ((val << 1) ^ (val >> 31)) as u32
 }
 
-#[inline]
+#[wasm_bindgen]
 pub fn zigzag_decode(val: u32) -> i32 {
     ((val >> 1) as i32) ^ (-((val & 1) as i32))
 }
@@ -281,62 +281,65 @@ struct DecodeEntry {
     index: u16,
 }
 
-static COLOR_LUT: OnceLock<[(u8, u8, u8); 65536]> = OnceLock::new();
+static COLOR_LUT: OnceLock<Vec<(u8, u8, u8)>> = OnceLock::new();
 static DECODE_LUT: OnceLock<Vec<DecodeEntry>> = OnceLock::new();
 static REVERSE_RG: OnceLock<Vec<u16>> = OnceLock::new();
 
 fn generate_geodesic_snake_luts() {
-    let mut lut = [(0u8, 0u8, 0u8); 65536];
-    let mut idx = 0;
+    let mut all_pts = Vec::with_capacity(65536);
+    for r in 0..256 {
+        for g in 0..256 {
+            all_pts.push((r as u8, g as u8));
+        }
+    }
     
-    for l in 0..256 {
-        let mut pts = Vec::with_capacity(3000);
-        for r in 0..=l {
-            for g in 0..=l {
-                if r == l || g == l {
-                    let pair = (r as u8, g as u8);
-                    if !pts.contains(&pair) {
-                        pts.push(pair);
-                    }
-                }
+    // Sort all 65,536 points strictly by Euclidean distance (circular rings),
+    // and then by alternating serpentine angles to ensure perfect continuity.
+    all_pts.sort_unstable_by(|a, b| {
+        let dist_a = ((a.0 as f32).powi(2) + (a.1 as f32).powi(2)).sqrt();
+        let dist_b = ((b.0 as f32).powi(2) + (b.1 as f32).powi(2)).sqrt();
+        
+        let ring_a = dist_a.floor() as i32;
+        let ring_b = dist_b.floor() as i32;
+        
+        if ring_a != ring_b {
+            ring_a.cmp(&ring_b)
+        } else {
+            let angle_a = (a.1 as f32).atan2(a.0 as f32);
+            let angle_b = (b.1 as f32).atan2(b.0 as f32);
+            let is_even = ring_a % 2 == 0;
+            if is_even {
+                angle_a.partial_cmp(&angle_b).unwrap()
+            } else {
+                angle_b.partial_cmp(&angle_a).unwrap()
             }
         }
-        
-        pts.sort_unstable_by(|a, b| {
-            let key_a = (a.0 as u16 + a.1 as u16) % 2;
-            let key_b = (b.0 as u16 + b.1 as u16) % 2;
-            key_a.cmp(&key_b).then(a.0.cmp(&b.0)).then(a.1.cmp(&b.1))
-        });
-        
-        for p in pts {
-            if idx >= 65536 { break; }
-            lut[idx] = (p.0, p.1, l as u8);
-            idx += 1;
-        }
-    }
+    });
     
-    while idx < 65536 {
-        lut[idx] = (255, 255, 255);
-        idx += 1;
-    }
-    
-    COLOR_LUT.set(lut).ok();
-    
+    let mut lut = vec![(0u8, 0u8, 0u8); 65536];
     let mut decode_vec = Vec::with_capacity(65536);
     let mut rev_rg = vec![0u16; 256 * 256];
     
     for i in 0..65536 {
-        let (r, g, b) = lut[i];
-        let key = (r as u64 * r as u64 + g as u64 * g as u64 + b as u64 * b as u64) * 16777216
-            + (r as u64 * 65536) + (g as u64 * 256) + b as u64;
+        let p = all_pts[i];
+        
+        // Map blue channel dynamically as the absolute difference between Red and Green
+        // to cover yellow, orange, and green while keeping silence perfectly black!
+        let b_val = (p.0 as i16 - p.1 as i16).abs() as u8;
+        
+        lut[i] = (p.0, p.1, b_val);
+        
+        let key = (p.0 as u64 * p.0 as u64 + p.1 as u64 * p.1 as u64 + b_val as u64 * b_val as u64) * 16777216
+            + (p.0 as u64 * 65536) + (p.1 as u64 * 256) + b_val as u64;
             
         decode_vec.push(DecodeEntry { key, index: i as u16 });
         
-        let rg_idx = (r as usize * 256) + g as usize;
+        let rg_idx = (p.0 as usize * 256) + p.1 as usize;
         rev_rg[rg_idx] = i as u16;
     }
     
     decode_vec.sort_unstable_by_key(|e| e.key);
+    COLOR_LUT.set(lut).ok();
     DECODE_LUT.set(decode_vec).ok();
     REVERSE_RG.set(rev_rg).ok();
 }
@@ -357,12 +360,20 @@ pub fn decode_rg_to_coefficient(r: u8, g: u8) -> i16 {
 }
 
 #[wasm_bindgen]
+pub fn decode_rg_to_coefficient_raw(r: u8, g: u8) -> u16 {
+    ensure_luts();
+    let rev = REVERSE_RG.get().unwrap();
+    let idx = (r as usize * 256) + g as usize;
+    rev[idx]
+}
+
+#[wasm_bindgen]
 pub fn decode_color_to_coefficient(r: u8, g: u8, b: u8) -> i16 {
     ensure_luts();
     let dec = DECODE_LUT.get().unwrap();
     let key = (r as u64 * r as u64 + g as u64 * g as u64 + b as u64 * b as u64) * 16777216
         + (r as u64 * 65536) + (g as u64 * 256) + b as u64;
-        
+
     let search = dec.binary_search_by_key(&key, |e| e.key);
     let idx_lut = match search {
         Ok(pos) => dec[pos].index,
@@ -372,6 +383,23 @@ pub fn decode_color_to_coefficient(r: u8, g: u8, b: u8) -> i16 {
         }
     };
     gray_decode(idx_lut as u32) as i16
+}
+
+#[wasm_bindgen]
+pub fn decode_color_to_coefficient_raw(r: u8, g: u8, b: u8) -> u16 {
+    ensure_luts();
+    let dec = DECODE_LUT.get().unwrap();
+    let key = (r as u64 * r as u64 + g as u64 * g as u64 + b as u64 * b as u64) * 16777216
+        + (r as u64 * 65536) + (g as u64 * 256) + b as u64;
+
+    let search = dec.binary_search_by_key(&key, |e| e.key);
+    match search {
+        Ok(pos) => dec[pos].index,
+        Err(_) => {
+            let rev = REVERSE_RG.get().unwrap();
+            rev[(r as usize * 256) + g as usize]
+        }
+    }
 }
 
 #[wasm_bindgen]
@@ -2010,18 +2038,112 @@ fn inverse_mband_4_rust(s: &[i64], d1: &[i64], d2: &[i64], d3: &[i64], original_
     out
 }
 
+// Forward 1D CDF 5/3 Lifting on standard i64 arrays using strictly i16 wrapping arithmetic
+fn forward_lifting_53_i64(x: &[i64]) -> (Vec<i64>, Vec<i64>) {
+    let len = x.len();
+    let half_e = (len + 1) / 2;
+    let half_o = len / 2;
+    let mut e = vec![0i16; half_e];
+    let mut o = vec![0i16; half_o];
+    for i in 0..len {
+        if i % 2 == 0 { e[i / 2] = x[i] as i16; }
+        else { o[i / 2] = x[i] as i16; }
+    }
+    
+    let mut d = vec![0i16; half_o];
+    for n in 0..half_o {
+        let left = e[n];
+        let right = if n + 1 < half_e { e[n + 1] } else { e[n] };
+        let pred = ((left as i32 + right as i32) >> 1) as i16;
+        d[n] = o[n].wrapping_sub(pred);
+    }
+    
+    let mut s = vec![0i16; half_e];
+    for n in 0..half_e {
+        let left = if n > 0 { d[n - 1] } else { d[n] };
+        let right = if n < half_o { d[n] } else { d[n - 1] };
+        let upd = ((left as i32 + right as i32 + 2) >> 2) as i16;
+        s[n] = e[n].wrapping_add(upd);
+    }
+    
+    let s_out = s.into_iter().map(|v| v as i64).collect();
+    let d_out = d.into_iter().map(|v| v as i64).collect();
+    (s_out, d_out)
+}
+
+// Inverse 1D CDF 5/3 Lifting using strictly i16 wrapping arithmetic
+fn inverse_lifting_53_i64(s: &[i64], d: &[i64], original_len: usize) -> Vec<i64> {
+    let half_e = s.len();
+    let half_o = d.len();
+    
+    let mut e = vec![0i16; half_e];
+    for n in 0..half_e {
+        let left = if n > 0 { d[n - 1] as i16 } else { d[n] as i16 };
+        let right = if n < half_o { d[n] as i16 } else { d[n - 1] as i16 };
+        let upd = ((left as i32 + right as i32 + 2) >> 2) as i16;
+        e[n] = (s[n] as i16).wrapping_sub(upd);
+    }
+    
+    let mut o = vec![0i16; half_o];
+    for n in 0..half_o {
+        let left = e[n];
+        let right = if n + 1 < half_e { e[n + 1] } else { e[n] };
+        let pred = ((left as i32 + right as i32) >> 1) as i16;
+        o[n] = (d[n] as i16).wrapping_add(pred);
+    }
+    
+    let mut out = vec![0i64; original_len];
+    for i in 0..original_len {
+        if i % 2 == 0 { out[i] = e[i / 2] as i64; }
+        else { out[i] = o[i / 2] as i64; }
+    }
+    out
+}
+
+// Hierarchical 1-level interleaved CDF 5/3 decomposition
+fn forward_packet_4_band(x: &[i64]) -> (Vec<i64>, Vec<i64>, Vec<i64>, Vec<i64>) {
+    let (s_full, d_full) = forward_lifting_53_i64(x);
+    let half = x.len() / 2;
+    let mut s_even = vec![0i64; half / 2];
+    let mut s_odd = vec![0i64; half / 2];
+    let mut d_even = vec![0i64; half / 2];
+    let mut d_odd = vec![0i64; half / 2];
+    for i in 0..(half / 2) {
+        s_even[i] = s_full[2 * i];
+        s_odd[i] = s_full[2 * i + 1];
+        d_even[i] = d_full[2 * i];
+        d_odd[i] = d_full[2 * i + 1];
+    }
+    (s_even, s_odd, d_even, d_odd)
+}
+
+// Interleaved 1-level reconstruction
+fn inverse_packet_4_band(s_even: &[i64], s_odd: &[i64], d_even: &[i64], d_odd: &[i64], original_len: usize) -> Vec<i64> {
+    let half = original_len / 2;
+    let mut s_full = vec![0i64; half];
+    let mut d_full = vec![0i64; half];
+    for i in 0..(half / 2) {
+        s_full[2 * i] = s_even[i];
+        s_full[2 * i + 1] = s_odd[i];
+        d_full[2 * i] = d_even[i];
+        d_full[2 * i + 1] = d_odd[i];
+    }
+    inverse_lifting_53_i64(&s_full, &d_full, original_len)
+}
+
 #[wasm_bindgen]
 pub fn encode_wavelet_v8_mband(data: &[u8], h_custom: usize) -> Vec<u8> {
     let original_len = data.len() as u32;
     let mut h = h_custom;
     if !h.is_power_of_two() || h < 4 { h = 1024; }
-    let w = calculate_grid_width(data.len(), h);
+    // Since each grid position holds 2 samples (Mid/Side), we scale down data len accordingly
+    let w = calculate_grid_width(data.len() / 2, h);
     let grid_size = w * h;
     
-    // We pad the raw PCM Mid/Side data up to the grid boundary (grid_size * 4 samples)
+    // We pad the raw PCM Mid/Side data up to the grid boundary (grid_size * 2 samples)
     let num_samples = data.len() / 4;
-    let mut mid_input = vec![0i64; grid_size * 4];
-    let mut side_input = vec![0i64; grid_size * 4];
+    let mut mid_input = vec![0i64; grid_size * 2];
+    let mut side_input = vec![0i64; grid_size * 2];
     
     for i in 0..num_samples {
         let offset = i * 4;
@@ -2038,13 +2160,13 @@ pub fn encode_wavelet_v8_mband(data: &[u8], h_custom: usize) -> Vec<u8> {
         side_input[i] = s as i64;
     }
     
-    // Process entire mono and side sequences through the 4-band polyphase lifting cascade
-    let (s_m, d1_m, d2_m, d3_m) = forward_mband_4_rust(&mid_input);
-    let (s_s, d1_s, d2_s, d3_s) = forward_mband_4_rust(&side_input);
+    // Process entire mono and side sequences through the exactly-bounded 1-level CDF 5/3 Lifting
+    let (s_m, d_m) = forward_lifting_53_i64(&mid_input);
+    let (s_s, d_s) = forward_lifting_53_i64(&side_input);
     
-    let mut output = Vec::with_capacity(24 + grid_size * 32);
+    let mut output = Vec::with_capacity(24 + grid_size * 16);
     output.extend_from_slice(&original_len.to_be_bytes());
-    let w_png = (w * 8) as u32; // 8 pixels per sample point to pack Mid & Side 24-bit coefficients with Alpha=255
+    let w_png = (w * 4) as u32; // 4 pixels per sample point to pack Mid & Side 16-bit coefficients with Alpha=255
     output.extend_from_slice(&w_png.to_be_bytes());
     output.extend_from_slice(&(h as u32).to_be_bytes());
     
@@ -2072,63 +2194,36 @@ pub fn encode_wavelet_v8_mband(data: &[u8], h_custom: usize) -> Vec<u8> {
         for c in 0..w {
             let idx = r * w + c;
             
-            // Unsigned shift for 24-bit integers [-8388608, 8388607] -> [0, 16777215]
-            let sm_u = (s_m[idx].clamp(-8388608, 8388607) + 8388608) as u32;
-            let d1m_u = (d1_m[idx].clamp(-8388608, 8388607) + 8388608) as u32;
-            let d2m_u = (d2_m[idx].clamp(-8388608, 8388607) + 8388608) as u32;
-            let d3m_u = (d3_m[idx].clamp(-8388608, 8388607) + 8388608) as u32;
+            // Map signed 16-bit coefficients with ZigZag encoding to preserve bijection and map silence (0) to black (0)
+            let sm_u = zigzag_encode(s_m[idx].clamp(-32768, 32767) as i32) as u16;
+            let dm_u = zigzag_encode(d_m[idx].clamp(-32768, 32767) as i32) as u16;
             
-            let ss_u = (s_s[idx].clamp(-8388608, 8388607) + 8388608) as u32;
-            let d1s_u = (d1_s[idx].clamp(-8388608, 8388607) + 8388608) as u32;
-            let d2s_u = (d2_s[idx].clamp(-8388608, 8388607) + 8388608) as u32;
-            let d3s_u = (d3_s[idx].clamp(-8388608, 8388607) + 8388608) as u32;
+            let ss_u = zigzag_encode(s_s[idx].clamp(-32768, 32767) as i32) as u16;
+            let ds_u = zigzag_encode(d_s[idx].clamp(-32768, 32767) as i32) as u16;
             
+            // Retrieve beautiful, high-contrast Geodesic Snake colors from the 3D RGB Cube!
             // Pixel A: sm_u (Mid Lowpass)
-            output.push(((sm_u >> 16) & 0xFF) as u8);
-            output.push(((sm_u >> 8) & 0xFF) as u8);
-            output.push((sm_u & 0xFF) as u8);
+            output.push(get_color_r(sm_u));
+            output.push(get_color_g(sm_u));
+            output.push(get_color_b(sm_u));
             output.push(255u8);
             
-            // Pixel B: d1m_u (Mid Detail 1)
-            output.push(((d1m_u >> 16) & 0xFF) as u8);
-            output.push(((d1m_u >> 8) & 0xFF) as u8);
-            output.push((d1m_u & 0xFF) as u8);
+            // Pixel B: dm_u (Mid Highpass)
+            output.push(get_color_r(dm_u));
+            output.push(get_color_g(dm_u));
+            output.push(get_color_b(dm_u));
             output.push(255u8);
             
-            // Pixel C: d2m_u (Mid Detail 2)
-            output.push(((d2m_u >> 16) & 0xFF) as u8);
-            output.push(((d2m_u >> 8) & 0xFF) as u8);
-            output.push((d2m_u & 0xFF) as u8);
+            // Pixel C: ss_u (Side Lowpass)
+            output.push(get_color_r(ss_u));
+            output.push(get_color_g(ss_u));
+            output.push(get_color_b(ss_u));
             output.push(255u8);
             
-            // Pixel D: d3m_u (Mid Detail 3)
-            output.push(((d3m_u >> 16) & 0xFF) as u8);
-            output.push(((d3m_u >> 8) & 0xFF) as u8);
-            output.push((d3m_u & 0xFF) as u8);
-            output.push(255u8);
-            
-            // Pixel E: ss_u (Side Lowpass)
-            output.push(((ss_u >> 16) & 0xFF) as u8);
-            output.push(((ss_u >> 8) & 0xFF) as u8);
-            output.push((ss_u & 0xFF) as u8);
-            output.push(255u8);
-            
-            // Pixel F: d1s_u (Side Detail 1)
-            output.push(((d1s_u >> 16) & 0xFF) as u8);
-            output.push(((d1s_u >> 8) & 0xFF) as u8);
-            output.push((d1s_u & 0xFF) as u8);
-            output.push(255u8);
-            
-            // Pixel G: d2s_u (Side Detail 2)
-            output.push(((d2s_u >> 16) & 0xFF) as u8);
-            output.push(((d2s_u >> 8) & 0xFF) as u8);
-            output.push((d2s_u & 0xFF) as u8);
-            output.push(255u8);
-            
-            // Pixel H: d3s_u (Side Detail 3)
-            output.push(((d3s_u >> 16) & 0xFF) as u8);
-            output.push(((d3s_u >> 8) & 0xFF) as u8);
-            output.push((d3s_u & 0xFF) as u8);
+            // Pixel D: ds_u (Side Highpass)
+            output.push(get_color_r(ds_u));
+            output.push(get_color_g(ds_u));
+            output.push(get_color_b(ds_u));
             output.push(255u8);
         }
     }
@@ -2144,18 +2239,14 @@ pub fn decode_wavelet_v8_mband(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
     let w_png = u32::from_be_bytes([rgba_data[4], rgba_data[5], rgba_data[6], rgba_data[7]]) as usize;
     let h = u32::from_be_bytes([rgba_data[8], rgba_data[9], rgba_data[10], rgba_data[11]]) as usize;
     
-    let w = w_png / 8;
+    let w = w_png / 4;
     let grid_size = w * h;
     
     let mut s_m = vec![0i64; grid_size];
-    let mut d1_m = vec![0i64; grid_size];
-    let mut d2_m = vec![0i64; grid_size];
-    let mut d3_m = vec![0i64; grid_size];
+    let mut d_m = vec![0i64; grid_size];
     
     let mut s_s = vec![0i64; grid_size];
-    let mut d1_s = vec![0i64; grid_size];
-    let mut d2_s = vec![0i64; grid_size];
-    let mut d3_s = vec![0i64; grid_size];
+    let mut d_s = vec![0i64; grid_size];
     
     let rem_bytes = rgba_data[12] as usize;
     let byte1 = rgba_data[16];
@@ -2165,44 +2256,33 @@ pub fn decode_wavelet_v8_mband(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
     for r in 0..h {
         for c in 0..w {
             let idx = r * w + c;
-            let offset_a = 24 + (r * w_png + c * 8) * 4;
+            let offset_a = 24 + (r * w_png + c * 4) * 4;
             let offset_b = offset_a + 4;
             let offset_c = offset_a + 8;
             let offset_d = offset_a + 12;
-            let offset_e = offset_a + 16;
-            let offset_f = offset_a + 20;
-            let offset_g = offset_a + 24;
-            let offset_h = offset_a + 28;
             
-            if offset_h + 3 >= rgba_data.len() {
+            if offset_d + 3 >= rgba_data.len() {
                 return Err(JsValue::from_str("Truncated image buffer in V8 decoding"));
             }
             
-            let sm_u = ((rgba_data[offset_a] as u32) << 16) | ((rgba_data[offset_a + 1] as u32) << 8) | (rgba_data[offset_a + 2] as u32);
-            let d1m_u = ((rgba_data[offset_b] as u32) << 16) | ((rgba_data[offset_b + 1] as u32) << 8) | (rgba_data[offset_b + 2] as u32);
-            let d2m_u = ((rgba_data[offset_c] as u32) << 16) | ((rgba_data[offset_c + 1] as u32) << 8) | (rgba_data[offset_c + 2] as u32);
-            let d3m_u = ((rgba_data[offset_d] as u32) << 16) | ((rgba_data[offset_d + 1] as u32) << 8) | (rgba_data[offset_d + 2] as u32);
+            // Decode RGB colors back to exact 16-bit coefficients using Geodesic Snake bijection!
+            let sm_u = decode_rg_to_coefficient_raw(rgba_data[offset_a], rgba_data[offset_a + 1]);
+            let dm_u = decode_rg_to_coefficient_raw(rgba_data[offset_b], rgba_data[offset_b + 1]);
             
-            let ss_u = ((rgba_data[offset_e] as u32) << 16) | ((rgba_data[offset_e + 1] as u32) << 8) | (rgba_data[offset_e + 2] as u32);
-            let d1s_u = ((rgba_data[offset_f] as u32) << 16) | ((rgba_data[offset_f + 1] as u32) << 8) | (rgba_data[offset_f + 2] as u32);
-            let d2s_u = ((rgba_data[offset_g] as u32) << 16) | ((rgba_data[offset_g + 1] as u32) << 8) | (rgba_data[offset_g + 2] as u32);
-            let d3s_u = ((rgba_data[offset_h] as u32) << 16) | ((rgba_data[offset_h + 1] as u32) << 8) | (rgba_data[offset_h + 2] as u32);
+            let ss_u = decode_rg_to_coefficient_raw(rgba_data[offset_c], rgba_data[offset_c + 1]);
+            let ds_u = decode_rg_to_coefficient_raw(rgba_data[offset_d], rgba_data[offset_d + 1]);
             
-            s_m[idx] = (sm_u as i32 - 8388608) as i64;
-            d1_m[idx] = (d1m_u as i32 - 8388608) as i64;
-            d2_m[idx] = (d2m_u as i32 - 8388608) as i64;
-            d3_m[idx] = (d3m_u as i32 - 8388608) as i64;
+            s_m[idx] = zigzag_decode(sm_u as u32) as i64;
+            d_m[idx] = zigzag_decode(dm_u as u32) as i64;
             
-            s_s[idx] = (ss_u as i32 - 8388608) as i64;
-            d1_s[idx] = (d1s_u as i32 - 8388608) as i64;
-            d2_s[idx] = (d2s_u as i32 - 8388608) as i64;
-            d3_s[idx] = (d3s_u as i32 - 8388608) as i64;
+            s_s[idx] = zigzag_decode(ss_u as u32) as i64;
+            d_s[idx] = zigzag_decode(ds_u as u32) as i64;
         }
     }
     
-    // Reconstruct through the 4-band inverse lifting cascade
-    let mid_reconstructed = inverse_mband_4_rust(&s_m, &d1_m, &d2_m, &d3_m, grid_size * 4);
-    let side_reconstructed = inverse_mband_4_rust(&s_s, &d1_s, &d2_s, &d3_s, grid_size * 4);
+    // Reconstruct through the exactly-bounded 1-level inverse CDF 5/3 Lifting
+    let mid_reconstructed = inverse_lifting_53_i64(&s_m, &d_m, grid_size * 2);
+    let side_reconstructed = inverse_lifting_53_i64(&s_s, &d_s, grid_size * 2);
     
     let num_samples = original_len / 4;
     let mut pcm = vec![0u8; original_len];
@@ -2234,34 +2314,673 @@ pub fn decode_wavelet_v8_mband(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
 }
 
 #[wasm_bindgen]
+pub fn encode_wavelet_v9_reassigned(data: &[u8], h_custom: usize) -> Vec<u8> {
+    let original_len = data.len() as u32;
+    let mut h = h_custom;
+    if !h.is_power_of_two() || h < 4 { h = 1024; }
+    
+    // Compute the gorgeous, high-fidelity reassigned spectrogram with target width of 800 columns
+    let re_rgba = wasm_calculate_reassigned_spectrogram(data, h, "hann");
+    
+    let w = 800;
+    let grid_size = w * h;
+    
+    let mut output = Vec::with_capacity(24 + grid_size * 4 + data.len());
+    // 24-byte big-endian header
+    output.extend_from_slice(&original_len.to_be_bytes());
+    output.extend_from_slice(&(w as u32).to_be_bytes());
+    output.extend_from_slice(&(h as u32).to_be_bytes());
+    output.push(0u8); // rem_bytes
+    output.push(9u8); // Packing Version 9!
+    output.extend_from_slice(&44100u16.to_be_bytes());
+    for _ in 0..8 { output.push(0u8); } // padding
+    
+    // Copy the gorgeous high-fidelity pixels from re_rgba
+    output.extend_from_slice(&re_rgba[24..(24 + grid_size * 4)]);
+    
+    // Append the entire original WAV file exactly as the steganographic payload!
+    output.extend_from_slice(data);
+    
+    output
+}
+
+#[wasm_bindgen]
+pub fn decode_wavelet_v9_reassigned(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
+    if rgba_data.len() < 24 {
+        return Err(JsValue::from_str("Invalid input data"));
+    }
+    let original_len = u32::from_be_bytes([rgba_data[0], rgba_data[1], rgba_data[2], rgba_data[3]]) as usize;
+    let w = u32::from_be_bytes([rgba_data[4], rgba_data[5], rgba_data[6], rgba_data[7]]) as usize;
+    let h = u32::from_be_bytes([rgba_data[8], rgba_data[9], rgba_data[10], rgba_data[11]]) as usize;
+    
+    let grid_size = w * h;
+    
+    // The payload start point in standard savePng is at: 24 (metadata header offset in file) + width * (height - 1) * 4
+    // Since height = h + 1, height - 1 = h, the offset is exactly 24 + w * h * 4!
+    let payload_start = 24 + grid_size * 4;
+    if payload_start + original_len > rgba_data.len() {
+        return Err(JsValue::from_str("Truncated steganographic payload in V9 decoding"));
+    }
+    
+    let original_wav = rgba_data[payload_start..(payload_start + original_len)].to_vec();
+    Ok(original_wav)
+}
+
+#[wasm_bindgen]
 pub fn wasm_generate_v8_spectrogram(rgba_data: &[u8]) -> Result<Vec<f32>, JsValue> {
-    if rgba_data.len() < 16 {
+    if rgba_data.len() < 24 {
         return Err(JsValue::from_str("Invalid input data"));
     }
     let w_png = u32::from_be_bytes([rgba_data[4], rgba_data[5], rgba_data[6], rgba_data[7]]) as usize;
     let h = u32::from_be_bytes([rgba_data[8], rgba_data[9], rgba_data[10], rgba_data[11]]) as usize;
-    let w = w_png / 8;
+    let w = w_png / 4;
     let mut spec = vec![0.0f32; w * h];
     
     for r in 0..h {
         for c in 0..w {
-            let offset_a = 16 + (r * w_png + c * 8) * 4;
+            let offset_a = 24 + (r * w_png + c * 4) * 4;
             let offset_b = offset_a + 4;
-            let offset_c = offset_a + 8;
             
-            if offset_c + 3 >= rgba_data.len() { break; }
+            if offset_b + 3 >= rgba_data.len() { break; }
             
-            // Extract bandpass details from Pixels B and C
-            let d1m_u = ((rgba_data[offset_b] as u32) << 16) | ((rgba_data[offset_b + 1] as u32) << 8) | (rgba_data[offset_b + 2] as u32);
-            let d2m_u = ((rgba_data[offset_c] as u32) << 16) | ((rgba_data[offset_c + 1] as u32) << 8) | (rgba_data[offset_c + 2] as u32);
+            // Extract highpass detail from Pixel B
+            let dm_u = decode_rg_to_coefficient_raw(rgba_data[offset_b], rgba_data[offset_b + 1]);
+            let d_val = zigzag_decode(dm_u as u32) as f32;
             
-            let d1 = (d1m_u as i32 - 8388608) as f32;
-            let d2 = (d2m_u as i32 - 8388608) as f32;
-            
-            spec[r * w + c] = d1 * d1 + d2 * d2;
+            spec[r * w + c] = d_val * d_val;
         }
     }
     Ok(spec)
+}
+
+#[wasm_bindgen]
+pub fn wasm_calculate_reassigned_spectrogram(data: &[u8], h_custom: usize, window_type: &str) -> Vec<u8> {
+    let mut h = h_custom;
+    if !h.is_power_of_two() || h < 4 { h = 1024; }
+    
+    // Detect and skip 44-byte WAV header if present
+    let pcm_data = if data.len() >= 44 && &data[0..4] == b"RIFF" {
+        &data[44..]
+    } else {
+        data
+    };
+    
+    let w = 800; // Fixed target landscape width of 800 columns
+    let grid_size = w * h;
+    
+    // Decoded PCM Mid channel data
+    let num_samples = pcm_data.len() / 4;
+    let mut mid_channel = vec![0.0f32; num_samples];
+    for i in 0..num_samples {
+        let offset = i * 4;
+        let b0 = if offset < pcm_data.len() { pcm_data[offset] } else { 0 };
+        let b1 = if offset + 1 < pcm_data.len() { pcm_data[offset + 1] } else { 0 };
+        let b2 = if offset + 2 < pcm_data.len() { pcm_data[offset + 2] } else { 0 };
+        let b3 = if offset + 3 < pcm_data.len() { pcm_data[offset + 3] } else { 0 };
+        
+        let l = (((b1 as u16) << 8) | (b0 as u16)) as i16 as f32;
+        let r = (((b3 as u16) << 8) | (b2 as u16)) as i16 as f32;
+        mid_channel[i] = (l + r) * 0.5;
+    }
+    
+    let fs_f32 = 44100.0f32;
+    let n_stft = 4096;
+    
+    use rustfft::{FftPlanner, num_complex::Complex};
+    let mut planner = FftPlanner::new();
+    let fft = planner.plan_fft_forward(n_stft);
+    
+    // Generate the window h, time-weighted window th, and derivative window dh
+    let mut win_h = vec![0.0f32; n_stft];
+    let mut win_th = vec![0.0f32; n_stft];
+    let mut win_dh = vec![0.0f32; n_stft];
+    
+    let half_n = (n_stft - 1) as f32 / 2.0;
+    
+    match window_type {
+        "hamming" => {
+            for i in 0..n_stft {
+                let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
+                win_h[i] = 0.54 - 0.46 * angle.cos();
+                win_th[i] = (i as f32 - half_n) * win_h[i];
+                win_dh[i] = (0.46 * 2.0 * std::f32::consts::PI / (n_stft - 1) as f32) * angle.sin();
+            }
+        },
+        "gaussian" => {
+            let sigma = (n_stft - 1) as f32 / 6.0; // alpha = 3.0
+            for i in 0..n_stft {
+                let diff = i as f32 - half_n;
+                win_h[i] = (-0.5 * (diff / sigma).powi(2)).exp();
+                win_th[i] = diff * win_h[i];
+                win_dh[i] = -(diff / sigma.powi(2)) * win_h[i];
+            }
+        },
+        "blackman-harris" => {
+            let a0 = 0.35875f32;
+            let a1 = 0.48829f32;
+            let a2 = 0.14128f32;
+            let a3 = 0.01168f32;
+            for i in 0..n_stft {
+                let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
+                win_h[i] = a0 - a1 * angle.cos() + a2 * (2.0 * angle).cos() - a3 * (3.0 * angle).cos();
+                win_th[i] = (i as f32 - half_n) * win_h[i];
+                win_dh[i] = (2.0 * std::f32::consts::PI / (n_stft - 1) as f32) * 
+                           (a1 * angle.sin() - 2.0 * a2 * (2.0 * angle).sin() + 3.0 * a3 * (3.0 * angle).sin());
+            }
+        },
+        _ => { // "hann" as default
+            for i in 0..n_stft {
+                let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
+                win_h[i] = 0.5 * (1.0 - angle.cos());
+                win_th[i] = (i as f32 - half_n) * win_h[i];
+                win_dh[i] = (std::f32::consts::PI / (n_stft - 1) as f32) * angle.sin();
+            }
+        }
+    }
+    
+    let fmin = 20.0f32;
+    let fmax = 20000.0f32.min(fs_f32 / 2.0);
+    let step = (fmax / fmin).log2() / (h as f32 - 1.0);
+    
+    let mut reassigned_grid = vec![0.0f32; grid_size];
+    let hop = (num_samples as f32 / w as f32).max(1.0).floor() as usize;
+    let duration_seconds = num_samples as f32 / fs_f32;
+    
+    for c in 0..w {
+        let start = c * hop;
+        let mut buffer_h = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
+        let mut buffer_th = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
+        let mut buffer_dh = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
+        
+        for i in 0..n_stft {
+            let idx = start as isize + i as isize - (n_stft as isize / 2);
+            if idx >= 0 && idx < num_samples as isize {
+                let sample_val = mid_channel[idx as usize];
+                buffer_h[i] = Complex::new(sample_val * win_h[i], 0.0);
+                buffer_th[i] = Complex::new(sample_val * win_th[i], 0.0);
+                buffer_dh[i] = Complex::new(sample_val * win_dh[i], 0.0);
+            }
+        }
+        
+        fft.process(&mut buffer_h);
+        fft.process(&mut buffer_th);
+        fft.process(&mut buffer_dh);
+        
+        for j in 0..h {
+            let fc = fmin * 2.0f32.powf(j as f32 * step);
+            let k = (fc * n_stft as f32 / fs_f32).round() as usize;
+            let k = k.clamp(1, n_stft / 2 - 1);
+            
+            let s_h = buffer_h[k];
+            let s_th = buffer_th[k];
+            let s_dh = buffer_dh[k];
+            
+            let mag_sq = s_h.re * s_h.re + s_h.im * s_h.im;
+            if mag_sq > 1e-2 {
+                // Time Reassignment: t_reassigned = t + Re{ S_th * conj(S_h) / |S_h|^2 } (shift in samples)
+                let s_th_conj = s_th * s_h.conj();
+                let t_shift = s_th_conj.re / mag_sq; // shift in samples
+                let c_reassigned = (c as f32 + t_shift / hop as f32).round() as isize;
+                
+                // Frequency Reassignment: f_reassigned = f - Im{ S_dh * conj(S_h) / |S_h|^2 } * (fs / 2pi)
+                let s_dh_conj = s_dh * s_h.conj();
+                let omega_shift = s_dh_conj.im / mag_sq; // shift in radians/sample
+                let f_reassigned = fc - (omega_shift * fs_f32 / (2.0 * std::f32::consts::PI));
+                
+                let j_reassigned = ((f_reassigned / fmin).log2() / step).round() as isize;
+                
+                if c_reassigned >= 0 && c_reassigned < w as isize && j_reassigned >= 0 && j_reassigned < h as isize {
+                    let target_idx = j_reassigned as usize * w + c_reassigned as usize;
+                    reassigned_grid[target_idx] += mag_sq;
+                }
+            }
+        }
+    }
+    
+    // Normalize and apply 0.3 gamma compression
+    let mut max_val = 1e-12f32;
+    for i in 0..grid_size {
+        if reassigned_grid[i] > max_val { max_val = reassigned_grid[i]; }
+    }
+    
+    // Pack into direct self-contained RGBA buffer with big-endian header!
+    let mut output = Vec::with_capacity(24 + grid_size * 4);
+    output.extend_from_slice(&0u32.to_be_bytes()); // original_len
+    output.extend_from_slice(&(w as u32).to_be_bytes());
+    output.extend_from_slice(&(h as u32).to_be_bytes());
+    for _ in 0..12 { output.push(0u8); } // padding
+    
+    for r in 0..h {
+        for c in 0..w {
+            let val = (reassigned_grid[r * w + c] / max_val).powf(0.3);
+            let color_idx = (val * 65535.0).round() as u16;
+            output.push(get_color_r(color_idx));
+            output.push(get_color_g(color_idx));
+            output.push(get_color_b(color_idx));
+            output.push(255u8);
+        }
+    }
+    output
+}
+
+#[wasm_bindgen]
+pub fn wasm_calculate_log_spectrogram(data: &[u8], h_custom: usize, window_type: &str) -> Vec<u8> {
+    let mut h = h_custom;
+    if !h.is_power_of_two() || h < 4 { h = 1024; }
+    
+    // Detect and skip 44-byte WAV header if present
+    let pcm_data = if data.len() >= 44 && &data[0..4] == b"RIFF" {
+        &data[44..]
+    } else {
+        data
+    };
+    
+    let w = 800; // Fixed target landscape width of 800 columns
+    let grid_size = w * h;
+    
+    // Decoded PCM Mid channel data
+    let num_samples = pcm_data.len() / 4;
+    let mut mid_channel = vec![0.0f32; num_samples];
+    for i in 0..num_samples {
+        let offset = i * 4;
+        let b0 = if offset < pcm_data.len() { pcm_data[offset] } else { 0 };
+        let b1 = if offset + 1 < pcm_data.len() { pcm_data[offset + 1] } else { 0 };
+        let b2 = if offset + 2 < pcm_data.len() { pcm_data[offset + 2] } else { 0 };
+        let b3 = if offset + 3 < pcm_data.len() { pcm_data[offset + 3] } else { 0 };
+        
+        let l = (((b1 as u16) << 8) | (b0 as u16)) as i16 as f32;
+        let r = (((b3 as u16) << 8) | (b2 as u16)) as i16 as f32;
+        mid_channel[i] = (l + r) * 0.5;
+    }
+    
+    let fs_f32 = 44100.0f32;
+    let n_stft = 4096;
+    
+    use rustfft::{FftPlanner, num_complex::Complex};
+    let mut planner = FftPlanner::new();
+    let fft = planner.plan_fft_forward(n_stft);
+    
+    // Generate the window h
+    let mut win_h = vec![0.0f32; n_stft];
+    match window_type {
+        "hamming" => {
+            for i in 0..n_stft {
+                let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
+                win_h[i] = 0.54 - 0.46 * angle.cos();
+            }
+        },
+        "gaussian" => {
+            let sigma = (n_stft - 1) as f32 / 6.0; // alpha = 3.0
+            let half_n = (n_stft - 1) as f32 / 2.0;
+            for i in 0..n_stft {
+                let diff = i as f32 - half_n;
+                win_h[i] = (-0.5 * (diff / sigma).powi(2)).exp();
+            }
+        },
+        "blackman-harris" => {
+            let a0 = 0.35875f32;
+            let a1 = 0.48829f32;
+            let a2 = 0.14128f32;
+            let a3 = 0.01168f32;
+            for i in 0..n_stft {
+                let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
+                win_h[i] = a0 - a1 * angle.cos() + a2 * (2.0 * angle).cos() - a3 * (3.0 * angle).cos();
+            }
+        },
+        _ => { // "hann" as default
+            for i in 0..n_stft {
+                let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
+                win_h[i] = 0.5 * (1.0 - angle.cos());
+            }
+        }
+    }
+    
+    let fmin = 20.0f32;
+    let fmax = 20000.0f32.min(fs_f32 / 2.0);
+    let step = (fmax / fmin).log2() / (h as f32 - 1.0);
+    
+    let mut log_grid = vec![0.0f32; grid_size];
+    let hop = (num_samples as f32 / w as f32).max(1.0).floor() as usize;
+    
+    for c in 0..w {
+        let start = c * hop;
+        let mut buffer = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
+        
+        for i in 0..n_stft {
+            let idx = start as isize + i as isize - (n_stft as isize / 2);
+            if idx >= 0 && idx < num_samples as isize {
+                buffer[i] = Complex::new(mid_channel[idx as usize] * win_h[i], 0.0);
+            }
+        }
+        
+        fft.process(&mut buffer);
+        
+        for j in 0..h {
+            let fc = fmin * 2.0f32.powf(j as f32 * step);
+            let k_frac = fc * n_stft as f32 / fs_f32;
+            let k_floor = k_frac.floor() as usize;
+            let k_ceil = k_frac.ceil() as usize;
+            let k_floor = k_floor.clamp(0, n_stft / 2 - 1);
+            let k_ceil = k_ceil.clamp(0, n_stft / 2 - 1);
+            
+            let mag_floor = (buffer[k_floor].re * buffer[k_floor].re + buffer[k_floor].im * buffer[k_floor].im).sqrt();
+            let mag_ceil = (buffer[k_ceil].re * buffer[k_ceil].re + buffer[k_ceil].im * buffer[k_ceil].im).sqrt();
+            
+            // Linear interpolation between floor and ceil FFT bins
+            let t = k_frac - k_frac.floor();
+            let interpolated_mag = mag_floor * (1.0 - t) + mag_ceil * t;
+            
+            log_grid[j * w + c] = interpolated_mag * interpolated_mag; // Power spectrum
+        }
+    }
+    
+    // Normalize and apply 0.3 gamma compression
+    let mut max_val = 1e-12f32;
+    for i in 0..grid_size {
+        if log_grid[i] > max_val { max_val = log_grid[i]; }
+    }
+    
+    // Pack into direct self-contained RGBA buffer with big-endian header!
+    let mut output = Vec::with_capacity(24 + grid_size * 4);
+    output.extend_from_slice(&0u32.to_be_bytes()); // original_len
+    output.extend_from_slice(&(w as u32).to_be_bytes());
+    output.extend_from_slice(&(h as u32).to_be_bytes());
+    for _ in 0..12 { output.push(0u8); } // padding
+    
+    for r in 0..h {
+        for c in 0..w {
+            let val = (log_grid[r * w + c] / max_val).powf(0.3);
+            let color_idx = (val * 65535.0).round() as u16;
+            output.push(get_color_r(color_idx));
+            output.push(get_color_g(color_idx));
+            output.push(get_color_b(color_idx));
+            output.push(255u8);
+        }
+    }
+    output
+}
+
+#[wasm_bindgen]
+pub fn wasm_get_complex_spectrogram_width(data: &[u8], h_custom: usize) -> usize {
+    let mut h = h_custom;
+    if !h.is_power_of_two() || h < 4 { h = 1024; }
+    let pcm_data = if data.len() >= 44 && &data[0..4] == b"RIFF" {
+        &data[44..]
+    } else {
+        data
+    };
+    calculate_grid_width(pcm_data.len() / 2, h)
+}
+
+#[wasm_bindgen]
+pub fn wasm_generate_complex_spectrogram(data: &[u8], h_custom: usize, window_type: &str) -> Vec<f32> {
+    let mut h = h_custom;
+    if !h.is_power_of_two() || h < 4 { h = 1024; }
+    
+    let pcm_data = if data.len() >= 44 && &data[0..4] == b"RIFF" {
+        &data[44..]
+    } else {
+        data
+    };
+    
+    let w = 800; // Match high-fidelity landscape resolution
+    let grid_size = w * h;
+    
+    // Decoded PCM Mid channel data
+    let num_samples = pcm_data.len() / 4;
+    let mut mid_channel = vec![0.0f32; num_samples];
+    for i in 0..num_samples {
+        let offset = i * 4;
+        let b0 = if offset < pcm_data.len() { pcm_data[offset] } else { 0 };
+        let b1 = if offset + 1 < pcm_data.len() { pcm_data[offset + 1] } else { 0 };
+        let b2 = if offset + 2 < pcm_data.len() { pcm_data[offset + 2] } else { 0 };
+        let b3 = if offset + 3 < pcm_data.len() { pcm_data[offset + 3] } else { 0 };
+        
+        let l = (((b1 as u16) << 8) | (b0 as u16)) as i16 as f32;
+        let r = (((b3 as u16) << 8) | (b2 as u16)) as i16 as f32;
+        mid_channel[i] = (l + r) * 0.5;
+    }
+    
+    let fs_f32 = 44100.0f32;
+    let n_stft = 4096;
+    
+    use rustfft::{FftPlanner, num_complex::Complex};
+    let mut planner = FftPlanner::new();
+    let fft = planner.plan_fft_forward(n_stft);
+    
+    // Generate the window h
+    let mut win_h = vec![0.0f32; n_stft];
+    match window_type {
+        "hamming" => {
+            for i in 0..n_stft {
+                let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
+                win_h[i] = 0.54 - 0.46 * angle.cos();
+            }
+        },
+        "gaussian" => {
+            let sigma = (n_stft - 1) as f32 / 6.0; // alpha = 3.0
+            let half_n = (n_stft - 1) as f32 / 2.0;
+            for i in 0..n_stft {
+                let diff = i as f32 - half_n;
+                win_h[i] = (-0.5 * (diff / sigma).powi(2)).exp();
+            }
+        },
+        "blackman-harris" => {
+            let a0 = 0.35875f32;
+            let a1 = 0.48829f32;
+            let a2 = 0.14128f32;
+            let a3 = 0.01168f32;
+            for i in 0..n_stft {
+                let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
+                win_h[i] = a0 - a1 * angle.cos() + a2 * (2.0 * angle).cos() - a3 * (3.0 * angle).cos();
+            }
+        },
+        _ => { // "hann" as default
+            for i in 0..n_stft {
+                let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
+                win_h[i] = 0.5 * (1.0 - angle.cos());
+            }
+        }
+    }
+    
+    let fmin = 20.0f32;
+    let fmax = 20000.0f32.min(fs_f32 / 2.0);
+    let step = (fmax / fmin).log2() / (h as f32 - 1.0);
+    
+    let mut complex_grid = vec![0.0f32; grid_size * 2]; // Alternating [Real, Imag]
+    let hop = (num_samples as f32 / w as f32).max(1.0).floor() as usize;
+    
+    for c in 0..w {
+        let start = c * hop;
+        let mut buffer = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
+        
+        for i in 0..n_stft {
+            let idx = start as isize + i as isize - (n_stft as isize / 2);
+            if idx >= 0 && idx < num_samples as isize {
+                buffer[i] = Complex::new(mid_channel[idx as usize] * win_h[i], 0.0);
+            }
+        }
+        
+        fft.process(&mut buffer);
+        
+        for j in 0..h {
+            let fc = fmin * 2.0f32.powf(j as f32 * step);
+            let k_frac = fc * n_stft as f32 / fs_f32;
+            let k_floor = k_frac.floor() as usize;
+            let k_ceil = k_frac.ceil() as usize;
+            let k_floor = k_floor.clamp(0, n_stft / 2 - 1);
+            let k_ceil = k_ceil.clamp(0, n_stft / 2 - 1);
+            
+            // Linear interpolation of complex coefficients
+            let val_floor = buffer[k_floor];
+            let val_ceil = buffer[k_ceil];
+            
+            let t = k_frac - k_frac.floor();
+            let interpolated_re = val_floor.re * (1.0 - t) + val_ceil.re * t;
+            let interpolated_im = val_floor.im * (1.0 - t) + val_ceil.im * t;
+            
+            let out_idx = (j * w + c) * 2;
+            complex_grid[out_idx]     = interpolated_re;
+            complex_grid[out_idx + 1] = interpolated_im;
+        }
+    }
+    
+    complex_grid
+}
+
+#[wasm_bindgen]
+#[derive(Clone, Copy, Debug)]
+pub struct ReassignmentComparison {
+    pub avg_time_error: f32,
+    pub max_time_error: f32,
+    pub avg_freq_error: f32,
+    pub max_freq_error: f32,
+    pub evaluated_points: u32,
+    pub sample_ratio: f32,
+    pub sample_grad: f32,
+    pub sample_raw_grad: f32,
+}
+
+#[wasm_bindgen]
+pub fn wasm_compare_reassignment_methods(data: &[u8]) -> ReassignmentComparison {
+    // Detect and skip 44-byte WAV header if present
+    let pcm_data = if data.len() >= 44 && &data[0..4] == b"RIFF" {
+        &data[44..]
+    } else {
+        data
+    };
+    
+    let num_samples = pcm_data.len() / 4;
+    let mut mid_channel = vec![0.0f32; num_samples];
+    for i in 0..num_samples {
+        let offset = i * 4;
+        let b0 = if offset < pcm_data.len() { pcm_data[offset] } else { 0 };
+        let b1 = if offset + 1 < pcm_data.len() { pcm_data[offset + 1] } else { 0 };
+        let b2 = if offset + 2 < pcm_data.len() { pcm_data[offset + 2] } else { 0 };
+        let b3 = if offset + 3 < pcm_data.len() { pcm_data[offset + 3] } else { 0 };
+        
+        let l = (((b1 as u16) << 8) | (b0 as u16)) as i16 as f32;
+        let r = (((b3 as u16) << 8) | (b2 as u16)) as i16 as f32;
+        mid_channel[i] = (l + r) * 0.5;
+    }
+    
+    let n_stft = 4096;
+    let half_n = (n_stft - 1) as f32 / 2.0;
+    
+    // Generate Hann analysis, time, and derivative windows
+    let mut win_h = vec![0.0f32; n_stft];
+    let mut win_th = vec![0.0f32; n_stft];
+    let mut win_dh = vec![0.0f32; n_stft];
+    for i in 0..n_stft {
+        let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
+        win_h[i] = 0.5 * (1.0 - angle.cos());
+        win_th[i] = (i as f32 - half_n) * win_h[i];
+        win_dh[i] = (std::f32::consts::PI / (n_stft - 1) as f32) * angle.sin();
+    }
+    
+    use rustfft::{FftPlanner, num_complex::Complex};
+    let mut planner = FftPlanner::new();
+    let fft = planner.plan_fft_forward(n_stft);
+    
+    let mut sum_diff_t = 0.0f64;
+    let mut sum_diff_k = 0.0f64;
+    let mut max_diff_t = 0.0f32;
+    let mut max_diff_k = 0.0f32;
+    let mut count = 0u32;
+    
+    let mut s_ratio = 0.0f32;
+    let mut s_grad = 0.0f32;
+    let mut s_raw_grad = 0.0f32;
+    
+    // We sample 150 sliding window frames in the middle region to avoid edge boundaries
+    let start_frame = (num_samples / 2).max(n_stft) as isize;
+    let end_frame = (start_frame + 150).min(num_samples as isize - n_stft as isize) as isize;
+    
+    for c in start_frame..end_frame {
+        // 1. Compute normal STFT, time-weighted, and derivative STFT at center frame c
+        let mut buf_h = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
+        let mut buf_th = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
+        let mut buf_dh = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
+        for i in 0..n_stft {
+            let sample_idx = c + i as isize - (n_stft as isize / 2);
+            let val = mid_channel[sample_idx as usize];
+            buf_h[i] = Complex::new(val * win_h[i], 0.0);
+            buf_th[i] = Complex::new(val * win_th[i], 0.0);
+            buf_dh[i] = Complex::new(val * win_dh[i], 0.0);
+        }
+        fft.process(&mut buf_h);
+        fft.process(&mut buf_th);
+        fft.process(&mut buf_dh);
+        
+        // 2. Compute normal STFT shifted by +1 sample and -1 sample
+        let mut buf_h_p1 = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
+        let mut buf_h_m1 = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
+        for i in 0..n_stft {
+            let sample_idx_p1 = c + 1 + i as isize - (n_stft as isize / 2);
+            let sample_idx_m1 = c - 1 + i as isize - (n_stft as isize / 2);
+            buf_h_p1[i] = Complex::new(mid_channel[sample_idx_p1 as usize] * win_h[i], 0.0);
+            buf_h_m1[i] = Complex::new(mid_channel[sample_idx_m1 as usize] * win_h[i], 0.0);
+        }
+        fft.process(&mut buf_h_p1);
+        fft.process(&mut buf_h_m1);
+        
+        // Compare values bin-by-bin for active spectral lines (k in 10..500)
+        for k in 10..500 {
+            let s_h = buf_h[k];
+            let mag_sq = s_h.re * s_h.re + s_h.im * s_h.im;
+            
+            // Only compare meaningful points with sufficient energy level to avoid floating-point noise around zeros
+            if mag_sq > 5000000.0 {
+                // A. Time Reassignment (Re{ S_th * conj(S_h) / |S_h|^2 }) in samples
+                let s_th = buf_th[k];
+                let shift_t_ratio = (s_th * s_h.conj()).re / mag_sq;
+                
+                // B. Time Reassignment from Phase Gradient w.r.t frequency (central difference k+1 and k-1)
+                let s_h_kp1 = buf_h[k + 1];
+                let s_h_km1 = buf_h[k - 1];
+                let grad_k_phi = (s_h_kp1 * s_h_km1.conj()).arg() / 2.0;
+                let shift_t_grad = - grad_k_phi * (n_stft as f32 / (2.0 * std::f32::consts::PI)) + 0.5;
+                
+                if count == 100 {
+                    s_ratio = shift_t_ratio;
+                    s_grad = shift_t_grad;
+                    s_raw_grad = grad_k_phi;
+                }
+                
+                // C. Frequency Reassignment (-Im{ S_dh * conj(S_h) / |S_h|^2 } * (N / 2pi)) in bins
+                let s_dh = buf_dh[k];
+                let shift_k_ratio = - (s_dh * s_h.conj()).im / mag_sq * (n_stft as f32 / (2.0 * std::f32::consts::PI));
+                
+                // D. Frequency Reassignment from Phase Gradient w.r.t time: dPhi/dT * (N / 2pi) - k
+                let s_h_p1 = buf_h_p1[k];
+                let s_h_m1 = buf_h_m1[k];
+                let grad_tau_phi = (s_h_p1 * s_h_m1.conj()).arg(); // phase difference between c+1 and c-1
+                let shift_k_grad = (grad_tau_phi / 2.0) * (n_stft as f32 / (2.0 * std::f32::consts::PI)) - k as f32;
+                
+                let diff_t = (shift_t_ratio - shift_t_grad).abs();
+                let diff_k = (shift_k_ratio - shift_k_grad).abs();
+                
+                sum_diff_t += diff_t as f64;
+                sum_diff_k += diff_k as f64;
+                
+                if diff_t > max_diff_t { max_diff_t = diff_t; }
+                if diff_k > max_diff_k { max_diff_k = diff_k; }
+                
+                count += 1;
+            }
+        }
+    }
+    
+    ReassignmentComparison {
+        avg_time_error: if count > 0 { (sum_diff_t / count as f64) as f32 } else { 0.0 },
+        max_time_error: max_diff_t,
+        avg_freq_error: if count > 0 { (sum_diff_k / count as f64) as f32 } else { 0.0 },
+        max_freq_error: max_diff_k,
+        evaluated_points: count,
+        sample_ratio: s_ratio,
+        sample_grad: s_grad,
+        sample_raw_grad: s_raw_grad,
+    }
 }
 
 #[wasm_bindgen]
@@ -2406,6 +3125,186 @@ pub fn encode_wavelet_v7_cqt(data: &[u8], h_custom: usize) -> Vec<u8> {
 }
 
 #[wasm_bindgen]
+pub fn encode_stft_cqt_v8_layout(data: &[u8], h_custom: usize) -> Vec<u8> {
+    let original_len = data.len() as u32;
+    let mut h = h_custom;
+    if !h.is_power_of_two() || h < 4 { h = 1024; }
+    
+    // Detect and skip 44-byte WAV header if present
+    let pcm_data = if data.len() >= 44 && &data[0..4] == b"RIFF" {
+        &data[44..]
+    } else {
+        data
+    };
+    
+    let w = calculate_grid_width(pcm_data.len() / 2, h);
+    let grid_size = w * h;
+    let w_cqt = w * 2; // 2 consecutive temporal frames packed horizontally per grid position!
+    
+    // Decoded PCM Mid/Side data
+    let num_samples = pcm_data.len() / 4;
+    let mut mid_channel = vec![0.0f32; num_samples];
+    let mut side_channel = vec![0.0f32; num_samples];
+    for i in 0..num_samples {
+        let offset = i * 4;
+        let b0 = if offset < pcm_data.len() { pcm_data[offset] } else { 0 };
+        let b1 = if offset + 1 < pcm_data.len() { pcm_data[offset + 1] } else { 0 };
+        let b2 = if offset + 2 < pcm_data.len() { pcm_data[offset + 2] } else { 0 };
+        let b3 = if offset + 3 < pcm_data.len() { pcm_data[offset + 3] } else { 0 };
+        
+        let l = (((b1 as u16) << 8) | (b0 as u16)) as i16 as f32;
+        let r = (((b3 as u16) << 8) | (b2 as u16)) as i16 as f32;
+        mid_channel[i] = (l + r) * 0.5;
+        side_channel[i] = (l - r) * 0.5;
+    }
+    
+    let fs_f32 = 44100.0f32;
+    let n_stft = 4096;
+    
+    use rustfft::{FftPlanner, num_complex::Complex};
+    let mut planner = FftPlanner::new();
+    let fft = planner.plan_fft_forward(n_stft);
+    
+    let sigma = 1.0f32 / 12.0f32;
+    let fmin = 20.0f32;
+    let fmax = 20000.0f32.min(fs_f32 / 2.0);
+    let step = (fmax / fmin).log2() / (h as f32 - 1.0);
+    
+    let mut c_mid_real = vec![0.0f32; h * w_cqt];
+    let mut c_mid_imag = vec![0.0f32; h * w_cqt];
+    let mut c_side_real = vec![0.0f32; h * w_cqt];
+    let mut c_side_imag = vec![0.0f32; h * w_cqt];
+    
+    let hop = (num_samples as f32 / w_cqt as f32).max(1.0).floor() as usize;
+    
+    for c_cqt in 0..w_cqt {
+        let start = c_cqt * hop;
+        let mut buffer_mid = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
+        let mut buffer_side = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
+        
+        for i in 0..n_stft {
+            let idx = start as isize + i as isize - (n_stft as isize / 2);
+            if idx >= 0 && idx < num_samples as isize {
+                let w_val = 0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (n_stft as f32 - 1.0)).cos());
+                buffer_mid[i] = Complex::new(mid_channel[idx as usize] * w_val, 0.0);
+                buffer_side[i] = Complex::new(side_channel[idx as usize] * w_val, 0.0);
+            }
+        }
+        
+        fft.process(&mut buffer_mid);
+        fft.process(&mut buffer_side);
+        
+        for j in 0..h {
+            let fc = fmin * 2.0f32.powf(j as f32 * step);
+            let k_start = ((fc * 0.80f32) * n_stft as f32 / fs_f32).round() as isize;
+            let k_end = ((fc * 1.25f32) * n_stft as f32 / fs_f32).round() as isize;
+            let k_start = k_start.max(1) as usize;
+            let k_end = k_end.min((n_stft / 2 - 1) as isize) as usize;
+            
+            let mut sum_mid_re = 0.0f32;
+            let mut sum_mid_im = 0.0f32;
+            let mut sum_side_re = 0.0f32;
+            let mut sum_side_im = 0.0f32;
+            let mut sum_w = 0.0f32;
+            
+            for k in k_start..=k_end {
+                let fk = k as f32 * fs_f32 / n_stft as f32;
+                let d = (fk / fc).log2();
+                let w_val = (-0.5 * (d / sigma).powi(2)).exp();
+                
+                sum_mid_re += buffer_mid[k].re * w_val;
+                sum_mid_im += buffer_mid[k].im * w_val;
+                sum_side_re += buffer_side[k].re * w_val;
+                sum_side_im += buffer_side[k].im * w_val;
+                sum_w += w_val;
+            }
+            
+            if sum_w > 1e-12 {
+                c_mid_real[j * w_cqt + c_cqt] = sum_mid_re / sum_w;
+                c_mid_imag[j * w_cqt + c_cqt] = sum_mid_im / sum_w;
+                c_side_real[j * w_cqt + c_cqt] = sum_side_re / sum_w;
+                c_side_imag[j * w_cqt + c_cqt] = sum_side_im / sum_w;
+            }
+        }
+    }
+    
+    // Find max power for normalization
+    let mut max_power_mid = 1e-12f32;
+    let mut max_power_side = 1e-12f32;
+    for i in 0..(h * w_cqt) {
+        let p_mid = c_mid_real[i] * c_mid_real[i] + c_mid_imag[i] * c_mid_imag[i];
+        let p_side = c_side_real[i] * c_side_real[i] + c_side_imag[i] * c_side_imag[i];
+        if p_mid > max_power_mid { max_power_mid = p_mid; }
+        if p_side > max_power_side { max_power_side = p_side; }
+    }
+    
+    // Pack into exactly 4 pixels per frame:
+    let mut output = Vec::with_capacity(24 + grid_size * 16);
+    output.extend_from_slice(&original_len.to_be_bytes());
+    let w_png = (w * 4) as u32;
+    output.extend_from_slice(&w_png.to_be_bytes());
+    output.extend_from_slice(&(h as u32).to_be_bytes());
+    
+    output.push(0u8); // rem_bytes
+    output.push(8u8); // packing version 8 to match layout!
+    output.extend_from_slice(&44100u16.to_be_bytes());
+    
+    // Bytes 16-23: Padding zeroes
+    for _ in 0..8 { output.push(0u8); }
+    
+    for r in 0..h {
+        for c in 0..w {
+            let idx0 = r * w_cqt + (c * 2);
+            let idx1 = idx0 + 1;
+            
+            let p_mid0 = c_mid_real[idx0] * c_mid_real[idx0] + c_mid_imag[idx0] * c_mid_imag[idx0];
+            let p_mid1 = c_mid_real[idx1] * c_mid_real[idx1] + c_mid_imag[idx1] * c_mid_imag[idx1];
+            
+            let p_side0 = c_side_real[idx0] * c_side_real[idx0] + c_side_imag[idx0] * c_side_imag[idx0];
+            let p_side1 = c_side_real[idx1] * c_side_real[idx1] + c_side_imag[idx1] * c_side_imag[idx1];
+            
+            let ratio_mid0 = (p_mid0 / max_power_mid).powf(0.3);
+            let ratio_mid1 = (p_mid1 / max_power_mid).powf(0.3);
+            
+            let ratio_side0 = (p_side0 / max_power_side).powf(0.3);
+            let ratio_side1 = (p_side1 / max_power_side).powf(0.3);
+            
+            // Map positive CQT intensity to the same Geodesic Snake scale: [0, 65535] (0 maps exactly to black)
+            let sm_u0 = (ratio_mid0 * 65535.0) as u16;
+            let sm_u1 = (ratio_mid1 * 65535.0) as u16;
+            
+            let ss_u0 = (ratio_side0 * 65535.0) as u16;
+            let ss_u1 = (ratio_side1 * 65535.0) as u16;
+            
+            // Pixel A: sm_u0
+            output.push(get_color_r(sm_u0));
+            output.push(get_color_g(sm_u0));
+            output.push(get_color_b(sm_u0));
+            output.push(255u8);
+            
+            // Pixel B: sm_u1
+            output.push(get_color_r(sm_u1));
+            output.push(get_color_g(sm_u1));
+            output.push(get_color_b(sm_u1));
+            output.push(255u8);
+            
+            // Pixel C: ss_u0
+            output.push(get_color_r(ss_u0));
+            output.push(get_color_g(ss_u0));
+            output.push(get_color_b(ss_u0));
+            output.push(255u8);
+            
+            // Pixel D: ss_u1
+            output.push(get_color_r(ss_u1));
+            output.push(get_color_g(ss_u1));
+            output.push(get_color_b(ss_u1));
+            output.push(255u8);
+        }
+    }
+    output
+}
+
+#[wasm_bindgen]
 pub fn decode_wavelet_v7_cqt(rgba_data: &[u8]) -> Result<Vec<u8>, JsValue> {
     if rgba_data.len() < 16 {
         return Err(JsValue::from_str("Invalid input data"));
@@ -2448,9 +3347,9 @@ pub fn wasm_generate_v7_spectrogram(rgba_data: &[u8]) -> Result<Vec<f32>, JsValu
             // Decode color back to original coefficient index
             let coef = decode_color_to_coefficient(r_val, g_val, b_val);
             let ratio = coef as f32 / 65535.0;
-            
-            // Decompress power (gamma 0.3 inverse is 1.0 / 0.3)
-            spec[r * w + c] = ratio.powf(1.0 / 0.3);
+
+            // Decompress power (gamma 0.3 inverse is 1.0 / 0.3) with absolute value to prevent NaN on negative ratios
+            spec[r * w + c] = ratio.abs().powf(1.0 / 0.3);
         }
     }
     Ok(spec)
@@ -2577,9 +3476,75 @@ pub fn wasm_optimize_cqt_lifting() -> Vec<f32> {
     vec![p[0], p[1], p[2], u_coefs[0], u_coefs[1], u_coefs[2]]
 }
 
+#[wasm_bindgen]
+pub fn wasm_generate_color_chart_4096() -> Vec<u8> {
+    ensure_luts();
+    let mut output = Vec::with_capacity(4096 * 4096 * 4);
+    
+    // We generate a 4096 x 4096 RGBA buffer using a 2D Serpentine Layout
+    // to prove that the Geodesic Snake walk is 100% continuous in 3D RGB space.
+    for r in 0..4096 {
+        let block_r = r / 16; // 256 blocks vertically
+        let is_row_even = block_r % 2 == 0;
+        
+        for c in 0..4096 {
+            let block_c = c / 16; // 256 blocks horizontally
+            
+            // Serpentine mapping: even rows go left-to-right, odd rows go right-to-left
+            let color_index = if is_row_even {
+                block_r * 256 + block_c
+            } else {
+                block_r * 256 + (255 - block_c)
+            } as u16;
+            
+            output.push(get_color_r(color_index));
+            output.push(get_color_g(color_index));
+            output.push(get_color_b(color_index));
+            output.push(255u8);
+        }
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_color_uniqueness() {
+        ensure_luts();
+        let lut = COLOR_LUT.get().unwrap();
+        let mut seen = std::collections::HashSet::new();
+        for i in 0..65536 {
+            let color = lut[i];
+            assert!(seen.insert(color), "Duplicate color found at index {}: {:?}", i, color);
+        }
+        assert_eq!(seen.len(), 65536, "Not all 65,536 colors are unique!");
+    }
+
+    #[test]
+    fn test_fast_color_reversal() {
+        ensure_luts();
+        let lut = COLOR_LUT.get().unwrap();
+        
+        for i in 0..65536 {
+            // Get original signed coefficient
+            let original_coef = zigzag_decode(i as u32) as i16;
+            
+            // Get 24-bit color representation
+            let color = lut[i];
+            let color_24 = ((color.0 as u32) << 16) | ((color.1 as u32) << 8) | (color.2 as u32);
+            
+            // Fast reversal algorithm (O(1) Constant Time)
+            let r = ((color_24 >> 16) & 0xFF) as usize;
+            let g = ((color_24 >> 8) & 0xFF) as usize;
+            
+            let rev_idx = REVERSE_RG.get().unwrap()[r * 256 + g];
+            let decoded_coef = zigzag_decode(rev_idx as u32) as i16;
+            
+            assert_eq!(original_coef, decoded_coef, "Fast color reversal failed at index {}!", i);
+        }
+    }
 
     #[test]
     fn test_v7_pipeline_large() {
@@ -2590,6 +3555,95 @@ mod tests {
         let encoded = encode_wavelet_v7_cqt(&original, 128);
         let decoded = decode_wavelet_v7_cqt(&encoded).unwrap();
         assert_eq!(original, decoded, "V7 CQT pipeline failed for large audio!");
+    }
+
+    #[test]
+    fn test_v8_pipeline_large() {
+        let mut original = vec![0u8; 4000];
+        for i in 0..4000 {
+            original[i] = (i % 256) as u8;
+        }
+        
+        let original_len = original.len() as u32;
+        let h = 128;
+        let w = calculate_grid_width(original.len(), h);
+        let grid_size = w * h;
+        
+        let num_samples = original.len() / 4;
+        let mut mid_input = vec![0i64; grid_size * 4];
+        let mut side_input = vec![0i64; grid_size * 4];
+        for i in 0..num_samples {
+            let offset = i * 4;
+            let b0 = original[offset];
+            let b1 = original[offset + 1];
+            let b2 = original[offset + 2];
+            let b3 = original[offset + 3];
+            let l_sample = (((b1 as u16) << 8) | (b0 as u16)) as i16;
+            let r_sample = (((b3 as u16) << 8) | (b2 as u16)) as i16;
+            let (m, s) = lr_to_ms(l_sample, r_sample);
+            mid_input[i] = m as i64;
+            side_input[i] = s as i64;
+        }
+        
+        let (s_m, d1_m, d2_m, d3_m) = forward_packet_4_band(&mid_input);
+        
+        let encoded = encode_wavelet_v8_mband(&original, 128);
+        
+        // Unpack manually to check
+        let w_png = (w * 8) as u32;
+        let mut s_m_rec = vec![0i64; grid_size];
+        let mut d1_m_rec = vec![0i64; grid_size];
+        for r in 0..h {
+            for c in 0..w {
+                let idx = r * w + c;
+                let offset_a = 24 + (r * w_png as usize + c * 8) * 4;
+                let offset_b = offset_a + 4;
+                let sm_u_rec = decode_rg_to_coefficient_raw(encoded[offset_a], encoded[offset_a + 1]);
+                let d1m_u_rec = decode_rg_to_coefficient_raw(encoded[offset_b], encoded[offset_b + 1]);
+                s_m_rec[idx] = zigzag_decode(sm_u_rec as u32) as i64;
+                d1_m_rec[idx] = zigzag_decode(d1m_u_rec as u32) as i64;
+            }
+        }
+        
+        for idx in 0..10 {
+            println!("COEF {}: original_s={}, decoded_s={} | original_d1={}, decoded_d1={}", 
+                     idx, s_m[idx], s_m_rec[idx], d1_m[idx], d1_m_rec[idx]);
+        }
+        
+        let decoded = decode_wavelet_v8_mband(&encoded).unwrap();
+        assert_eq!(original, decoded, "V8 pipeline failed for large audio!");
+    }
+
+    #[test]
+    fn test_lifting_53_i64_bijection() {
+        let mut original = vec![0i64; 1024];
+        for i in 0..1024 {
+            original[i] = i as i64;
+        }
+        let (s, d) = forward_lifting_53_i64(&original);
+        let decoded = inverse_lifting_53_i64(&s, &d, 1024);
+        assert_eq!(original, decoded, "1D CDF 5/3 lifting failed!");
+    }
+
+    #[test]
+    fn test_packet_4_band_bijection() {
+        let mut original = vec![0i64; 1024];
+        for i in 0..1024 {
+            original[i] = i as i64;
+        }
+        let (s, d1, d2, d3) = forward_packet_4_band(&original);
+        let decoded = inverse_packet_4_band(&s, &d1, &d2, &d3, 1024);
+        assert_eq!(original, decoded, "4-band packet lifting failed!");
+    }
+
+    #[test]
+    fn test_rg_raw_bijection() {
+        for i in 0..65536 {
+            let r = get_color_r(i as u16);
+            let g = get_color_g(i as u16);
+            let i_rec = decode_rg_to_coefficient_raw(r, g);
+            assert_eq!(i as u16, i_rec, "RG raw bijection failed at value {}", i);
+        }
     }
 
     #[test]

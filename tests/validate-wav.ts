@@ -33,6 +33,19 @@ const {
   decode_wavelet_v7_cqt,
   encode_wavelet_v8_mband,
   decode_wavelet_v8_mband,
+  encode_wavelet_v9_reassigned,
+  decode_wavelet_v9_reassigned,
+  encode_stft_cqt_v8_layout,
+  wasm_generate_v7_spectrogram,
+  wasm_generate_v8_spectrogram,
+  wasm_generate_color_chart_4096,
+  wasm_calculate_reassigned_spectrogram,
+  wasm_calculate_log_spectrogram,
+  decode_rg_to_coefficient_raw,
+  zigzag_decode,
+  get_color_r,
+  get_color_g,
+  get_color_b,
   wasm_encode_n,
   wasm_decode_n
 } = await import(WASM_JS_PATH) as any;
@@ -96,14 +109,28 @@ function arraysEqual(a: Uint8Array, b: Uint8Array): boolean {
 }
 
 // Helper to save RGBA bytes buffer as a physical PNG image
-function savePng(rgbaBytes: Uint8Array, outputPath: string, isNaive = false): void {
+function savePng(rgbaBytes: Uint8Array, outputPath: string, forcedWidth?: number | boolean, forcedHeight?: number): void {
   let width = 0;
   let height = 0;
+  let isNaive = false;
 
-  if (isNaive) {
-    const num_pixels = Math.ceil(rgbaBytes.length / 4);
-    width = Math.floor(Math.sqrt(num_pixels));
-    height = Math.ceil(num_pixels / width);
+  if (typeof forcedWidth === 'boolean') {
+    isNaive = forcedWidth;
+    if (isNaive) {
+      const num_pixels = Math.ceil(rgbaBytes.length / 4);
+      width = Math.floor(Math.sqrt(num_pixels));
+      height = Math.ceil(num_pixels / width);
+    } else {
+      // Read dimensions from the metadata header (big-endian)
+      const w = (rgbaBytes[4] << 24) | (rgbaBytes[5] << 16) | (rgbaBytes[6] << 8) | rgbaBytes[7];
+      const h = (rgbaBytes[8] << 24) | (rgbaBytes[9] << 16) | (rgbaBytes[10] << 8) | rgbaBytes[11];
+      width = w;
+      height = h + 1; // 1 extra row at the bottom for metadata
+    }
+  } else if (typeof forcedWidth === 'number' && typeof forcedHeight === 'number') {
+    width = forcedWidth;
+    height = forcedHeight;
+    isNaive = true;
   } else {
     // Read dimensions from the metadata header (big-endian)
     const w = (rgbaBytes[4] << 24) | (rgbaBytes[5] << 16) | (rgbaBytes[6] << 8) | rgbaBytes[7];
@@ -122,9 +149,11 @@ function savePng(rgbaBytes: Uint8Array, outputPath: string, isNaive = false): vo
 
   let buffer = PNG.sync.write(png);
   
-  // Use exact pixel array boundary (16 bytes header + W * H * 4) for steganographic payload (Only for Wavelet/CQT versions)
+  // Use exact pixel array boundary (header length + W * H * 4) for steganographic payload
   if (!isNaive) {
-    const pixelHeaderLen = 16 + width * (height - 1) * 4;
+    const packingVersion = rgbaBytes[13];
+    const headerLen = (packingVersion === 8 || packingVersion === 9) ? 24 : 16;
+    const pixelHeaderLen = headerLen + width * (height - 1) * 4;
     if (rgbaBytes.length > pixelHeaderLen) {
       const payload = rgbaBytes.slice(pixelHeaderLen);
       buffer = Buffer.concat([buffer, Buffer.from(payload)]);
@@ -154,7 +183,10 @@ function readPng(inputPath: string, isNaive = false): Uint8Array {
 
   const w = (rawData[4] << 24) | (rawData[5] << 16) | (rawData[6] << 8) | rawData[7];
   const h = (rawData[8] << 24) | (rawData[9] << 16) | (rawData[10] << 8) | rawData[11];
-  const expectedLen = 16 + w * h * 4;
+  
+  const packingVersion = rawData[13];
+  const headerLen = (packingVersion === 8 || packingVersion === 9) ? 24 : 16;
+  const expectedLen = headerLen + w * h * 4;
   
   if (isSteganographic) {
     const originalPayload = fileBuffer.slice(iendOffset);
@@ -195,13 +227,12 @@ function verifySignalSparsity(rgba: Uint8Array): { sparsityFactor: number, avera
       let s_energy = 0;
 
       if (packingVersion === 8) {
-        const offset_a = coefOffset + (r * w_png + c * 4) * 4;
+        const coefOffsetV8 = 24;
+        const offset_a = coefOffsetV8 + (r * w_png + c * 4) * 4;
         const offset_c = offset_a + 8;
         if (offset_c + 3 < rgba.length) {
-          const sm_u = (rgba[offset_a] << 8) | rgba[offset_a + 1];
-          const ss_u = (rgba[offset_c] << 8) | rgba[offset_c + 1];
-          m_energy = Math.abs(sm_u - 32768) >> 8;
-          s_energy = Math.abs(ss_u - 32768) >> 8;
+          m_energy = rgba[offset_a];     // Red channel of Pixel A (Mid lowpass)
+          s_energy = rgba[offset_c];     // Red channel of Pixel C (Side lowpass)
         }
       } else if (packingVersion === 3 || packingVersion === 4 || packingVersion === 5 || packingVersion === 6 || packingVersion === 7) {
         // V3/V4/V5/V6/V7 (Two-Pixel Serpentine Pure Arithmetic / CQT) - Read Red of Pixel A and B
@@ -356,6 +387,15 @@ const ALGORITHMS = [
     decode: decode_wavelet_v8_mband,
     hasSparsity: false,
     isLossy: false
+  },
+  {
+    id: 'v9_reassigned',
+    name: 'V9: Steganographic Reassigned Spectrogram (Auger-Flandrin 800px)',
+    folder: 'v9_reassigned',
+    encode: (bytes: Uint8Array) => encode_wavelet_v9_reassigned(bytes, 600),
+    decode: decode_wavelet_v9_reassigned,
+    hasSparsity: false,
+    isLossy: false
   }
 ];
 
@@ -431,6 +471,53 @@ async function run(): Promise<void> {
       const overallSuccess = algo.isLossy ? passesAntiNoiseGate : (isPerfectMatch && passesAntiNoiseGate);
 
       console.log(`    Bit-Perfect Match: ${isPerfectMatch ? 'PASSED ✅' : (algo.isLossy ? 'SKIPPED (Lossy Reference) ⚠️' : 'FAILED ❌')}`);
+      
+      if (algo.id === 'v8_mband') {
+        try {
+          const specV8 = wasm_generate_v8_spectrogram(encodedRGBA);
+          const v7Rgba = encode_stft_cqt_v8_layout(originalUint8, 1024);
+          const w_png_v7 = (v7Rgba[4] << 24) | (v7Rgba[5] << 16) | (v7Rgba[6] << 8) | v7Rgba[7];
+          const h_v7 = (v7Rgba[8] << 24) | (v7Rgba[9] << 16) | (v7Rgba[10] << 8) | v7Rgba[11];
+          const w_v7 = w_png_v7 / 4;
+          
+          const specV7 = new Float32Array(w_v7 * h_v7);
+          for (let r = 0; r < h_v7; r++) {
+            for (let c = 0; c < w_v7; c++) {
+              const offset_a = 24 + (r * w_png_v7 + c * 4) * 4;
+              const offset_b = offset_a + 4;
+              
+              const dm_u0 = decode_rg_to_coefficient_raw(v7Rgba[offset_a], v7Rgba[offset_a + 1]);
+              const dm_u1 = decode_rg_to_coefficient_raw(v7Rgba[offset_b], v7Rgba[offset_b + 1]);
+              
+              const d0 = zigzag_decode(dm_u0);
+              const d1 = zigzag_decode(dm_u1);
+              
+              specV7[r * w_v7 + c] = d0 * d0 + d1 * d1;
+            }
+          }
+          
+          if (specV8 && specV7 && specV8.length === specV7.length) {
+            let maxV8 = 1e-12;
+            let maxV7 = 1e-12;
+            for (let i = 0; i < specV8.length; i++) {
+              if (specV8[i] > maxV8) maxV8 = specV8[i];
+              if (specV7[i] > maxV7) maxV7 = specV7[i];
+            }
+            
+            let sumSqDiff = 0;
+            for (let i = 0; i < specV8.length; i++) {
+              const n8 = specV8[i] / maxV8;
+              const n7 = specV7[i] / maxV7;
+              sumSqDiff += (n8 - n7) * (n8 - n7);
+            }
+            const rmsError = Math.sqrt(sumSqDiff / specV8.length);
+            console.log(`    RMS Spectral Approximation Error (V8 Wavelet Packet vs V7 STFT-CQT): ${rmsError.toFixed(5)}`);
+          }
+        } catch (err) {
+          console.error(`    Failed to compute RMS spectral comparison:`, err);
+        }
+      }
+      
       console.log(`    Total roundtrip time: ${(encodeTime + decodeTime).toFixed(3)} ms\n`);
 
       if (!overallSuccess) {
@@ -469,6 +556,80 @@ async function run(): Promise<void> {
       (r.isPerfectMatch ? 'SUCCESS ✅' : 'FAILED ❌').padEnd(15)
     );
   }
+  console.log('='.repeat(100));
+
+  // ==========================================
+  // STFT-CQT SPECTROGRAM GENERATION (10 Octaves x 60 Bins/Octave = 600 Bins) VIA RUST/WASM
+  // ==========================================
+  console.log('\n' + '='.repeat(100));
+  console.log('GENERATING REFERENCE SPECTROGRAMS (LOGARITHMIC & REASSIGNED VIA RUST/WASM)');
+  console.log('='.repeat(100));
+  
+  const baseStftCqtDir = path.join(OUTPUT_ROOT_DIR, 'stft_cqt');
+  const standardCqtDir = path.join(baseStftCqtDir, 'standard_cqt');
+  const logSpecDir = path.join(baseStftCqtDir, 'logarithmic_spectrogram');
+  const reassignedSpecDir = path.join(baseStftCqtDir, 'reassigned_spectrogram');
+  const colorPaletteDir = path.join(baseStftCqtDir, 'color_palette');
+
+  fs.mkdirSync(standardCqtDir, { recursive: true });
+  fs.mkdirSync(logSpecDir, { recursive: true });
+  fs.mkdirSync(reassignedSpecDir, { recursive: true });
+  fs.mkdirSync(colorPaletteDir, { recursive: true });
+  
+  for (const sample of SAMPLES) {
+    const wavPath = path.join(TARGET_DIR, sample.name);
+    if (fs.existsSync(wavPath)) {
+      const originalBytes = new Uint8Array(fs.readFileSync(wavPath));
+      const sampleName = path.parse(sample.name).name;
+      
+      console.log(`➡️ Processing ${sample.name} for 600-bin STFT-CQT (8-pixel visual layout)...`);
+      const t0 = performance.now();
+      const stftRgba = encode_stft_cqt_v8_layout(originalBytes, 600);
+      const t1 = performance.now();
+      
+      // Save physical PNG
+      const pngPath = path.join(standardCqtDir, `${sampleName}.png`);
+      savePng(stftRgba, pngPath);
+      console.log(`   ✅ Saved Standard CQT to: ${pngPath} (generated in ${(t1 - t0).toFixed(3)} ms)`);
+
+      // Generate Logarithmic & Reassigned Spectrograms for all 4 windows
+      for (const winType of ['hann', 'hamming', 'gaussian', 'blackman-harris']) {
+        // 1. Classical Logarithmic Spectrogram (Smooth, identical to Audacity!)
+        console.log(`   ➡️ Computing Smooth Logarithmic Spectrogram (${winType} window)...`);
+        const t0_log = performance.now();
+        const rgbaBytesLog = wasm_calculate_log_spectrogram(originalBytes, 600, winType);
+        const t1_log = performance.now();
+
+        const logPngPath = path.join(logSpecDir, `log_${winType}_${sampleName}.png`);
+        const w_log = (rgbaBytesLog[4] << 24) | (rgbaBytesLog[5] << 16) | (rgbaBytesLog[6] << 8) | rgbaBytesLog[7];
+        const h_log = (rgbaBytesLog[8] << 24) | (rgbaBytesLog[9] << 16) | (rgbaBytesLog[10] << 8) | rgbaBytesLog[11];
+        savePng(rgbaBytesLog, logPngPath, w_log, h_log);
+        console.log(`      ✅ Saved Log Spectrogram to: ${logPngPath} (generated in ${(t1_log - t0_log).toFixed(3)} ms)`);
+
+        // 2. Focused Reassigned Spectrogram
+        console.log(`   ➡️ Computing Reassigned Spectrogram (${winType} window)...`);
+        const t0_re = performance.now();
+        const rgbaBytesRe = wasm_calculate_reassigned_spectrogram(originalBytes, 600, winType);
+        const t1_re = performance.now();
+
+        const rePngPath = path.join(reassignedSpecDir, `reassigned_${winType}_${sampleName}.png`);
+        const w_re = (rgbaBytesRe[4] << 24) | (rgbaBytesRe[5] << 16) | (rgbaBytesRe[6] << 8) | rgbaBytesRe[7];
+        const h_re = (rgbaBytesRe[8] << 24) | (rgbaBytesRe[9] << 16) | (rgbaBytesRe[10] << 8) | rgbaBytesRe[11];
+        savePng(rgbaBytesRe, rePngPath, w_re, h_re);
+        console.log(`      ✅ Saved Reassigned Spectrogram to: ${rePngPath} (generated in ${(t1_re - t0_re).toFixed(3)} ms)`);
+      }
+    }
+  }
+  
+  // Generate and save 4096 x 4096 Geodesic Snake Color Chart
+  console.log('\n➡️ Generating Geodesic Snake 4096 x 4096 High-Resolution Color Palette...');
+  const t0_chart = performance.now();
+  const chartBytes = wasm_generate_color_chart_4096();
+  const t1_chart = performance.now();
+  const chartPath = path.join(colorPaletteDir, 'color_pallet_4096.png');
+  savePng(chartBytes, chartPath, 4096, 4096);
+  console.log(`   ✅ Saved Color Palette to: ${chartPath} (generated in ${(t1_chart - t0_chart).toFixed(3)} ms)`);
+  
   console.log('='.repeat(100));
 
   // Exit with non-zero if validation fails to act as a proper test gate

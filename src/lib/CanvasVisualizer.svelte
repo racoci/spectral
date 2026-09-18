@@ -9,7 +9,8 @@
     wasm_encode_n,
     wasm_generate_v6_spectrogram,
     wasm_generate_v7_spectrogram,
-    wasm_generate_v8_spectrogram
+    wasm_generate_v8_spectrogram,
+    wasm_generate_complex_spectrogram
   } from '../wasm/core_wasm.js';
 
   // Props using Svelte 5 standard runes
@@ -71,6 +72,43 @@
   // Aspect Ratio Stretching: horizontal stretch factor to format as a wide Melgram (default 4x)
   let stretchFactor = $state<number>(4);
 
+  // Color scheme selector: 'snake' (default Geodesic Snake) or 'ycbcr' (BT.601 Complex Phase-Magnitude)
+  let colorScheme = $state<'snake' | 'ycbcr'>('snake');
+
+  // Mathematical decoder mapping complex coefficient z = re + i * im to YCbCr Magnitude-Phase space
+  const decibelLuminance = (re: number, im: number): { r_u: number, g_u: number, b_u: number } => {
+    const abs_z = Math.sqrt(re * re + im * im);
+    if (abs_z < 1e-12) {
+      return { r_u: 0, g_u: 0, b_u: 0 };
+    }
+    
+    // Y_db = floor(10 * log10(|z|))
+    const Y_db = Math.floor(10.0 * Math.log10(abs_z));
+    
+    // Normalize Y to standard [0, 255] luminance (scaling from [-40, 46] dB to [0, 255] range)
+    const y_norm = Math.max(0.0, Math.min(1.0, (Y_db + 40.0) / 86.0)) * 255.0;
+    
+    // Scaled residuals (Cr, Cb in range [-1.0, 1.0])
+    const denom = Math.pow(10.0, Y_db / 10.0);
+    const Cr = -re / denom;
+    const Cb = im / denom;
+    
+    // Map chrominance offsets Cb, Cr to [16, 240] centered around 128
+    const cb_byte = Math.max(16.0, Math.min(240.0, Cb * 112.0 + 128.0));
+    const cr_byte = Math.max(16.0, Math.min(240.0, Cr * 112.0 + 128.0));
+    
+    // Convert YCbCr BT.601 to RGB color space
+    const r_val = y_norm + 1.402 * (cr_byte - 128.0);
+    const g_val = y_norm - 0.344136 * (cb_byte - 128.0) - 0.714136 * (cr_byte - 128.0);
+    const b_val = y_norm + 1.772 * (cb_byte - 128.0);
+    
+    return {
+      r_u: Math.max(0, Math.min(255, Math.round(r_val))),
+      g_u: Math.max(0, Math.min(255, Math.round(g_val))),
+      b_u: Math.max(0, Math.min(255, Math.round(b_val)))
+    };
+  };
+
   // Consolidated Svelte 5 Pipeline Effect (Zero-loop, Unidirectional Flow)
   $effect(() => {
     if (rgbaBytes && rgbaBytes.length > 0 && width > 0 && height > 0) {
@@ -98,7 +136,48 @@
         const isTwoPixel = w_png * height > num_samples * 1.5;
         const packingVersion = rgbaBytes[13];
         
-        if (packingVersion === 8) {
+        if (packingVersion === 9) {
+          if (colorScheme === 'ycbcr') {
+            const payload_start = 24 + width * height * 4;
+            const original_wav = rgbaBytes.slice(payload_start);
+            try {
+              const complex_grid = wasm_generate_complex_spectrogram(original_wav, height, "hann");
+              
+              for (let r = 0; r < height; r++) {
+                for (let c = 0; c < width; c++) {
+                  // Invert vertically so low frequencies are at the bottom
+                  const grid_y = height - 1 - r;
+                  const complex_idx = (grid_y * width + c) * 2;
+                  const re = complex_grid[complex_idx];
+                  const im = complex_grid[complex_idx + 1];
+                  
+                  const { r_u, g_u, b_u } = decibelLuminance(re, im);
+                  const out_idx = (r * width + c) * 4;
+                  imageData.data[out_idx]     = r_u;
+                  imageData.data[out_idx + 1] = g_u;
+                  imageData.data[out_idx + 2] = b_u;
+                  imageData.data[out_idx + 3] = 255;
+                }
+              }
+            } catch (err) {
+              console.error("Failed to generate complex spectrogram in UI:", err);
+            }
+          } else {
+            // Default Geodesic Snake (already rasterized on the PNG!)
+            for (let r = 0; r < height; r++) {
+              for (let c = 0; c < width; c++) {
+                const in_idx = 24 + (r * width + c) * 4;
+                const out_idx = (r * width + c) * 4;
+                if (in_idx + 3 < rgbaBytes.length) {
+                  imageData.data[out_idx]     = rgbaBytes[in_idx];
+                  imageData.data[out_idx + 1] = rgbaBytes[in_idx + 1];
+                  imageData.data[out_idx + 2] = rgbaBytes[in_idx + 2];
+                  imageData.data[out_idx + 3] = 255;
+                }
+              }
+            }
+          }
+        } else if (packingVersion === 8) {
           // V8: Reversible M-Band Polyphase Lifting Spectrogram Rendering!
           const powerBuffer = wasm_generate_v8_spectrogram(rgbaBytes);
           let maxPower = 1e-5;
@@ -636,6 +715,14 @@
           <option value={2}>2x</option>
           <option value={4}>4x (Estilo Melgram)</option>
           <option value={8}>8x (Esticado Panorâmico)</option>
+        </select>
+      </div>
+
+      <div class="control-stretch-selector">
+        <span class="control-label">Esquema de Cores:</span>
+        <select bind:value={colorScheme} class="stretch-dropdown" title="Escolha o mapeamento cromático de exibição. O modo YCbCr Magnitude-Fase requer áudio empacotado na Versão 9 para decodificar as componentes complexas de fase.">
+          <option value="snake">Geodesic Snake (Intensidade Térmica)</option>
+          <option value="ycbcr">YCbCr Magnitude-Fase (Fase Complexa V9)</option>
         </select>
       </div>
     </div>
