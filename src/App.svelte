@@ -1,23 +1,36 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import AudioConverter from './lib/AudioConverter.svelte';
   import WebGlEditor from './lib/WebGlEditor.svelte';
-  import { wasm_calculate_complex_reassigned_spectrogram } from './wasm/core_wasm.js';
+  import init, { wasm_calculate_complex_reassigned_spectrogram } from './wasm/core_wasm.js';
 
   let currentView = $state<'converter' | 'editor'>('converter');
   let complexGrid = $state<Float32Array | null>(null);
   let gridW = $state(0);
   let gridH = $state(0);
 
+  onMount(async () => {
+    try {
+      await init();
+      console.log('📢 WebAssembly initialized successfully in App.svelte root!');
+    } catch (e) {
+      console.error('❌ Failed to initialize WebAssembly in App.svelte root:', e);
+    }
+  });
+
   // When a file is loaded and converted, we can trigger the editor view
   function handleAudioLoaded(data: Uint8Array, h: number) {
+    console.log('📢 App.svelte handleAudioLoaded callback received data with length:', data?.length, 'height:', h);
     // Generate the full complex reassigned spectrogram in Rust
     try {
+      const t0 = performance.now();
       complexGrid = wasm_calculate_complex_reassigned_spectrogram(data, h, 'hann') as Float32Array;
       gridH = h;
       gridW = (complexGrid.length / 2) / h;
+      console.log(`✅ App.svelte generated complexGrid of size ${complexGrid.length} floats (dimensions: ${gridW} x ${gridH}) in ${(performance.now() - t0).toFixed(3)} ms.`);
       currentView = 'editor';
     } catch (e) {
-      console.error("Failed to generate WebGL Editor payload:", e);
+      console.error("❌ App.svelte failed to generate WebGL Editor payload:", e);
     }
   }
 </script>
