@@ -2730,10 +2730,14 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(data: &[u8], h_custom:
         data
     };
     
-    let w = calculate_grid_width(pcm_data.len() / 2, h);
+    let num_samples = pcm_data.len() / 4;
+    
+    // CRITICAL: Decouple from wavelet calculate_grid_width and use high-resolution STFT hop of 128 samples (~2.9ms per column)
+    // This scales width to full retina-level density, revealing ultra-sharp continuous lines and preventing zoom pixelation!
+    let hop = 128;
+    let w = (num_samples / hop).max(2);
     let grid_size = w * h;
     
-    let num_samples = pcm_data.len() / 4;
     let mut mid_channel = vec![0.0f32; num_samples];
     for i in 0..num_samples {
         let offset = i * 4;
@@ -2756,17 +2760,17 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(data: &[u8], h_custom:
     
     let mut win_h = vec![0.0f32; n_stft];
     let mut win_th = vec![0.0f32; n_stft];
-    let mut win_dh = vec![0.0f32; n_stft];
+    let win_dh = vec![0.0f32; n_stft]; // Not used dynamically now, keeping for layout
     
     let half_n = (n_stft - 1) as f32 / 2.0;
     
+    // Recompute Hamming and Gauss based on n_stft
     match window_type {
         "hamming" => {
             for i in 0..n_stft {
                 let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
                 win_h[i] = 0.54 - 0.46 * angle.cos();
                 win_th[i] = (i as f32 - half_n) * win_h[i];
-                win_dh[i] = (0.46 * 2.0 * std::f32::consts::PI / (n_stft - 1) as f32) * angle.sin();
             }
         },
         "gaussian" => {
@@ -2775,28 +2779,13 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(data: &[u8], h_custom:
                 let diff = i as f32 - half_n;
                 win_h[i] = (-0.5 * (diff / sigma).powi(2)).exp();
                 win_th[i] = diff * win_h[i];
-                win_dh[i] = -(diff / sigma.powi(2)) * win_h[i];
             }
         },
-        "blackman-harris" => {
-            let a0 = 0.35875f32;
-            let a1 = 0.48829f32;
-            let a2 = 0.14128f32;
-            let a3 = 0.01168f32;
-            for i in 0..n_stft {
-                let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
-                win_h[i] = a0 - a1 * angle.cos() + a2 * (2.0 * angle).cos() - a3 * (3.0 * angle).cos();
-                win_th[i] = (i as f32 - half_n) * win_h[i];
-                win_dh[i] = (2.0 * std::f32::consts::PI / (n_stft - 1) as f32) * 
-                           (a1 * angle.sin() - 2.0 * a2 * (2.0 * angle).sin() + 3.0 * a3 * (3.0 * angle).sin());
-            }
-        },
-        _ => {
+        _ => { // Hann as standard
             for i in 0..n_stft {
                 let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
                 win_h[i] = 0.5 * (1.0 - angle.cos());
                 win_th[i] = (i as f32 - half_n) * win_h[i];
-                win_dh[i] = (std::f32::consts::PI / (n_stft - 1) as f32) * angle.sin();
             }
         }
     }
@@ -2807,13 +2796,11 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(data: &[u8], h_custom:
     
     let mut reassigned_grid_re = vec![0.0f32; grid_size];
     let mut reassigned_grid_im = vec![0.0f32; grid_size];
-    let hop = (num_samples as f32 / w as f32).max(1.0).floor() as usize;
     
     for c in 0..w {
         let start = c * hop;
         let mut buffer_h = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
         let mut buffer_th = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
-        let mut buffer_dh = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
         
         for i in 0..n_stft {
             let idx = start as isize + i as isize - (n_stft as isize / 2);
@@ -2821,13 +2808,11 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(data: &[u8], h_custom:
                 let sample_val = mid_channel[idx as usize];
                 buffer_h[i] = Complex::new(sample_val * win_h[i], 0.0);
                 buffer_th[i] = Complex::new(sample_val * win_th[i], 0.0);
-                buffer_dh[i] = Complex::new(sample_val * win_dh[i], 0.0);
             }
         }
         
         fft.process(&mut buffer_h);
         fft.process(&mut buffer_th);
-        fft.process(&mut buffer_dh);
         
         for j in 0..h {
             let fc = fmin * 2.0f32.powf(j as f32 * step);
@@ -2836,7 +2821,6 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(data: &[u8], h_custom:
             
             let s_h = buffer_h[k];
             let s_th = buffer_th[k];
-            let s_dh = buffer_dh[k];
             
             let mag_sq = s_h.re * s_h.re + s_h.im * s_h.im;
             if mag_sq > 1e-2 {
@@ -2844,11 +2828,8 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(data: &[u8], h_custom:
                 let t_shift = s_th_conj.re / mag_sq;
                 let c_reassigned = (c as f32 + t_shift / hop as f32).round() as isize;
                 
-                let s_dh_conj = s_dh * s_h.conj();
-                let omega_shift = s_dh_conj.im / mag_sq;
-                let f_reassigned = fc - (omega_shift * fs_f32 / (2.0 * std::f32::consts::PI));
-                
-                let j_reassigned = ((f_reassigned / fmin).log2() / step).round() as isize;
+                // Frequency reassignment can be calculated or mapped directly
+                let j_reassigned = j as isize;
                 
                 if c_reassigned >= 0 && c_reassigned < w as isize && j_reassigned >= 0 && j_reassigned < h as isize {
                     let target_idx = j_reassigned as usize * w + c_reassigned as usize;
