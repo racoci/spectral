@@ -25,6 +25,9 @@
   } from '../wasm/core_wasm.js';
   import CanvasVisualizer from './CanvasVisualizer.svelte';
 
+  // Props
+  let { onAudioLoaded = () => {} }: { onAudioLoaded?: (data: Uint8Array, h: number) => void } = $props();
+
   // State using Svelte 5 standard runes
   let wasmLoaded = $state(false);
   let wasmError = $state<string | null>(null);
@@ -308,6 +311,10 @@
 
       // Immediately run the inverse process (Image -> Audio) to verify symmetry
       await runDecoding();
+      
+      // Dispatch original audio to external components (e.g. WebGL Editor)
+      console.log('📢 Dispatching onAudioLoaded from AudioConverter with bytes:', originalBytes?.length, 'height:', selectedHeight);
+      onAudioLoaded(originalBytes, selectedHeight);
     } catch (error) {
       console.error('Error during encoding:', error);
     }
