@@ -864,19 +864,20 @@
 
   .hud-panel {
     pointer-events: auto;
-    background: rgba(10, 15, 30, 0.35);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
+    background: rgba(10, 15, 30, 0.18) !important;
+    backdrop-filter: blur(24px) !important;
+    -webkit-backdrop-filter: blur(24px) !important;
     border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: 8px;
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.35);
     color: #cbd5e1;
     font-family: system-ui, -apple-system, sans-serif;
+    z-index: 30 !important;
   }
 
   /* Top Navbar HUD style */
   .top-navbar {
-    position: absolute;
+    position: absolute !important;
     top: 1.25rem;
     left: 1.25rem;
     height: 3.5rem;
@@ -884,6 +885,7 @@
     align-items: center;
     padding: 0 1.25rem;
     transition: right 0.3s ease-in-out;
+    z-index: 30 !important;
   }
 
   .back-btn {
@@ -976,7 +978,7 @@
 
   /* Left DSP Sidebar HUD style */
   .left-sidebar {
-    position: absolute;
+    position: absolute !important;
     top: 5.75rem;
     left: 1.25rem;
     bottom: 5.75rem;
@@ -985,6 +987,7 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+    z-index: 30 !important;
   }
 
   .left-sidebar h3 {
@@ -1028,7 +1031,7 @@
 
   /* Right Settings Dock style */
   .right-dock {
-    position: absolute;
+    position: absolute !important;
     top: 1.25rem;
     right: 1.25rem;
     bottom: 1.25rem;
@@ -1038,6 +1041,7 @@
     flex-direction: column;
     gap: 1rem;
     transition: all 0.3s ease-in-out;
+    z-index: 30 !important;
   }
 
   .dock-header {
@@ -1087,7 +1091,7 @@
   }
 
   .dock-section {
-    background-color: rgba(0, 0, 0, 0.2);
+    background-color: rgba(255, 255, 255, 0.015);
     border: 1px solid rgba(255, 255, 255, 0.04);
     padding: 0.75rem;
     border-radius: 6px;
@@ -1120,14 +1124,15 @@
   }
 
   .input-control select {
-    background-color: #1e293b;
-    border: 1px solid #334155;
+    background-color: rgba(15, 23, 42, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.05);
     color: #cbd5e1;
     padding: 0.35rem 0.5rem;
     border-radius: 4px;
     outline: none;
     cursor: pointer;
     font-size: 0.75rem;
+    backdrop-filter: blur(8px);
   }
 
   .input-control select:hover {
@@ -1149,8 +1154,8 @@
   /* Histogram Panel */
   .histogram-panel {
     margin-top: auto;
-    background-color: rgba(0, 0, 0, 0.25);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background-color: rgba(255, 255, 255, 0.015);
+    border: 1px solid rgba(255, 255, 255, 0.04);
     padding: 0.5rem;
     border-radius: 6px;
     display: flex;
@@ -1194,7 +1199,7 @@
 
   /* Bottom HUD Transport and Statusbar (2-row adaptive timeline DAW layout!) */
   .bottom-bar {
-    position: absolute;
+    position: absolute !important;
     bottom: 1.25rem;
     left: 1.25rem;
     height: auto;
@@ -1204,6 +1209,7 @@
     padding: 0.75rem 1.25rem;
     gap: 0.6rem;
     transition: right 0.3s ease-in-out;
+    z-index: 30 !important;
   }
 
   .bottom-row-controls {
