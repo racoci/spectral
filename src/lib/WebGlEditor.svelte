@@ -29,6 +29,9 @@
     // Bindable point size customization
     pointRadius = $bindable(1.0),
     
+    // Bindable frequency scale type
+    frequencyScale = $bindable('log'),
+    
     originalAudio,
     isPlaying,
     onPlayToggle,
@@ -55,6 +58,7 @@
     viewStart: number,
     viewEnd: number,
     pointRadius: number,
+    frequencyScale: 'log' | 'linear',
     
     originalAudio: HTMLAudioElement | null,
     isPlaying: boolean,
@@ -461,6 +465,18 @@
     }
   }
 
+  const tickFrequencies = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 15000, 20000];
+
+  function calculateFreqY(f: number): number {
+    if (fmax <= fmin) return 0.0;
+    if (frequencyScale === 'linear') {
+      return (f - fmin) / (fmax - fmin);
+    } else {
+      // Logarithmic spacing
+      return Math.log2(f / fmin) / Math.log2(fmax / fmin);
+    }
+  }
+
   function handleKeyDown(e: KeyboardEvent) {
     if (e.code === 'Space') {
       e.preventDefault();
@@ -521,6 +537,19 @@
       onmouseup={handleMouseUp}
       onmouseleave={handleMouseUp}
     ></canvas>
+
+    <!-- Glowing Frequency Ruler with tick marks -->
+    <div class="frequency-ruler">
+      {#each tickFrequencies as f}
+        {#if f >= fmin && f <= fmax}
+          {@const y = calculateFreqY(f)}
+          <div class="freq-tick" style="bottom: {(y * 100).toFixed(2)}%;">
+            <span class="freq-label">{f >= 1000 ? (f/1000).toFixed(1) + ' kHz' : f + ' Hz'}</span>
+            <div class="freq-line"></div>
+          </div>
+        {/if}
+      {/each}
+    </div>
 
     {#if selectionStart !== null && selectionEnd !== null}
       <div 
@@ -641,6 +670,14 @@
               <select id="palette-select" bind:value={paletteType}>
                 <option value="ycbcr">YCbCr Magnitude-Phase</option>
                 <option value="snake">Geodesic Snake (Térmica)</option>
+              </select>
+            </div>
+
+            <div class="input-control">
+              <label for="scale-select">Escala Vertical:</label>
+              <select id="scale-select" bind:value={frequencyScale}>
+                <option value="log">Logarítmica (CQT / Auditiva)</option>
+                <option value="linear">Linear (Física / STFT)</option>
               </select>
             </div>
             
@@ -850,6 +887,43 @@
     box-shadow: 0 0 8px #10b981, 0 0 15px rgba(16, 185, 129, 0.6);
   }
 
+  /* Translucent Frequency ruler on the left edge of the canvas */
+  .frequency-ruler {
+    position: absolute;
+    left: 15rem;
+    top: 0;
+    bottom: 0;
+    width: 5.5rem;
+    pointer-events: none;
+    z-index: 15;
+    font-family: monospace;
+    font-size: 0.65rem;
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .freq-tick {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    transform: translateY(50%); /* perfectly centers text label with the tick line */
+  }
+
+  .freq-label {
+    white-space: nowrap;
+    text-shadow: 0 0 4px #000, 0 0 8px #000;
+    font-weight: 600;
+  }
+
+  .freq-line {
+    flex: 1;
+    height: 1px;
+    background-color: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 0 2px rgba(255, 255, 255, 0.08);
+  }
+
   .selection-boundary {
     position: absolute;
     top: 0;
@@ -864,7 +938,7 @@
 
   .hud-panel {
     pointer-events: auto;
-    background: rgba(10, 15, 30, 0.18) !important;
+    background: rgba(15, 23, 42, 0.65) !important;
     backdrop-filter: blur(24px) !important;
     -webkit-backdrop-filter: blur(24px) !important;
     border: 1px solid rgba(255, 255, 255, 0.05);
@@ -1088,6 +1162,11 @@
   .dock-scroll-area::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.1);
     border-radius: 4px;
+  }
+
+  /* Force the scroll track to be fully transparent on Windows/Linux to prevent solid opaque tracks! */
+  .dock-scroll-area::-webkit-scrollbar-track {
+    background: transparent !important;
   }
 
   .dock-section {

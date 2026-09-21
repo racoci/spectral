@@ -2732,7 +2732,8 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
     palette_type: &str,
     t_start: f32,
     t_end: f32,
-    point_radius: f32
+    point_radius: f32,
+    scale_type: &str
 ) -> Vec<u8> {
     let mut h = h_custom;
     if !h.is_power_of_two() || h < 4 { h = 1024; }
@@ -2849,14 +2850,30 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
     // Array of (g_val, gy_val) for each sparse bin
     let mut cqt_kernels_lut: Vec<Vec<(f32, f32)>> = vec![Vec::new(); h];
     
+    let is_linear = scale_type == "linear";
+    let step_lin = (fmax - fmin) / (h as f32 - 1.0);
+    
     for j in 0..h {
-        let fc = fmin * 2.0f32.powf(j as f32 * step);
+        let fc = if is_linear {
+            fmin + j as f32 * step_lin
+        } else {
+            fmin * 2.0f32.powf(j as f32 * step)
+        };
         fc_lut[j] = fc;
         k_f_lut[j] = fc * n_stft as f32 / fs_f32;
         
         // Compute sparse bounds
-        let f_low = fc * 2.0f32.powf(-bandwidth_octaves);
-        let f_high = fc * 2.0f32.powf(bandwidth_octaves);
+        let f_low = if is_linear {
+            (fc - (fc * (2.0f32.powf(step) - 1.0) * 1.5)).max(fmin)
+        } else {
+            fc * 2.0f32.powf(-bandwidth_octaves)
+        };
+        let f_high = if is_linear {
+            (fc + (fc * (2.0f32.powf(step) - 1.0) * 1.5)).min(fs_f32 / 2.0)
+        } else {
+            fc * 2.0f32.powf(bandwidth_octaves)
+        };
+        
         let k_low = (f_low * n_stft as f32 / fs_f32).round() as isize;
         let k_high = (f_high * n_stft as f32 / fs_f32).round() as isize;
         let k_low_u = k_low.clamp(1, (n_stft / 2 - 2) as isize) as usize;
@@ -2865,7 +2882,11 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
         cqt_k_low_lut[j] = k_low_u;
         cqt_k_high_lut[j] = k_high_u;
         
-        let y_j = j as f32 * step;
+        let y_j = if is_linear {
+            (fc / fmin).log2()
+        } else {
+            j as f32 * step
+        };
         let mut kernel = Vec::with_capacity(k_high_u - k_low_u + 1);
         
         for curr_k in k_low_u..=k_high_u {

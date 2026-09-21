@@ -30,6 +30,9 @@
   
   // Point/Gaussian Spread Customization Size
   let pointRadius = $state<number>(1.0);
+  
+  // Frequency Scale Type
+  let frequencyScale = $state<'log' | 'linear'>('log');
 
   // Global Audio Transport & Selection Looping State
   let originalAudio = $state<HTMLAudioElement | null>(null);
@@ -113,7 +116,8 @@
         paletteType,
         viewStart,
         viewEnd,
-        pointRadius
+        pointRadius,
+        frequencyScale
       ) as Uint8Array;
       gridH = selectedHeight;
       gridW = (rgbaGrid.length / 4) / selectedHeight;
@@ -150,8 +154,9 @@
     const _viewStart = viewStart;
     const _viewEnd = viewEnd;
     const _pointRadius = pointRadius;
+    const _scale = frequencyScale;
     
-    if (_bytes && _loaded && _winType && _winSize && _zeroPadding && _fmin && _fmax && _algo && _pal && _height) {
+    if (_bytes && _loaded && _winType && _winSize && _zeroPadding && _fmin && _fmax && _algo && _pal && _height && _scale) {
       untrack(() => {
         regenerateSpectrogram();
       });
@@ -302,6 +307,7 @@
       bind:viewEnd={viewEnd}
       
       bind:pointRadius={pointRadius}
+      bind:frequencyScale={frequencyScale}
       
       originalAudio={originalAudio}
       isPlaying={isPlaying}
