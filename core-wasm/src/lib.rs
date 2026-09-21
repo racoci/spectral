@@ -2981,7 +2981,12 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
                     let s_dh_conj = s_dh * s_h.conj();
                     let omega_shift = s_dh_conj.im / mag_sq; // shift in rad/sample
                     let f_reassigned = fc - (omega_shift * fs_f32 / (2.0 * std::f32::consts::PI));
-                    let j_reassigned_f = (f_reassigned / fmin).log2() / step;
+                    
+                    let j_reassigned_f = if is_linear {
+                        ((f_reassigned - fmin) / (fmax - fmin)) * (h as f32 - 1.0)
+                    } else {
+                        (f_reassigned / fmin).log2() / step
+                    };
                     
                     // 1st order derivative of log amplitude with respect to time (Re{X_dh / X_h})
                     let d_log_A_dt = s_dh_conj.re / mag_sq;
@@ -3090,7 +3095,14 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
                             
                             // We can use these derivatives to sharpen the visualization reassigning along the Y axis!
                             // Frequency reassigned coordinate:
-                            let j_reassigned_f = j as f32 + d_phi_dy * step;
+                            let j_reassigned_f = if is_linear {
+                                let y_j = (fc / fmin).log2();
+                                let y_reassigned = y_j + d_phi_dy * step;
+                                let f_reassigned = fmin * 2.0f32.powf(y_reassigned);
+                                ((f_reassigned - fmin) / (fmax - fmin)) * (h as f32 - 1.0)
+                            } else {
+                                j as f32 + d_phi_dy * step
+                            };
                             
                             // We can also perform 1D Gaussian sharpening spread along the Y-axis scaled by point_radius!
                             let sig_f = (point_radius * 0.5 / (1.0 + d_log_A_dy.abs())).clamp(0.05, 5.0);

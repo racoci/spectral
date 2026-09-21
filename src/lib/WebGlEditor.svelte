@@ -270,13 +270,16 @@
     const panLoc = gl.getUniformLocation(program, 'u_panX');
     const texLoc = gl.getUniformLocation(program, 'u_spectrogramTexture');
     
-    // Always render flat on the GPU, since Rust WASM already handles high-resolution zooming & panning!
-    gl.uniform1f(zoomLoc, 1.0);
-    gl.uniform1f(panLoc, 0.0);
+    // Stretch the texture in real-time on the GPU during active zoom/pan gestures,
+    // and draw flat when the pre-zoomed WASM spectrogram is generated and uploaded!
+    gl.uniform1f(zoomLoc, zoomX);
+    gl.uniform1f(panLoc, panX);
     gl.uniform1i(texLoc, 0);
     
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
+
+  let debounceTimer: any = null;
 
   function handleWheel(e: WheelEvent) {
     e.preventDefault();
@@ -301,13 +304,23 @@
     const maxPan = 1.0 - (1.0 / zoomX);
     panX = Math.max(-maxPan, Math.min(maxPan, panX));
 
-    // Propagate dynamic visible time-frequency window to Svelte / Rust WASM
-    const halfSpan = 0.5 / zoomX;
-    const centerT = panX * 0.5 + 0.5;
-    viewStart = Math.max(0.0, centerT - halfSpan);
-    viewEnd = Math.min(1.0, centerT + halfSpan);
-
+    // Instantly redraw stretched texture on the GPU at 120fps!
     render();
+
+    // Debounce the heavy WebAssembly spectrogram regeneration until they STOP scrolling!
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      // Propagate dynamic visible time-frequency window to Svelte / Rust WASM
+      const halfSpan = 0.5 / zoomX;
+      const centerT = panX * 0.5 + 0.5;
+      viewStart = Math.max(0.0, centerT - halfSpan);
+      viewEnd = Math.min(1.0, centerT + halfSpan);
+      
+      // Reset GPU coordinates to let the newly generated and focused texture render flat
+      zoomX = 1.0;
+      panX = 0.0;
+      render();
+    }, 150); // Fluid 150ms focus snapping!
   }
 
   function handleMouseDown(e: MouseEvent) {
@@ -336,14 +349,23 @@
       const maxPan = 1.0 - (1.0 / zoomX);
       panX = Math.max(-maxPan, Math.min(maxPan, panX));
       
-      // Propagate dynamic visible time-frequency window to Svelte / Rust WASM on panning!
-      const halfSpan = 0.5 / zoomX;
-      const centerT = panX * 0.5 + 0.5;
-      viewStart = Math.max(0.0, centerT - halfSpan);
-      viewEnd = Math.min(1.0, centerT + halfSpan);
-      
       lastMouseX = e.clientX;
       render();
+
+      // Debounce the heavy WebAssembly spectrogram regeneration until they STOP panning!
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        // Propagate dynamic visible time-frequency window to Svelte / Rust WASM
+        const halfSpan = 0.5 / zoomX;
+        const centerT = panX * 0.5 + 0.5;
+        viewStart = Math.max(0.0, centerT - halfSpan);
+        viewEnd = Math.min(1.0, centerT + halfSpan);
+        
+        // Reset GPU coordinates to let the newly generated and focused texture render flat
+        zoomX = 1.0;
+        panX = 0.0;
+        render();
+      }, 150); // Fluid 150ms focus snapping!
     } else if (isSelecting && selectedTool === 'region_select') {
       const t = screenXToNormalizedTime(e.clientX);
       selectionEnd = t;
@@ -366,6 +388,11 @@
         selectionEnd = null;
       }
     }
+  }
+
+  function handleGlobalMouseUp() {
+    handleMouseUp();
+    handleTimelineMouseUp();
   }
 
   function clearSelection() {
@@ -517,7 +544,7 @@
   });
 </script>
 
-<svelte:window onkeydown={handleKeyDown} onmouseup={handleTimelineMouseUp} />
+<svelte:window onkeydown={handleKeyDown} onmouseup={handleGlobalMouseUp} />
 
 <div class="full-screen-editor">
   <input 
@@ -867,12 +894,12 @@
     position: absolute;
     top: 0;
     height: 100%;
-    background-color: rgba(56, 189, 248, 0.12);
-    border-left: 1px solid rgba(56, 189, 248, 0.4);
-    border-right: 1px solid rgba(56, 189, 248, 0.4);
+    background-color: rgba(56, 189, 248, 0.32);
+    border-left: 2px solid #38bdf8;
+    border-right: 2px solid #38bdf8;
     z-index: 2;
     pointer-events: none;
-    box-shadow: inset 0 0 40px rgba(56, 189, 248, 0.05);
+    box-shadow: inset 0 0 40px rgba(56, 189, 248, 0.15), 0 0 10px rgba(56, 189, 248, 0.2);
   }
 
   /* Beautiful glowing vertical timeline cursor / playhead line overlay */
