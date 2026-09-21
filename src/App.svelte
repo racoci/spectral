@@ -121,7 +121,7 @@
       ) as Uint8Array;
       gridH = selectedHeight;
       gridW = (rgbaGrid.length / 4) / selectedHeight;
-      console.log(`✅ Regenerated Master Spectrogram: size ${rgbaGrid.length} bytes (dimensions: ${gridW} x ${gridH}) in ${(performance.now() - t0).toFixed(3)} ms.`);
+      console.log(`✅ Regenerated Master Spectrogram [Scale: ${frequencyScale}]: size ${rgbaGrid.length} bytes (dimensions: ${gridW} x ${gridH}) in ${(performance.now() - t0).toFixed(3)} ms.`);
       
       // Rebuild global audio playback if not already created
       if (!originalAudio) {
