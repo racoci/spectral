@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
   import AudioConverter from './lib/AudioConverter.svelte';
   import WebGlEditor from './lib/WebGlEditor.svelte';
   import init, { wasm_generate_complex_reassigned_ycbcr_spectrogram } from './wasm/core_wasm.js';
 
   let currentView = $state<'converter' | 'editor'>('converter');
+  let wasmLoaded = $state(false);
   
   // Globally preserved state
   let originalBytes = $state<Uint8Array | null>(null);
@@ -14,12 +15,28 @@
   let gridW = $state(0);
   let gridH = $state(0);
 
-  // Global Audio Looping State
+  // Advanced DSP Configurations
+  let windowType = $state<'hann' | 'hamming' | 'gaussian' | 'blackman-harris'>('hann');
+  let windowSize = $state<number>(1024);
+  let zeroPadding = $state<number>(4);
+  let fmin = $state<number>(20);
+  let fmax = $state<number>(20000);
+  let algorithmType = $state<'reassignment' | 'log'>('reassignment');
+  let paletteType = $state<'ycbcr' | 'snake'>('ycbcr');
+
+  // Adaptive Zoom View Bounds
+  let viewStart = $state<number>(0.0);
+  let viewEnd = $state<number>(1.0);
+  
+  // Point/Gaussian Spread Customization Size
+  let pointRadius = $state<number>(1.0);
+
+  // Global Audio Transport & Selection Looping State
   let originalAudio = $state<HTMLAudioElement | null>(null);
   let isPlaying = $state(false);
   let selectionStart = $state<number | null>(null); // normalized [0, 1]
   let selectionEnd = $state<number | null>(null);   // normalized [0, 1]
-  let loopEnabled = $state(true);
+  let loopMode = $state<'normal' | 'mirrored' | 'none'>('normal');
   let playbackTimer: any = null;
 
   // Hash-based client router
@@ -38,6 +55,7 @@
   onMount(async () => {
     try {
       await init();
+      wasmLoaded = true;
       console.log('📢 WebAssembly initialized successfully in App.svelte root!');
       
       // Preload default sample globally on startup so that BOTH the converter and editor are instantly active!
@@ -69,7 +87,7 @@
         const arrayBuffer = await response.arrayBuffer();
         const bytes = new Uint8Array(arrayBuffer);
         originalBytes = bytes;
-        handleAudioLoaded(bytes, selectedHeight);
+        regenerateSpectrogram();
       } else {
         console.error("Failed to fetch default sample in App.svelte:", response.statusText);
       }
@@ -78,47 +96,94 @@
     }
   }
 
-  // When a file is loaded and converted, we generate the complex grid and initialize global Audio element
-  function handleAudioLoaded(data: Uint8Array, h: number) {
-    console.log('📢 App.svelte handleAudioLoaded callback received data with length:', data?.length, 'height:', h);
+  // Master Spectrogram Regeneration function using all dynamic DSP parameters
+  function regenerateSpectrogram() {
+    if (!originalBytes || !wasmLoaded) return;
     try {
       const t0 = performance.now();
-      rgbaGrid = wasm_generate_complex_reassigned_ycbcr_spectrogram(data, h, 'hann') as Uint8Array;
-      gridH = h;
-      gridW = (rgbaGrid.length / 4) / h;
-      console.log(`✅ App.svelte generated rgbaGrid of size ${rgbaGrid.length} bytes (dimensions: ${gridW} x ${gridH}) in ${(performance.now() - t0).toFixed(3)} ms.`);
+      rgbaGrid = wasm_generate_complex_reassigned_ycbcr_spectrogram(
+        originalBytes,
+        selectedHeight,
+        windowType,
+        windowSize,
+        zeroPadding,
+        fmin,
+        fmax,
+        algorithmType,
+        paletteType,
+        viewStart,
+        viewEnd,
+        pointRadius
+      ) as Uint8Array;
+      gridH = selectedHeight;
+      gridW = (rgbaGrid.length / 4) / selectedHeight;
+      console.log(`✅ Regenerated Master Spectrogram: size ${rgbaGrid.length} bytes (dimensions: ${gridW} x ${gridH}) in ${(performance.now() - t0).toFixed(3)} ms.`);
       
-      // Initialize or rebuild global Audio element
-      if (originalAudio) {
-        originalAudio.pause();
+      // Rebuild global audio playback if not already created
+      if (!originalAudio) {
+        const blob = new Blob([originalBytes as any], { type: 'audio/wav' });
+        const url = URL.createObjectURL(blob);
+        originalAudio = new Audio(url);
+        originalAudio.onended = () => {
+          isPlaying = false;
+          if (playbackTimer) clearInterval(playbackTimer);
+        };
       }
-      const blob = new Blob([data as any], { type: 'audio/wav' });
-      const url = URL.createObjectURL(blob);
-      originalAudio = new Audio(url);
-      originalAudio.onended = () => {
-        isPlaying = false;
-        if (playbackTimer) clearInterval(playbackTimer);
-      };
-      
-      // Clear selection bounds upon loading new audio
-      selectionStart = null;
-      selectionEnd = null;
     } catch (e) {
       console.error("❌ App.svelte failed to generate WebGL Editor payload:", e);
     }
   }
 
-  // High-Resolution 15ms DAW-Loop Controller
+  // Trigger regeneration dynamically whenever any DSP parameter changes, utilizing Svelte 5 untrack to break dependency loops
+  $effect(() => {
+    // Register active triggers explicitly including adaptive zoom bounds!
+    const _winType = windowType;
+    const _winSize = windowSize;
+    const _zeroPadding = zeroPadding;
+    const _fmin = fmin;
+    const _fmax = fmax;
+    const _algo = algorithmType;
+    const _pal = paletteType;
+    const _height = selectedHeight;
+    const _bytes = originalBytes;
+    const _loaded = wasmLoaded;
+    const _viewStart = viewStart;
+    const _viewEnd = viewEnd;
+    const _pointRadius = pointRadius;
+    
+    if (_bytes && _loaded && _winType && _winSize && _zeroPadding && _fmin && _fmax && _algo && _pal && _height) {
+      untrack(() => {
+        regenerateSpectrogram();
+      });
+    }
+  });
+
+  // When a file is loaded and converted, we clear selection and rebuild audio
+  function handleAudioLoaded(data: Uint8Array, h: number) {
+    console.log('📢 App.svelte handleAudioLoaded callback received data with length:', data?.length, 'height:', h);
+    originalBytes = data;
+    selectedHeight = h;
+    
+    // Reset global Audio element and selection bounds
+    if (originalAudio) {
+      originalAudio.pause();
+    }
+    originalAudio = null;
+    selectionStart = null;
+    selectionEnd = null;
+    
+    regenerateSpectrogram();
+  }
+
+  // High-Resolution 15ms DAW-Loop Controller supporting Normal, Mirrored (Ping-Pong), and No Loop modes
   function triggerAudioPlayback() {
     if (!originalAudio) return;
     
     if (isPlaying) {
-      // Pause
       originalAudio.pause();
       isPlaying = false;
       if (playbackTimer) clearInterval(playbackTimer);
     } else {
-      // Play
       isPlaying = true;
       if (playbackTimer) clearInterval(playbackTimer);
       
@@ -126,7 +191,8 @@
       const startSec = selectionStart !== null ? selectionStart * duration : 0.0;
       const endSec = selectionEnd !== null ? selectionEnd * duration : duration;
       
-      // Set start point
+      // Initial Play Direction
+      let playbackDirection = 'forward';
       originalAudio.currentTime = startSec;
       originalAudio.play();
       
@@ -134,24 +200,42 @@
         if (!originalAudio) return;
         
         const current = originalAudio.currentTime;
-        // Seamless loop boundaries check
-        if (current >= endSec || current >= duration) {
-          if (loopEnabled) {
-            originalAudio.currentTime = startSec;
+        
+        if (loopMode === 'mirrored') {
+          // Mirrored / Ping-Pong Looping: Forward tape -> Reverse tape
+          if (playbackDirection === 'forward') {
+            if (current >= endSec || current >= duration) {
+              playbackDirection = 'backward';
+              originalAudio.pause(); // Pause native forward to manually decrement
+            }
           } else {
-            originalAudio.pause();
-            isPlaying = false;
-            if (playbackTimer) clearInterval(playbackTimer);
+            // Backward decrement socrates-loop
+            originalAudio.currentTime -= 0.015 * originalAudio.playbackRate;
+            if (originalAudio.currentTime <= startSec) {
+              playbackDirection = 'forward';
+              originalAudio.currentTime = startSec;
+              originalAudio.play(); // Resume native forward playback
+            }
+          }
+        } else {
+          // Normal Looping or No Looping
+          if (current >= endSec || current >= duration) {
+            if (loopMode === 'normal') {
+              originalAudio.currentTime = startSec;
+            } else {
+              originalAudio.pause();
+              isPlaying = false;
+              if (playbackTimer) clearInterval(playbackTimer);
+            }
           }
         }
-      }, 15); // Tight 15ms interval for seamless gaps!
+      }, 15); // Tight 15ms interval for flawless looping!
     }
   }
 
   // Handle direct file uploads inside the WebGL Editor itself
   function handleDirectAudioUpload(bytes: Uint8Array) {
     console.log('📢 App.svelte received direct audio upload from WebGL Editor:', bytes.length, 'bytes.');
-    originalBytes = bytes;
     handleAudioLoaded(bytes, selectedHeight);
   }
 
@@ -200,9 +284,25 @@
       rgbaGrid={rgbaGrid} 
       width={gridW} 
       height={gridH} 
+      
+      bind:windowType={windowType}
+      bind:windowSize={windowSize}
+      bind:zeroPadding={zeroPadding}
+      bind:fmin={fmin}
+      bind:fmax={fmax}
+      bind:algorithmType={algorithmType}
+      bind:paletteType={paletteType}
+      bind:selectedHeight={selectedHeight}
+      
       bind:selectionStart={selectionStart}
       bind:selectionEnd={selectionEnd}
-      bind:loopEnabled={loopEnabled}
+      bind:loopMode={loopMode}
+      
+      bind:viewStart={viewStart}
+      bind:viewEnd={viewEnd}
+      
+      bind:pointRadius={pointRadius}
+      
       originalAudio={originalAudio}
       isPlaying={isPlaying}
       onPlayToggle={triggerAudioPlayback}
