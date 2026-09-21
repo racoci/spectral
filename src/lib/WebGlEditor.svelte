@@ -415,6 +415,52 @@
     }
   }
 
+  let isTimelineDragging = false;
+  let timelineStartPos = 0.0;
+
+  function handleTimelineMouseDown(e: MouseEvent) {
+    if (!originalAudio) return;
+    isTimelineDragging = true;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const t = Math.max(0.0, Math.min(1.0, x));
+    
+    timelineStartPos = t;
+    selectionStart = t;
+    selectionEnd = t;
+  }
+
+  function handleTimelineMouseMove(e: MouseEvent) {
+    if (!isTimelineDragging || !originalAudio) return;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const t = Math.max(0.0, Math.min(1.0, x));
+    
+    selectionEnd = t;
+  }
+
+  // Bind mouseup globally to handle releasing the mouse drag outside the timeline bar!
+  function handleTimelineMouseUp() {
+    if (!isTimelineDragging) return;
+    isTimelineDragging = false;
+    if (selectionStart !== null && selectionEnd !== null) {
+      if (Math.abs(selectionEnd - selectionStart) < 0.01) {
+        if (originalAudio) {
+          originalAudio.currentTime = selectionStart * originalAudio.duration;
+          playbackProgress = selectionStart;
+        }
+        selectionStart = null;
+        selectionEnd = null;
+      } else {
+        if (selectionStart > selectionEnd) {
+          const temp = selectionStart;
+          selectionStart = selectionEnd;
+          selectionEnd = temp;
+        }
+      }
+    }
+  }
+
   function handleKeyDown(e: KeyboardEvent) {
     if (e.code === 'Space') {
       e.preventDefault();
@@ -455,7 +501,7 @@
   });
 </script>
 
-<svelte:window onkeydown={handleKeyDown} />
+<svelte:window onkeydown={handleKeyDown} onmouseup={handleTimelineMouseUp} />
 
 <div class="full-screen-editor">
   <input 
@@ -693,39 +739,58 @@
     <!-- Bottom Status & Seamless Looping Player Bar -->
     <div class="hud-panel bottom-bar" style="right: {rightDockExpanded ? '19.25rem' : '1.25rem'};">
       
-      <!-- Audio Transport Controls Group -->
-      <div class="transport-group">
-        <button class="play-btn" class:playing={isPlaying} onclick={onPlayToggle}>
-          {isPlaying ? '⏸️ PAUSAR' : '▶️ PLAY'}
-        </button>
-        
-        <div class="vertical-divider"></div>
-
-        <div class="loop-mode-selector">
-          <label class="transport-label" for="loop-mode-select">Loop:</label>
-          <select id="loop-mode-select" class="transport-select" bind:value={loopMode}>
-            <option value="normal">🔁 Normal (A-B)</option>
-            <option value="mirrored">🪞 Espelhado (Ping-Pong)</option>
-            <option value="none">🚫 Sem Loop (Linear)</option>
-          </select>
-        </div>
-        
+      <!-- Interactive Scrub Timeline & Loop Selector Bar -->
+      <div 
+        class="timeline-scrub-bar" 
+        onmousedown={handleTimelineMouseDown}
+        onmousemove={handleTimelineMouseMove}
+      >
+        <!-- Selection Highlight Loop -->
         {#if selectionStart !== null && selectionEnd !== null}
-          <button class="clear-sel-btn" onclick={clearSelection}>
-            Limpar A-B
-          </button>
+          {@const leftPct = selectionStart * 100}
+          {@const widthPct = (selectionEnd - selectionStart) * 100}
+          <div class="scrub-selection" style="left: {leftPct.toFixed(2)}%; width: {widthPct.toFixed(2)}%;"></div>
         {/if}
+        
+        <!-- Live Playhead indicator dot -->
+        <div class="scrub-playhead" style="left: {(playbackProgress * 100).toFixed(2)}%;"></div>
       </div>
 
-      <div class="coordinate-group">
-        <span class="coordinate-view">T: {panX.toFixed(3)}s</span>
-        <span class="coordinate-view">Z: {zoomX.toFixed(1)}x</span>
-        
-        {#if selectionStart !== null && selectionEnd !== null && originalAudio}
-          <span class="coordinate-view selection-coords">
-            🎯 A-B: {(selectionStart * originalAudio.duration).toFixed(2)}s - {(selectionEnd * originalAudio.duration).toFixed(2)}s ({( (selectionEnd - selectionStart) * originalAudio.duration ).toFixed(2)}s)
-          </span>
-        {/if}
+      <div class="bottom-row-controls">
+        <!-- Audio Transport Controls Group -->
+        <div class="transport-group">
+          <button class="play-btn" class:playing={isPlaying} onclick={onPlayToggle}>
+            {isPlaying ? '⏸️ PAUSAR' : '▶️ PLAY'}
+          </button>
+          
+          <div class="vertical-divider"></div>
+
+          <div class="loop-mode-selector">
+            <label class="transport-label" for="loop-mode-select">Loop:</label>
+            <select id="loop-mode-select" class="transport-select" bind:value={loopMode}>
+              <option value="normal">🔁 Normal (A-B)</option>
+              <option value="mirrored">🪞 Espelhado (Ping-Pong)</option>
+              <option value="none">🚫 Sem Loop (Linear)</option>
+            </select>
+          </div>
+          
+          {#if selectionStart !== null && selectionEnd !== null}
+            <button class="clear-sel-btn" onclick={clearSelection}>
+              Limpar A-B
+            </button>
+          {/if}
+        </div>
+
+        <div class="coordinate-group">
+          <span class="coordinate-view">T: {panX.toFixed(3)}s</span>
+          <span class="coordinate-view">Z: {zoomX.toFixed(1)}x</span>
+          
+          {#if selectionStart !== null && selectionEnd !== null && originalAudio}
+            <span class="coordinate-view selection-coords">
+              🎯 A-B: {(selectionStart * originalAudio.duration).toFixed(2)}s - {(selectionEnd * originalAudio.duration).toFixed(2)}s ({( (selectionEnd - selectionStart) * originalAudio.duration ).toFixed(2)}s)
+            </span>
+          {/if}
+        </div>
       </div>
     </div>
 
@@ -1127,17 +1192,62 @@
     font-family: monospace;
   }
 
-  /* Bottom HUD Transport and Statusbar */
+  /* Bottom HUD Transport and Statusbar (2-row adaptive timeline DAW layout!) */
   .bottom-bar {
     position: absolute;
     bottom: 1.25rem;
     left: 1.25rem;
-    height: 3.5rem;
+    height: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 0.75rem 1.25rem;
+    gap: 0.6rem;
+    transition: right 0.3s ease-in-out;
+  }
+
+  .bottom-row-controls {
     display: flex;
     align-items: center;
-    padding: 0 1.25rem;
-    gap: 1.5rem;
-    transition: right 0.3s ease-in-out;
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  /* Interactive Scrub Timeline style */
+  .timeline-scrub-bar {
+    height: 10px;
+    background-color: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    position: relative;
+    cursor: ew-resize;
+    overflow: hidden;
+    width: 100%;
+    transition: background-color 0.2s, height 0.2s;
+  }
+
+  .timeline-scrub-bar:hover {
+    height: 14px;
+    background-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .scrub-selection {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background-color: rgba(56, 189, 248, 0.3);
+    border-left: 1px solid #38bdf8;
+    border-right: 1px solid #38bdf8;
+    pointer-events: none;
+  }
+
+  .scrub-playhead {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background-color: #10b981;
+    pointer-events: none;
+    box-shadow: 0 0 6px #10b981;
   }
 
   .transport-group {
