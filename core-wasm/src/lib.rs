@@ -2832,18 +2832,93 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
     let fmax = if fmax_custom > fmin { fmax_custom.min(fs_f32 / 2.0) } else { fs_f32 / 2.0 };
     let step = (fmax / fmin).log2() / (h as f32 - 1.0);
     
+    // =========================================================================
+    // RADICAL PERFORMANCE OPTIMIZATION: HOISTING & LUTS
+    // =========================================================================
+    // 1. Precompute expensive exponential frequencies and float coordinates
+    let mut fc_lut = vec![0.0f32; h];
+    let mut k_f_lut = vec![0.0f32; h];
+    
+    // 1.5. Precompute Sparse Spectral CQT Kernels to eliminate log2() and exp() inside the loop!
+    let sigma_y = 0.95 * step;
+    let sigma_y_sq = sigma_y * sigma_y;
+    let bandwidth_octaves = 3.0 * sigma_y;
+    
+    let mut cqt_k_low_lut = vec![0usize; h];
+    let mut cqt_k_high_lut = vec![0usize; h];
+    // Array of (g_val, gy_val) for each sparse bin
+    let mut cqt_kernels_lut: Vec<Vec<(f32, f32)>> = vec![Vec::new(); h];
+    
+    for j in 0..h {
+        let fc = fmin * 2.0f32.powf(j as f32 * step);
+        fc_lut[j] = fc;
+        k_f_lut[j] = fc * n_stft as f32 / fs_f32;
+        
+        // Compute sparse bounds
+        let f_low = fc * 2.0f32.powf(-bandwidth_octaves);
+        let f_high = fc * 2.0f32.powf(bandwidth_octaves);
+        let k_low = (f_low * n_stft as f32 / fs_f32).round() as isize;
+        let k_high = (f_high * n_stft as f32 / fs_f32).round() as isize;
+        let k_low_u = k_low.clamp(1, (n_stft / 2 - 2) as isize) as usize;
+        let k_high_u = k_high.clamp(k_low_u as isize + 1, (n_stft / 2 - 1) as isize) as usize;
+        
+        cqt_k_low_lut[j] = k_low_u;
+        cqt_k_high_lut[j] = k_high_u;
+        
+        let y_j = j as f32 * step;
+        let mut kernel = Vec::with_capacity(k_high_u - k_low_u + 1);
+        
+        for curr_k in k_low_u..=k_high_u {
+            let f_k = curr_k as f32 * fs_f32 / n_stft as f32;
+            if f_k >= fmin {
+                let y_f = (f_k / fmin).log2();
+                let dy_val = y_f - y_j;
+                let g_val = (-0.5 * (dy_val * dy_val) / sigma_y_sq).exp();
+                let gy_val = -(dy_val / sigma_y_sq) * g_val;
+                kernel.push((g_val, gy_val));
+            } else {
+                kernel.push((0.0, 0.0));
+            }
+        }
+        cqt_kernels_lut[j] = kernel;
+    }
+    
+    // 2. Single heap allocation for FFT buffers (Zero-allocation inside hot loop)
+    let mut buffer_h = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
+    let mut buffer_th = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
+    let mut buffer_dh = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
+    let mut scratch = vec![Complex::<f32>::new(0.0, 0.0); fft.get_inplace_scratch_len()];
+    
+    // 3. Precompute YCbCr Palette Logarithmic Bounds LUTs (0-255 bounds)
+    let mut a_min_lut = vec![0.0f32; 256];
+    let mut delta_a_lut = vec![0.0f32; 256];
+    for y_idx in 1..=255 {
+        let y_f = y_idx as f32;
+        let amin_pow = -15.0 + 15.0 * (y_f * y_f - 1.0) / 65024.0;
+        let a_min = 2.0f32.powf(amin_pow);
+        let a_max = 2.0f32.powf(-15.0 + 15.0 * ((y_f + 1.0) * (y_f + 1.0) - 1.0) / 65024.0);
+        a_min_lut[y_idx] = a_min;
+        delta_a_lut[y_idx] = a_max - a_min;
+    }
+    a_min_lut[0] = 0.0;
+    delta_a_lut[0] = a_min_lut[1]; // fallback
+
     let mut reassigned_grid_re = vec![0.0f32; grid_size];
     let mut reassigned_grid_im = vec![0.0f32; grid_size];
     
     for c in 0..w {
         let start = c * hop;
-        let mut buffer_h = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
-        let mut buffer_th = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
-        let mut buffer_dh = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
+        
+        // Zero-fill the reused buffers safely
+        for i in 0..n_stft {
+            buffer_h[i] = Complex::new(0.0, 0.0);
+            buffer_th[i] = Complex::new(0.0, 0.0);
+            buffer_dh[i] = Complex::new(0.0, 0.0);
+        }
         
         for i in 0..win_len {
             let idx = start as isize + i as isize - (win_len as isize / 2);
-            if idx >= 0 && idx < num_samples as isize {
+            if idx >= 0 && idx < sliced_samples as isize {
                 let sample_val = mid_channel[idx as usize];
                 buffer_h[i] = Complex::new(sample_val * win_h[i], 0.0);
                 buffer_th[i] = Complex::new(sample_val * win_th[i], 0.0);
@@ -2851,13 +2926,14 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
             }
         }
         
-        fft.process(&mut buffer_h);
-        fft.process(&mut buffer_th);
-        fft.process(&mut buffer_dh);
+        // Use process_with_scratch to completely eliminate RustFFT's internal dynamic heap allocations
+        fft.process_with_scratch(&mut buffer_h, &mut scratch);
+        fft.process_with_scratch(&mut buffer_th, &mut scratch);
+        fft.process_with_scratch(&mut buffer_dh, &mut scratch);
         
         for j in 0..h {
-            let fc = fmin * 2.0f32.powf(j as f32 * step);
-            let k_f = fc * n_stft as f32 / fs_f32;
+            let fc = fc_lut[j];
+            let k_f = k_f_lut[j];
             let k_floor = (k_f.floor() as usize).clamp(1, n_stft / 2 - 2);
             let k_ceil = k_floor + 1;
             let delta_k = k_f - k_floor as f32;
@@ -2911,8 +2987,8 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
                     let mut coords = [(0isize, 0isize); 9];
                     
                     let mut ptr = 0;
-                    for ox in -1..=1 {
-                        for oy in -1..=1 {
+                    for ox in -1isize..=1isize {
+                        for oy in -1isize..=1isize {
                             let curr_c = c_reassigned_i + ox;
                             let curr_j = j_reassigned_i + oy;
                             coords[ptr] = (curr_c, curr_j);
@@ -2941,21 +3017,10 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
                         }
                     }
                 } else if algorithm_type == "cqt" {
-                    // Constant-Q Log-Gaussian Spectral Jet (fCQT-Jet)
-                    let sigma_y = 0.95 * step;
-                    let sigma_y_sq = sigma_y * sigma_y;
-                    
-                    // We define a support width in FFT bins around the center k
-                    // Since it's a Gaussian filter, we can restrict calculation to +/- 3 * sigma_y
-                    let bandwidth_octaves = 3.0 * sigma_y;
-                    let f_center = fc;
-                    let f_low = f_center * 2.0f32.powf(-bandwidth_octaves);
-                    let f_high = f_center * 2.0f32.powf(bandwidth_octaves);
-                    
-                    let k_low = (f_low * n_stft as f32 / fs_f32).round() as isize;
-                    let k_high = (f_high * n_stft as f32 / fs_f32).round() as isize;
-                    let k_low = k_low.clamp(1, (n_stft / 2 - 2) as isize);
-                    let k_high = k_high.clamp(k_low + 1, (n_stft / 2 - 1) as isize);
+                    // Constant-Q Log-Gaussian Spectral Jet (fCQT-Jet) - ZERO ALLOCATION / O(1) LUT HOT LOOP!
+                    let k_low = cqt_k_low_lut[j];
+                    let k_high = cqt_k_high_lut[j];
+                    let kernel = &cqt_kernels_lut[j];
                     
                     let mut cqt_re = 0.0f32;
                     let mut cqt_im = 0.0f32;
@@ -2963,26 +3028,18 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
                     let mut cqty_im = 0.0f32;
                     let mut weight_sum = 0.0f32;
                     
-                    let y_j = j as f32 * step; // center coordinate of the filter in octaves
+                    // Sum over the support of the log-Gaussian filter using pre-computed LUT values!
+                    let phase_multiplier = 2.0 * std::f32::consts::PI * (c * hop) as f32 / n_stft as f32;
                     
-                    // Sum over the support of the log-Gaussian filter
-                    for curr_k in k_low..=k_high {
-                        let f_k = curr_k as f32 * fs_f32 / n_stft as f32;
-                        if f_k >= fmin {
-                            let y_f = (f_k / fmin).log2();
-                            let dy_val = y_f - y_j;
-                            
-                            // Log-Gaussian filter value G_j[k]
-                            let g_val = (-0.5 * (dy_val * dy_val) / sigma_y_sq).exp();
-                            
-                            // Analytical derivative filter value G_y_j[k]
-                            let gy_val = -(dy_val / sigma_y_sq) * g_val;
-                            
-                            let fft_bin = buffer_h[curr_k as usize];
+                    for (i, curr_k) in (k_low..=k_high).enumerate() {
+                        let (g_val, gy_val) = kernel[i];
+                        
+                        if g_val > 1e-6 {
+                            let fft_bin = buffer_h[curr_k];
                             
                             // Compute the continuous phase-shifted sum for sample index n = c * hop
                             // e^(i 2pi k n / N)
-                            let angle = 2.0 * std::f32::consts::PI * curr_k as f32 * (c * hop) as f32 / n_stft as f32;
+                            let angle = curr_k as f32 * phase_multiplier;
                             let phase_shifter = Complex::new(angle.cos(), angle.sin());
                             
                             let shifted_bin = fft_bin * phase_shifter;
@@ -3024,7 +3081,7 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
                             let mut w_sum = 0.0f32;
                             let mut w_vals = [0.0f32; 3];
                             
-                            for oy in -1..=1 {
+                            for oy in -1isize..=1isize {
                                 let dist_y = oy as f32 - dy;
                                 let w_val = (-0.5 * (dist_y * dist_y) / (sig_f * sig_f)).exp();
                                 w_vals[(oy + 1) as usize] = w_val;
@@ -3032,7 +3089,7 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
                             }
                             
                             if w_sum > 1e-15 {
-                                for oy in -1..=1 {
+                                for oy in -1isize..=1isize {
                                     let curr_j = j_reassigned_i + oy;
                                     if curr_j >= 0 && curr_j < h as isize {
                                         let target_idx_cqt = curr_j as usize * w + c;
@@ -3091,23 +3148,20 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
             rgba_buffer[out_idx + 2] = b;
             rgba_buffer[out_idx + 3] = 255;
         } else {
-            // YCbCr Magnitude-Phase Complex colorizer (our mathematical masterpiece!)
+            // YCbCr Magnitude-Phase Complex colorizer using zero-allocation O(1) LUT!
             let abs_z_norm = abs_z / 4194304.0;
             
             let log2_r = abs_z_norm.log2();
             let y_val = (1.0 + 65024.0 * (log2_r + 15.0) / 15.0).sqrt();
-            let mut y = y_val.floor();
-            if y < 1.0 { y = 1.0; }
-            if y > 255.0 { y = 255.0; }
+            let mut y_f = y_val.floor();
+            if y_f < 1.0 { y_f = 1.0; }
+            if y_f > 255.0 { y_f = 255.0; }
             
-            let amin_pow = -15.0 + 15.0 * (y * y - 1.0) / 65024.0;
-            let a_min = 2.0f32.powf(amin_pow);
+            let y_idx = y_f as usize;
+            let a_min = a_min_lut[y_idx];
+            let delta_a = delta_a_lut[y_idx];
             
             let r_resid = abs_z_norm - a_min;
-            
-            let a_max = 2.0f32.powf(-15.0 + 15.0 * ((y + 1.0) * (y + 1.0) - 1.0) / 65024.0);
-            let delta_a = a_max - a_min;
-            
             let r_norm = r_resid / if delta_a > 1e-15 { delta_a } else { 1e-15 };
             
             let re_norm = re / 4194304.0;
@@ -3121,9 +3175,9 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
             let cb_byte = (cb * 112.0 + 128.0).clamp(16.0, 240.0);
             let cr_byte = (cr * 112.0 + 128.0).clamp(16.0, 240.0);
             
-            let r_val = y + 1.402 * (cr_byte - 128.0);
-            let g_val = y - 0.344136 * (cb_byte - 128.0) - 0.714136 * (cr_byte - 128.0);
-            let b_val = y + 1.772 * (cb_byte - 128.0);
+            let r_val = y_f + 1.402 * (cr_byte - 128.0);
+            let g_val = y_f - 0.344136 * (cb_byte - 128.0) - 0.714136 * (cr_byte - 128.0);
+            let b_val = y_f + 1.772 * (cb_byte - 128.0);
             
             rgba_buffer[out_idx] = r_val.clamp(0.0, 255.0).round() as u8;
             rgba_buffer[out_idx + 1] = g_val.clamp(0.0, 255.0).round() as u8;

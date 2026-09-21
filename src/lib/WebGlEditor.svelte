@@ -415,6 +415,13 @@
     }
   }
 
+  function handleKeyDown(e: KeyboardEvent) {
+    if (e.code === 'Space') {
+      e.preventDefault();
+      onPlayToggle();
+    }
+  }
+
   function resizeCanvas() {
     if (!canvas || !canvas.parentElement) return;
     const rect = canvas.parentElement.getBoundingClientRect();
@@ -447,6 +454,8 @@
     };
   });
 </script>
+
+<svelte:window onkeydown={handleKeyDown} />
 
 <div class="full-screen-editor">
   <input 
@@ -730,7 +739,7 @@
     width: 100vw;
     height: 100vh;
     overflow: hidden;
-    background-color: #020617;
+    background: radial-gradient(circle at 50% 50%, #0b1329 0%, #020617 100%);
   }
 
   .canvas-container {
@@ -790,12 +799,12 @@
 
   .hud-panel {
     pointer-events: auto;
-    background: rgba(15, 23, 42, 0.65);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(10, 15, 30, 0.35);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: 8px;
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
     color: #cbd5e1;
     font-family: system-ui, -apple-system, sans-serif;
   }
