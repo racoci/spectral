@@ -32,6 +32,10 @@
     // Bindable frequency scale type
     frequencyScale = $bindable('log'),
     
+    // Bindable zoom mode & horizontal precomputed resolution multiplier (2^k)
+    zoomMode = $bindable('gpu_debounced'),
+    horizontalResolutionK = $bindable(1),
+    
     originalAudio,
     isPlaying,
     onPlayToggle,
@@ -59,6 +63,8 @@
     viewEnd: number,
     pointRadius: number,
     frequencyScale: 'log' | 'linear',
+    zoomMode: 'gpu_debounced' | 'continuous_resample',
+    horizontalResolutionK: number,
     
     originalAudio: HTMLAudioElement | null,
     isPlaying: boolean,
@@ -79,7 +85,7 @@
   let isSelecting = false;
   let lastMouseX = 0;
 
-  let selectedTool = $state<'select' | 'region_select' | 'gaussian_brush' | 'low_pass' | 'high_pass'>('select');
+  let selectedTool = $state<'select' | 'region_select' | 'gaussian_brush' | 'low_pass' | 'high_pass'>('region_select');
   let brushSize = $state(50);
   let brushStrength = $state(0.5);
 
@@ -259,6 +265,22 @@
     maxBinValue = Math.max(1, ...bins);
   }
 
+  let texStart = $state(0.0);
+  let texEnd = $state(1.0);
+  let debounceTimer: any = null;
+
+  // Whenever a newly generated texture is passed from WASM, record its exact window and stabilize GPU coordinates
+  $effect(() => {
+    const _grid = rgbaGrid;
+    if (_grid) {
+      texStart = viewStart;
+      texEnd = viewEnd;
+      zoomX = 1.0;
+      panX = 0.0;
+      render();
+    }
+  });
+
   function render() {
     if (!gl || !program || !rgbaGrid) return;
     gl.viewport(0, 0, canvas.width, canvas.height);
@@ -270,9 +292,9 @@
     const panLoc = gl.getUniformLocation(program, 'u_panX');
     const texLoc = gl.getUniformLocation(program, 'u_spectrogramTexture');
     
-    // Always render flat on the GPU: Rust WebAssembly generates the exact viewStart/viewEnd slice!
-    gl.uniform1f(zoomLoc, 1.0);
-    gl.uniform1f(panLoc, 0.0);
+    // Stretch texture on GPU during active zoom/pan gestures, flat when texture is focused!
+    gl.uniform1f(zoomLoc, zoomX);
+    gl.uniform1f(panLoc, panX);
     gl.uniform1i(texLoc, 0);
     
     gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -281,28 +303,71 @@
   function handleWheel(e: WheelEvent) {
     e.preventDefault();
     if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const mouseRatio = Math.max(0.0, Math.min(1.0, (e.clientX - rect.left) / rect.width));
-    
-    const currentSpan = viewEnd - viewStart;
-    const zoomFactor = e.deltaY < 0 ? 0.85 : 1.18;
-    const newSpan = Math.max(0.001, Math.min(1.0, currentSpan * zoomFactor));
-    
-    const centerT = viewStart + mouseRatio * currentSpan;
-    let newStart = centerT - mouseRatio * newSpan;
-    let newEnd = centerT + (1.0 - mouseRatio) * newSpan;
-    
-    if (newStart < 0.0) {
-      newEnd = Math.min(1.0, newEnd - newStart);
-      newStart = 0.0;
+
+    if (zoomMode === 'continuous_resample') {
+      // Continuous Resample Mode (For powerful machines)
+      const rect = canvas.getBoundingClientRect();
+      const mouseRatio = Math.max(0.0, Math.min(1.0, (e.clientX - rect.left) / rect.width));
+      
+      const currentSpan = viewEnd - viewStart;
+      const zoomFactor = e.deltaY < 0 ? 0.85 : 1.18;
+      const newSpan = Math.max(0.001, Math.min(1.0, currentSpan * zoomFactor));
+      
+      const centerT = viewStart + mouseRatio * currentSpan;
+      let newStart = centerT - mouseRatio * newSpan;
+      let newEnd = centerT + (1.0 - mouseRatio) * newSpan;
+      
+      if (newStart < 0.0) {
+        newEnd = Math.min(1.0, newEnd - newStart);
+        newStart = 0.0;
+      }
+      if (newEnd > 1.0) {
+        newStart = Math.max(0.0, newStart - (newEnd - 1.0));
+        newEnd = 1.0;
+      }
+      
+      viewStart = newStart;
+      viewEnd = newEnd;
+    } else {
+      // GPU-Debounced Mode (Default - Lightweight & Instant 120fps)
+      // Stretches the precalculated 2^k high-res texture on the GPU smoothly,
+      // and calculates focused high-res slices only when scrolling stops!
+      const zoomFactor = 1.15;
+      const oldZoom = zoomX;
+      
+      if (e.deltaY < 0) {
+        zoomX *= zoomFactor;
+      } else {
+        zoomX /= zoomFactor;
+      }
+      
+      zoomX = Math.max(1.0, Math.min(100.0, zoomX));
+      
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = (e.clientX - rect.left) / rect.width;
+      const clipMouseX = (mouseX * 2.0 - 1.0);
+      
+      const viewPointX = (clipMouseX / oldZoom) + panX;
+      panX = viewPointX - (clipMouseX / zoomX);
+      
+      const maxPan = 1.0 - (1.0 / zoomX);
+      panX = Math.max(-maxPan, Math.min(maxPan, panX));
+
+      render();
+
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        const halfSpan = 0.5 / zoomX;
+        const centerU = (panX * 0.5 + 0.5);
+        const texSpan = texEnd - texStart;
+        
+        const newStart = texStart + Math.max(0.0, centerU - halfSpan) * texSpan;
+        const newEnd = texStart + Math.min(1.0, centerU + halfSpan) * texSpan;
+        
+        viewStart = Math.max(0.0, newStart);
+        viewEnd = Math.min(1.0, newEnd);
+      }, 220);
     }
-    if (newEnd > 1.0) {
-      newStart = Math.max(0.0, newStart - (newEnd - 1.0));
-      newEnd = 1.0;
-    }
-    
-    viewStart = newStart;
-    viewEnd = newEnd;
   }
 
   function handleMouseDown(e: MouseEvent) {
@@ -324,26 +389,51 @@
 
   function handleMouseMove(e: MouseEvent) {
     if (isDragging && selectedTool === 'select') {
-      const rect = canvas.getBoundingClientRect();
-      const deltaX = (e.clientX - lastMouseX) / rect.width;
-      const currentSpan = viewEnd - viewStart;
-      const shift = deltaX * currentSpan;
-      
-      let newStart = viewStart - shift;
-      let newEnd = viewEnd - shift;
-      
-      if (newStart < 0.0) {
-        newEnd += -newStart;
-        newStart = 0.0;
+      if (zoomMode === 'continuous_resample') {
+        const rect = canvas.getBoundingClientRect();
+        const deltaX = (e.clientX - lastMouseX) / rect.width;
+        const currentSpan = viewEnd - viewStart;
+        const shift = deltaX * currentSpan;
+        
+        let newStart = viewStart - shift;
+        let newEnd = viewEnd - shift;
+        
+        if (newStart < 0.0) {
+          newEnd += -newStart;
+          newStart = 0.0;
+        }
+        if (newEnd > 1.0) {
+          newStart -= (newEnd - 1.0);
+          newEnd = 1.0;
+        }
+        
+        viewStart = Math.max(0.0, newStart);
+        viewEnd = Math.min(1.0, newEnd);
+        lastMouseX = e.clientX;
+      } else {
+        const rect = canvas.getBoundingClientRect();
+        const deltaX = (e.clientX - lastMouseX) / rect.width;
+        panX -= deltaX * 2.0 / zoomX;
+        
+        const maxPan = 1.0 - (1.0 / zoomX);
+        panX = Math.max(-maxPan, Math.min(maxPan, panX));
+        
+        lastMouseX = e.clientX;
+        render();
+
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          const halfSpan = 0.5 / zoomX;
+          const centerU = (panX * 0.5 + 0.5);
+          const texSpan = texEnd - texStart;
+          
+          const newStart = texStart + Math.max(0.0, centerU - halfSpan) * texSpan;
+          const newEnd = texStart + Math.min(1.0, centerU + halfSpan) * texSpan;
+          
+          viewStart = Math.max(0.0, newStart);
+          viewEnd = Math.min(1.0, newEnd);
+        }, 220);
       }
-      if (newEnd > 1.0) {
-        newStart -= (newEnd - 1.0);
-        newEnd = 1.0;
-      }
-      
-      viewStart = Math.max(0.0, newStart);
-      viewEnd = Math.min(1.0, newEnd);
-      lastMouseX = e.clientX;
     } else if (isSelecting && selectedTool === 'region_select') {
       const t = screenXToNormalizedTime(e.clientX);
       selectionEnd = t;
@@ -379,19 +469,23 @@
   }
 
   function screenXToNormalizedTime(clientX: number): number {
-    if (!canvas || viewEnd <= viewStart) return 0.0;
+    if (!canvas || texEnd <= texStart) return 0.0;
     const rect = canvas.getBoundingClientRect();
-    const ratio = Math.max(0.0, Math.min(1.0, (clientX - rect.left) / rect.width));
-    return viewStart + ratio * (viewEnd - viewStart);
+    const screenRatio = Math.max(0.0, Math.min(1.0, (clientX - rect.left) / rect.width));
+    const clipX = screenRatio * 2.0 - 1.0;
+    const u = ((clipX / zoomX) + panX + 1.0) * 0.5;
+    return texStart + Math.max(0.0, Math.min(1.0, u)) * (texEnd - texStart);
   }
 
   function normalizedTimeToScreenPct(t: number): number {
-    if (!canvas || viewEnd <= viewStart) return 0.0;
-    return ((t - viewStart) / (viewEnd - viewStart)) * 100.0;
+    if (!canvas || texEnd <= texStart) return 0.0;
+    const u = (t - texStart) / (texEnd - texStart);
+    const clipX = (u * 2.0 - 1.0 - panX) * zoomX;
+    return (clipX * 0.5 + 0.5) * 100.0;
   }
 
   function getSelectionOverlayStyle(start: number | null, end: number | null) {
-    if (start === null || end === null || viewEnd <= viewStart) return 'display: none;';
+    if (start === null || end === null || texEnd <= texStart) return 'display: none;';
     const pct1 = normalizedTimeToScreenPct(start);
     const pct2 = normalizedTimeToScreenPct(end);
     
@@ -686,6 +780,29 @@
               <label>Raio de Amostragem (CQT/Reassign): {pointRadius.toFixed(2)}
                 <input type="range" min="0.1" max="5.0" step="0.05" bind:value={pointRadius} />
               </label>
+            </div>
+          </div>
+
+          <!-- Section: Zoom Strategy & 2^k Resolution Multiplier -->
+          <div class="dock-section">
+            <h4>🚀 Zoom & Desempenho</h4>
+            
+            <div class="input-control">
+              <label for="zoom-mode-select">Modo de Zoom:</label>
+              <select id="zoom-mode-select" bind:value={zoomMode}>
+                <option value="gpu_debounced">GPU Rápido + Foco (Padrão - Leve)</option>
+                <option value="continuous_resample">Reamostragem Contínua (Computador Forte)</option>
+              </select>
+            </div>
+
+            <div class="input-control">
+              <label for="k-res-select">Multiplicador Horizontal (2^k):</label>
+              <select id="k-res-select" bind:value={horizontalResolutionK}>
+                <option value={0}>1x (1024 colunas - Rápido)</option>
+                <option value={1}>2x (2048 colunas - Equilibrado)</option>
+                <option value={2}>4x (4096 colunas - Alta Nitidez)</option>
+                <option value={3}>8x (8192 colunas - Máxima Resolução)</option>
+              </select>
             </div>
           </div>
 

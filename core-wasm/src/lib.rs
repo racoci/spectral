@@ -2733,7 +2733,8 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
     t_start: f32,
     t_end: f32,
     point_radius: f32,
-    scale_type: &str
+    scale_type: &str,
+    horizontal_res_k: usize,
 ) -> Vec<u8> {
     let mut h = h_custom;
     if !h.is_power_of_two() || h < 4 { h = 1024; }
@@ -2756,9 +2757,11 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
     let pad_factor = if zero_padding > 0 { zero_padding } else { 4 };
     let n_stft = win_len * pad_factor;
     
-    // Adaptive hop-size: We dynamically calculate hop so that we always return exactly 1024 columns 
-    // of pixels (constant resolution), achieving infinite detail under zoom without texture resizing!
-    let hop = (sliced_samples / 1024).max(1);
+    // Precalculate 2^k times more horizontal pixels (configurable via horizontal_res_k)
+    // so that initial zoom has rich resolution before needing re-sampling!
+    let k_clamped = horizontal_res_k.min(4);
+    let target_cols = (1024usize << k_clamped).max(512);
+    let hop = (sliced_samples / target_cols).max(1);
     let w = (sliced_samples / hop).max(2);
     let grid_size = w * h;
     

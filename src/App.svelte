@@ -8,7 +8,6 @@
   } from './wasm/core_wasm.js';
 
   let currentHash = $state<string>(typeof window !== 'undefined' && window.location.hash ? window.location.hash : '#/converter');
-  let currentView = $derived<'converter' | 'editor'>((currentHash === '#/editor' && rgbaGrid) ? 'editor' : 'converter');
   let wasmLoaded = $state(false);
   
   // Globally preserved state
@@ -18,6 +17,7 @@
   let rgbaGrid = $state<Uint8Array | null>(null);
   let gridW = $state(0);
   let gridH = $state(0);
+  let currentView = $derived<'converter' | 'editor'>((currentHash === '#/editor' && rgbaGrid) ? 'editor' : 'converter');
 
   // Advanced DSP Configurations
   let windowType = $state<'hann' | 'hamming' | 'gaussian' | 'blackman-harris'>('hann');
@@ -37,6 +37,10 @@
   
   // Frequency Scale Type
   let frequencyScale = $state<'log' | 'linear'>('log');
+
+  // Zoom Strategy & Horizontal Precomputation Factor (2^k)
+  let zoomMode = $state<'gpu_debounced' | 'continuous_resample'>('gpu_debounced');
+  let horizontalResolutionK = $state<number>(1);
 
   // Global Audio Transport & Selection Looping State
   let originalAudio = $state<HTMLAudioElement | null>(null);
@@ -115,11 +119,12 @@
         viewStart,
         viewEnd,
         pointRadius,
-        frequencyScale
+        frequencyScale,
+        horizontalResolutionK
       ) as Uint8Array;
       gridH = selectedHeight;
       gridW = (rgbaGrid.length / 4) / selectedHeight;
-      console.log(`✅ Regenerated Master Spectrogram [Scale: ${frequencyScale}]: size ${rgbaGrid.length} bytes (dimensions: ${gridW} x ${gridH}) in ${(performance.now() - t0).toFixed(3)} ms.`);
+      console.log(`✅ Regenerated Master Spectrogram [Scale: ${frequencyScale}, 2^k: ${horizontalResolutionK} (${gridW} cols)]: size ${rgbaGrid.length} bytes in ${(performance.now() - t0).toFixed(3)} ms.`);
       
       // Rebuild global audio playback if not already created
       if (!originalAudio) {
@@ -153,8 +158,9 @@
     const _viewEnd = viewEnd;
     const _pointRadius = pointRadius;
     const _scale = frequencyScale;
+    const _resK = horizontalResolutionK;
     
-    if (_bytes && _loaded && _winType && _winSize && _zeroPadding && _fmin && _fmax && _algo && _pal && _height && _scale) {
+    if (_bytes && _loaded && _winType && _winSize && _zeroPadding && _fmin && _fmax && _algo && _pal && _height && _scale && _resK !== undefined) {
       untrack(() => {
         regenerateSpectrogram();
       });
@@ -320,6 +326,8 @@
       
       bind:pointRadius={pointRadius}
       bind:frequencyScale={frequencyScale}
+      bind:zoomMode={zoomMode}
+      bind:horizontalResolutionK={horizontalResolutionK}
       
       originalAudio={originalAudio}
       isPlaying={isPlaying}
