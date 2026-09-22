@@ -282,7 +282,7 @@
   let progressiveScanPct = $state<number>(0);
   let scanCancelId = 0;
 
-  // Non-blocking chunk scanner: incrementally updates mirrored histograms without freezing the UI!
+  // Non-blocking chunk scanner: incrementally updates mirrored histograms over the selected region or active view
   function startProgressiveDensityScan() {
     scanCancelId++;
     const currentId = scanCancelId;
@@ -293,16 +293,36 @@
     const totalRows = height;
     const grid = rgbaGrid;
     const colsPerChunk = 64;
+
+    // Determine target column range: selection region if active, else full texture
+    let scanColStart = 0;
+    let scanColEnd = totalCols;
+
+    if (selectionStart !== null && selectionEnd !== null) {
+      const sMin = Math.min(selectionStart, selectionEnd);
+      const sMax = Math.max(selectionStart, selectionEnd);
+      
+      const texSpan = texEnd - texStart;
+      if (texSpan > 0) {
+        const uStart = Math.max(0.0, Math.min(1.0, (sMin - texStart) / texSpan));
+        const uEnd = Math.max(0.0, Math.min(1.0, (sMax - texStart) / texSpan));
+        scanColStart = Math.floor(uStart * totalCols);
+        scanColEnd = Math.max(scanColStart + 1, Math.ceil(uEnd * totalCols));
+      }
+    }
+    
+    const rangeCols = scanColEnd - scanColStart;
+    if (rangeCols <= 0) return;
     
     const accumTrans = new Float64Array(128);
     const accumOrig = new Float64Array(128);
     
-    function scanChunk(startCol: number) {
+    function scanChunk(currCol: number) {
       if (currentId !== scanCancelId) return; // Discard stale scan
       
-      const endCol = Math.min(totalCols, startCol + colsPerChunk);
+      const chunkEnd = Math.min(scanColEnd, currCol + colsPerChunk);
       
-      for (let c = startCol; c < endCol; c++) {
+      for (let c = currCol; c < chunkEnd; c++) {
         for (let j = 0; j < totalRows; j++) {
           const idx = (j * totalCols + c) * 4;
           const r = grid[idx];
@@ -337,44 +357,85 @@
       
       densityTrans = normTrans;
       densityOrig = normOrig;
-      progressiveScanPct = Math.round((endCol / totalCols) * 100);
+      const scannedSoFar = chunkEnd - scanColStart;
+      progressiveScanPct = Math.min(100, Math.round((scannedSoFar / rangeCols) * 100));
       
-      if (endCol < totalCols) {
-        requestAnimationFrame(() => scanChunk(endCol));
+      if (chunkEnd < scanColEnd) {
+        requestAnimationFrame(() => scanChunk(chunkEnd));
       }
     }
     
-    scanChunk(0);
+    scanChunk(scanColStart);
   }
 
-  // Smooth SVG Path generation for mirrored curves
+  // Convert linear density p in [0, 1] to logarithmic density scale vLog in [0, 1] (with 30dB floor)
+  function toLogDensity(p: number, pFloor = 0.001): number {
+    if (p <= pFloor) return 0.0;
+    const logP = Math.log10(p);
+    const logFloor = Math.log10(pFloor); // -3.0
+    return Math.max(0.0, Math.min(1.0, (logP - logFloor) / -logFloor));
+  }
+
+  // Smooth SVG Path generation for mirrored curves with logarithmic density and 16px text channel
   let topPathD = $derived.by(() => {
     if (!densityTrans || densityTrans.length !== 128) return '';
-    let d = `M 0 24 `;
+    let d = `M 0 22 `;
     for (let i = 0; i < 128; i++) {
-      const x = (i / 127) * 240;
-      const y = 24 - densityTrans[i] * 20;
+      const x = (i / 127) * 260;
+      const vLog = toLogDensity(densityTrans[i]);
+      const y = 22 - vLog * 18;
       d += `L ${x.toFixed(1)} ${y.toFixed(1)} `;
     }
-    d += `L 240 24 Z`;
+    d += `L 260 22 Z`;
     return d;
   });
 
   let bottomPathD = $derived.by(() => {
     if (!densityOrig || densityOrig.length !== 128) return '';
-    let d = `M 0 24 `;
+    let d = `M 0 38 `;
     for (let i = 0; i < 128; i++) {
-      const x = (i / 127) * 240;
-      const y = 24 + densityOrig[i] * 20;
+      const x = (i / 127) * 260;
+      const vLog = toLogDensity(densityOrig[i]);
+      const y = 38 + vLog * 18;
       d += `L ${x.toFixed(1)} ${y.toFixed(1)} `;
     }
-    d += `L 240 24 Z`;
+    d += `L 260 38 Z`;
     return d;
   });
+
+  // Logarithmic Sliders mapping for fmin (5 Hz to 1000 Hz) and fmax (200 Hz to 22050 Hz)
+  const MIN_FMIN_LOG = Math.log10(5);
+  const MAX_FMIN_LOG = Math.log10(1000);
+  
+  const MIN_FMAX_LOG = Math.log10(200);
+  const MAX_FMAX_LOG = Math.log10(22050);
+
+  function getFminSliderValue(freq: number): number {
+    const clamped = Math.max(5, Math.min(1000, freq));
+    return Math.round(((Math.log10(clamped) - MIN_FMIN_LOG) / (MAX_FMIN_LOG - MIN_FMIN_LOG)) * 1000);
+  }
+
+  function handleFminSliderInput(e: Event) {
+    const val = Number((e.target as HTMLInputElement).value);
+    const logVal = MIN_FMIN_LOG + (val / 1000) * (MAX_FMIN_LOG - MIN_FMIN_LOG);
+    fmin = Math.round(Math.pow(10, logVal));
+  }
+
+  function getFmaxSliderValue(freq: number): number {
+    const clamped = Math.max(200, Math.min(22050, freq));
+    return Math.round(((Math.log10(clamped) - MIN_FMAX_LOG) / (MAX_FMAX_LOG - MIN_FMAX_LOG)) * 1000);
+  }
+
+  function handleFmaxSliderInput(e: Event) {
+    const val = Number((e.target as HTMLInputElement).value);
+    const logVal = MIN_FMAX_LOG + (val / 1000) * (MAX_FMAX_LOG - MIN_FMAX_LOG);
+    fmax = Math.round(Math.pow(10, logVal));
+  }
 
   let texStart = $state(0.0);
   let texEnd = $state(1.0);
   let debounceTimer: any = null;
+  let selScanDebounce: any = null;
 
   // Whenever a newly generated texture is passed from WASM, record its exact window and stabilize GPU coordinates
   $effect(() => {
@@ -385,7 +446,19 @@
       zoomX = 1.0;
       panX = 0.0;
       render();
-      startProgressiveDensityScan();
+    }
+  });
+
+  // Re-scan density progressively whenever either the texture OR the selection region updates
+  $effect(() => {
+    const _grid = rgbaGrid;
+    const _selStart = selectionStart;
+    const _selEnd = selectionEnd;
+    if (_grid) {
+      if (selScanDebounce) clearTimeout(selScanDebounce);
+      selScanDebounce = setTimeout(() => {
+        startProgressiveDensityScan();
+      }, 40);
     }
   });
 
@@ -562,6 +635,7 @@
       if (Math.abs(selectionEnd - selectionStart) < 0.001) {
         selectionStart = null;
         selectionEnd = null;
+        startProgressiveDensityScan();
       }
     }
   }
@@ -574,6 +648,7 @@
   function clearSelection() {
     selectionStart = null;
     selectionEnd = null;
+    startProgressiveDensityScan();
   }
 
   function screenXToNormalizedTime(clientX: number): number {
@@ -942,18 +1017,32 @@
             </div>
           </div>
 
-          <!-- Section C: Frequency Bounds -->
+          <!-- Section C: Frequency Bounds (Logarithmic Sliders) -->
           <div class="dock-section">
             <h4>📐 Filtro Hertz (Eixo Y)</h4>
             <div class="input-control range-box">
-              <label>Freq Mínima: {fmin} Hz
-                <input type="range" min="5" max="200" step="5" bind:value={fmin} />
+              <label>Freq Mínima (Log): {fmin} Hz
+                <input 
+                  type="range" 
+                  min="0" 
+                  max="1000" 
+                  step="1" 
+                  value={getFminSliderValue(fmin)} 
+                  oninput={handleFminSliderInput} 
+                />
               </label>
             </div>
             
             <div class="input-control range-box">
-              <label>Freq Máxima: {fmax} Hz
-                <input type="range" min="1000" max="22050" step="250" bind:value={fmax} />
+              <label>Freq Máxima (Log): {fmax} Hz
+                <input 
+                  type="range" 
+                  min="0" 
+                  max="1000" 
+                  step="1" 
+                  value={getFmaxSliderValue(fmax)} 
+                  oninput={handleFmaxSliderInput} 
+                />
               </label>
             </div>
           </div>
@@ -1028,50 +1117,55 @@
         <!-- Continuous Mirrored dB Density Histogram (Transformed vs Original on shared dB axis) -->
         <div class="mirrored-histogram-container" title="Densidade Contínua de Energia em dB (Transformada vs Original)">
           <div class="hist-labels-top">
-            <span class="hist-badge-trans">▲ P_trans {progressiveScanPct < 100 ? `(${progressiveScanPct}%)` : ''}</span>
-            <span class="hist-badge-orig">▼ P_orig</span>
+            <span class="hist-badge-trans">
+              ▲ P_trans {selectionStart !== null && selectionEnd !== null ? '[A-B]' : '[Global]'} {progressiveScanPct < 100 ? `(${progressiveScanPct}%)` : ''}
+            </span>
+            <span class="hist-badge-orig">
+              ▼ P_orig {selectionStart !== null && selectionEnd !== null ? '[A-B]' : '[Global]'}
+            </span>
           </div>
-          <svg class="mirrored-density-svg" viewBox="0 0 240 48" preserveAspectRatio="none">
+          <svg class="mirrored-density-svg" viewBox="0 0 260 60" preserveAspectRatio="none">
             <defs>
               <linearGradient id="transGrad" x1="0" y1="1" x2="0" y2="0">
-                <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.2" />
+                <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.15" />
                 <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.8" />
               </linearGradient>
               <linearGradient id="origGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#c084fc" stop-opacity="0.2" />
+                <stop offset="0%" stop-color="#c084fc" stop-opacity="0.15" />
                 <stop offset="100%" stop-color="#c084fc" stop-opacity="0.8" />
               </linearGradient>
             </defs>
 
-            <!-- Transformed Density (Top half, going up from center y=24) -->
+            <!-- Transformed Density (Top half, baseline at y=22, peaks upwards) -->
             {#if topPathD}
               <path d={topPathD} fill="url(#transGrad)" stroke="#38bdf8" stroke-width="1.2" stroke-linejoin="round" />
             {/if}
 
-            <!-- Original Density (Bottom half, going down from center y=24) -->
+            <!-- Original Density (Bottom half, baseline at y=38, peaks downwards) -->
             {#if bottomPathD}
               <path d={bottomPathD} fill="url(#origGrad)" stroke="#c084fc" stroke-width="1.2" stroke-linejoin="round" />
             {/if}
 
-            <!-- Central shared dB Axis line at y=24 -->
-            <line x1="0" y1="24" x2="240" y2="24" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1" />
+            <!-- Central Axis Track: Dedicated clear band (y=22 to y=38) ensuring zero text overlap! -->
+            <rect x="0" y="23" width="260" height="14" rx="2" fill="rgba(2, 6, 23, 0.65)" stroke="rgba(255, 255, 255, 0.08)" stroke-width="0.5" />
+            <line x1="0" y1="30" x2="260" y2="30" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1" />
 
-            <!-- Shared dB Axis Tick Marks and Labels -->
-            <!-- -90 dB (10% of 240 = 24px) -->
-            <line x1="24" y1="21" x2="24" y2="27" stroke="rgba(255, 255, 255, 0.45)" stroke-width="1" />
-            <text x="24" y="25" font-size="7" fill="#94a3b8" text-anchor="middle" font-family="monospace">-90</text>
+            <!-- Shared dB Axis Tick Marks and Labels centered in the gap -->
+            <!-- -90 dB (10% of 260 = 26px) -->
+            <line x1="26" y1="26" x2="26" y2="34" stroke="rgba(255, 255, 255, 0.45)" stroke-width="1" />
+            <text x="26" y="30.5" font-size="7.5" fill="#94a3b8" text-anchor="middle" dominant-baseline="central" font-family="monospace">-90</text>
 
-            <!-- -60 dB (40% of 240 = 96px) -->
-            <line x1="96" y1="21" x2="96" y2="27" stroke="rgba(255, 255, 255, 0.45)" stroke-width="1" />
-            <text x="96" y="25" font-size="7" fill="#94a3b8" text-anchor="middle" font-family="monospace">-60</text>
+            <!-- -60 dB (40% of 260 = 104px) -->
+            <line x1="104" y1="26" x2="104" y2="34" stroke="rgba(255, 255, 255, 0.45)" stroke-width="1" />
+            <text x="104" y="30.5" font-size="7.5" fill="#94a3b8" text-anchor="middle" dominant-baseline="central" font-family="monospace">-60</text>
 
-            <!-- -30 dB (70% of 240 = 168px) -->
-            <line x1="168" y1="21" x2="168" y2="27" stroke="rgba(255, 255, 255, 0.45)" stroke-width="1" />
-            <text x="168" y="25" font-size="7" fill="#94a3b8" text-anchor="middle" font-family="monospace">-30</text>
+            <!-- -30 dB (70% of 260 = 182px) -->
+            <line x1="182" y1="26" x2="182" y2="34" stroke="rgba(255, 255, 255, 0.45)" stroke-width="1" />
+            <text x="182" y="30.5" font-size="7.5" fill="#94a3b8" text-anchor="middle" dominant-baseline="central" font-family="monospace">-30</text>
 
-            <!-- 0 dB (100% of 240 = 236px) -->
-            <line x1="236" y1="21" x2="236" y2="27" stroke="rgba(255, 255, 255, 0.45)" stroke-width="1" />
-            <text x="232" y="25" font-size="7" fill="#38bdf8" text-anchor="end" font-weight="bold" font-family="monospace">0dB</text>
+            <!-- 0 dB (100% of 260 = 256px) -->
+            <line x1="256" y1="26" x2="256" y2="34" stroke="rgba(255, 255, 255, 0.45)" stroke-width="1" />
+            <text x="252" y="30.5" font-size="7.5" fill="#38bdf8" text-anchor="end" font-weight="bold" dominant-baseline="central" font-family="monospace">0dB</text>
           </svg>
         </div>
 
@@ -1494,8 +1588,8 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    width: 240px;
-    height: 48px;
+    width: 260px;
+    height: 56px;
     background: rgba(15, 23, 42, 0.7);
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 6px;
