@@ -30,9 +30,12 @@
   let algorithmType = $state<'reassignment' | 'log'>('reassignment');
   let paletteType = $state<'ycbcr' | 'snake'>('ycbcr');
 
-  // Adaptive Zoom View Bounds
+  // Adaptive Zoom View Bounds (Immediate UI bounds vs Background WASM bounds)
   let viewStart = $state<number>(0.0);
   let viewEnd = $state<number>(1.0);
+  let wasmViewStart = $state<number>(0.0);
+  let wasmViewEnd = $state<number>(1.0);
+  let viewDebounceTimer: any = null;
   
   // Point/Gaussian Spread Customization Size
   let pointRadius = $state<number>(1.0);
@@ -118,8 +121,8 @@
         fmax,
         algorithmType,
         paletteType,
-        viewStart,
-        viewEnd,
+        wasmViewStart,
+        wasmViewEnd,
         pointRadius,
         frequencyScale,
         horizontalResolutionK
@@ -149,6 +152,24 @@
     }
   }
 
+  // React to immediate wheel/pan gestures: debounce WASM in gpu_debounced mode or sync immediately in continuous mode
+  $effect(() => {
+    const _vStart = viewStart;
+    const _vEnd = viewEnd;
+    const _mode = zoomMode;
+    
+    if (_mode === 'continuous_resample') {
+      wasmViewStart = _vStart;
+      wasmViewEnd = _vEnd;
+    } else {
+      if (viewDebounceTimer) clearTimeout(viewDebounceTimer);
+      viewDebounceTimer = setTimeout(() => {
+        wasmViewStart = _vStart;
+        wasmViewEnd = _vEnd;
+      }, 150);
+    }
+  });
+
   // Trigger regeneration dynamically whenever any DSP parameter changes, utilizing Svelte 5 untrack to break dependency loops
   $effect(() => {
     // Register active triggers explicitly including adaptive zoom bounds!
@@ -162,8 +183,8 @@
     const _height = selectedHeight;
     const _bytes = originalBytes;
     const _loaded = wasmLoaded;
-    const _viewStart = viewStart;
-    const _viewEnd = viewEnd;
+    const _viewStart = wasmViewStart;
+    const _viewEnd = wasmViewEnd;
     const _pointRadius = pointRadius;
     const _scale = frequencyScale;
     const _resK = horizontalResolutionK;

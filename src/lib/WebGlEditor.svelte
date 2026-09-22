@@ -143,16 +143,16 @@
   const vertexShaderSource = `#version 300 es
   in vec2 a_position;
   out vec2 v_uv;
-  uniform float u_zoomX;
-  uniform float u_panX;
+  uniform float u_u0;
+  uniform float u_u1;
   
   void main() {
-      // Map view bounds on X (Time) axis only
-      float x = (a_position.x / u_zoomX) + u_panX;
-      float y = a_position.y;
+      // Map view bounds on X (Time) axis using normalized u0 and u1
+      float norm_x = a_position.x * 0.5 + 0.5;
+      float u = u_u0 + norm_x * (u_u1 - u_u0);
+      float v = a_position.y * 0.5 + 0.5;
       
-      // Flip Y axis: Low frequencies (row 0 in texture, v_uv.y = 0.0) at the bottom (y = -1.0)
-      v_uv = vec2(x * 0.5 + 0.5, y * 0.5 + 0.5);
+      v_uv = vec2(u, v);
       gl_Position = vec4(a_position, 0.0, 1.0);
   }`;
 
@@ -434,17 +434,14 @@
 
   let texStart = $state(0.0);
   let texEnd = $state(1.0);
-  let debounceTimer: any = null;
   let selScanDebounce: any = null;
 
-  // Whenever a newly generated texture is passed from WASM, record its exact window and stabilize GPU coordinates
+  // Whenever a newly generated texture is passed from WASM, record its exact window
   $effect(() => {
     const _grid = rgbaGrid;
     if (_grid) {
       texStart = viewStart;
       texEnd = viewEnd;
-      zoomX = 1.0;
-      panX = 0.0;
       render();
     }
   });
@@ -469,13 +466,16 @@
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, texture);
     
-    const zoomLoc = gl.getUniformLocation(program, 'u_zoomX');
-    const panLoc = gl.getUniformLocation(program, 'u_panX');
+    const u0Loc = gl.getUniformLocation(program, 'u_u0');
+    const u1Loc = gl.getUniformLocation(program, 'u_u1');
     const texLoc = gl.getUniformLocation(program, 'u_spectrogramTexture');
     
-    // Stretch texture on GPU during active zoom/pan gestures, flat when texture is focused!
-    gl.uniform1f(zoomLoc, zoomX);
-    gl.uniform1f(panLoc, panX);
+    const texSpan = texEnd - texStart;
+    const u0 = texSpan > 0 ? (viewStart - texStart) / texSpan : 0.0;
+    const u1 = texSpan > 0 ? (viewEnd - texStart) / texSpan : 1.0;
+    
+    gl.uniform1f(u0Loc, u0);
+    gl.uniform1f(u1Loc, u1);
     gl.uniform1i(texLoc, 0);
     
     gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -485,70 +485,30 @@
     e.preventDefault();
     if (!canvas) return;
 
-    if (zoomMode === 'continuous_resample') {
-      // Continuous Resample Mode (For powerful machines)
-      const rect = canvas.getBoundingClientRect();
-      const mouseRatio = Math.max(0.0, Math.min(1.0, (e.clientX - rect.left) / rect.width));
-      
-      const currentSpan = viewEnd - viewStart;
-      const zoomFactor = e.deltaY < 0 ? 0.85 : 1.18;
-      const newSpan = Math.max(0.001, Math.min(1.0, currentSpan * zoomFactor));
-      
-      const centerT = viewStart + mouseRatio * currentSpan;
-      let newStart = centerT - mouseRatio * newSpan;
-      let newEnd = centerT + (1.0 - mouseRatio) * newSpan;
-      
-      if (newStart < 0.0) {
-        newEnd = Math.min(1.0, newEnd - newStart);
-        newStart = 0.0;
-      }
-      if (newEnd > 1.0) {
-        newStart = Math.max(0.0, newStart - (newEnd - 1.0));
-        newEnd = 1.0;
-      }
-      
-      viewStart = newStart;
-      viewEnd = newEnd;
-    } else {
-      // GPU-Debounced Mode (Default - Lightweight & Instant 120fps)
-      // Stretches the precalculated 2^k high-res texture on the GPU smoothly,
-      // and calculates focused high-res slices only when scrolling stops!
-      const zoomFactor = 1.15;
-      const oldZoom = zoomX;
-      
-      if (e.deltaY < 0) {
-        zoomX *= zoomFactor;
-      } else {
-        zoomX /= zoomFactor;
-      }
-      
-      zoomX = Math.max(1.0, Math.min(100.0, zoomX));
-      
-      const rect = canvas.getBoundingClientRect();
-      const mouseX = (e.clientX - rect.left) / rect.width;
-      const clipMouseX = (mouseX * 2.0 - 1.0);
-      
-      const viewPointX = (clipMouseX / oldZoom) + panX;
-      panX = viewPointX - (clipMouseX / zoomX);
-      
-      const maxPan = 1.0 - (1.0 / zoomX);
-      panX = Math.max(-maxPan, Math.min(maxPan, panX));
-
-      render();
-
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        const halfSpan = 0.5 / zoomX;
-        const centerU = (panX * 0.5 + 0.5);
-        const texSpan = texEnd - texStart;
-        
-        const newStart = texStart + Math.max(0.0, centerU - halfSpan) * texSpan;
-        const newEnd = texStart + Math.min(1.0, centerU + halfSpan) * texSpan;
-        
-        viewStart = Math.max(0.0, newStart);
-        viewEnd = Math.min(1.0, newEnd);
-      }, 220);
+    const rect = canvas.getBoundingClientRect();
+    const mouseRatio = Math.max(0.0, Math.min(1.0, (e.clientX - rect.left) / rect.width));
+    
+    const currentSpan = viewEnd - viewStart;
+    const zoomFactor = e.deltaY < 0 ? 0.85 : 1.18;
+    const newSpan = Math.max(0.0005, Math.min(1.0, currentSpan * zoomFactor));
+    
+    const centerT = viewStart + mouseRatio * currentSpan;
+    let newStart = centerT - mouseRatio * newSpan;
+    let newEnd = centerT + (1.0 - mouseRatio) * newSpan;
+    
+    if (newStart < 0.0) {
+      newEnd = Math.min(1.0, newEnd - newStart);
+      newStart = 0.0;
     }
+    if (newEnd > 1.0) {
+      newStart = Math.max(0.0, newStart - (newEnd - 1.0));
+      newEnd = 1.0;
+    }
+    
+    viewStart = newStart;
+    viewEnd = newEnd;
+    
+    render();
   }
 
   function handleMouseDown(e: MouseEvent) {
@@ -570,51 +530,27 @@
 
   function handleMouseMove(e: MouseEvent) {
     if (isDragging && selectedTool === 'select') {
-      if (zoomMode === 'continuous_resample') {
-        const rect = canvas.getBoundingClientRect();
-        const deltaX = (e.clientX - lastMouseX) / rect.width;
-        const currentSpan = viewEnd - viewStart;
-        const shift = deltaX * currentSpan;
-        
-        let newStart = viewStart - shift;
-        let newEnd = viewEnd - shift;
-        
-        if (newStart < 0.0) {
-          newEnd += -newStart;
-          newStart = 0.0;
-        }
-        if (newEnd > 1.0) {
-          newStart -= (newEnd - 1.0);
-          newEnd = 1.0;
-        }
-        
-        viewStart = Math.max(0.0, newStart);
-        viewEnd = Math.min(1.0, newEnd);
-        lastMouseX = e.clientX;
-      } else {
-        const rect = canvas.getBoundingClientRect();
-        const deltaX = (e.clientX - lastMouseX) / rect.width;
-        panX -= deltaX * 2.0 / zoomX;
-        
-        const maxPan = 1.0 - (1.0 / zoomX);
-        panX = Math.max(-maxPan, Math.min(maxPan, panX));
-        
-        lastMouseX = e.clientX;
-        render();
-
-        if (debounceTimer) clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => {
-          const halfSpan = 0.5 / zoomX;
-          const centerU = (panX * 0.5 + 0.5);
-          const texSpan = texEnd - texStart;
-          
-          const newStart = texStart + Math.max(0.0, centerU - halfSpan) * texSpan;
-          const newEnd = texStart + Math.min(1.0, centerU + halfSpan) * texSpan;
-          
-          viewStart = Math.max(0.0, newStart);
-          viewEnd = Math.min(1.0, newEnd);
-        }, 220);
+      const rect = canvas.getBoundingClientRect();
+      const deltaX = (e.clientX - lastMouseX) / rect.width;
+      const currentSpan = viewEnd - viewStart;
+      const shift = deltaX * currentSpan;
+      
+      let newStart = viewStart - shift;
+      let newEnd = viewEnd - shift;
+      
+      if (newStart < 0.0) {
+        newEnd += -newStart;
+        newStart = 0.0;
       }
+      if (newEnd > 1.0) {
+        newStart -= (newEnd - 1.0);
+        newEnd = 1.0;
+      }
+      
+      viewStart = Math.max(0.0, newStart);
+      viewEnd = Math.min(1.0, newEnd);
+      lastMouseX = e.clientX;
+      render();
     } else if (isSelecting && selectedTool === 'region_select') {
       const t = screenXToNormalizedTime(e.clientX);
       selectionEnd = t;
@@ -652,19 +588,15 @@
   }
 
   function screenXToNormalizedTime(clientX: number): number {
-    if (!canvas || texEnd <= texStart) return 0.0;
+    if (!canvas || viewEnd <= viewStart) return 0.0;
     const rect = canvas.getBoundingClientRect();
-    const screenRatio = Math.max(0.0, Math.min(1.0, (clientX - rect.left) / rect.width));
-    const clipX = screenRatio * 2.0 - 1.0;
-    const u = ((clipX / zoomX) + panX + 1.0) * 0.5;
-    return texStart + Math.max(0.0, Math.min(1.0, u)) * (texEnd - texStart);
+    const ratio = Math.max(0.0, Math.min(1.0, (clientX - rect.left) / rect.width));
+    return viewStart + ratio * (viewEnd - viewStart);
   }
 
   function normalizedTimeToScreenPct(t: number): number {
-    if (!canvas || texEnd <= texStart) return 0.0;
-    const u = (t - texStart) / (texEnd - texStart);
-    const clipX = (u * 2.0 - 1.0 - panX) * zoomX;
-    return (clipX * 0.5 + 0.5) * 100.0;
+    if (!canvas || viewEnd <= viewStart) return 0.0;
+    return ((t - viewStart) / (viewEnd - viewStart)) * 100.0;
   }
 
   function getSelectionOverlayStyle(start: number | null, end: number | null) {
