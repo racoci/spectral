@@ -2719,6 +2719,18 @@ pub fn wasm_calculate_complex_reassigned_spectrogram(data: &[u8], h_custom: usiz
     complex_grid
 }
 
+static LAST_MIRRORED_DENSITY: std::sync::Mutex<Vec<f32>> = std::sync::Mutex::new(Vec::new());
+
+#[wasm_bindgen]
+pub fn wasm_get_last_mirrored_density_histogram() -> Vec<f32> {
+    if let Ok(guard) = LAST_MIRRORED_DENSITY.lock() {
+        if !guard.is_empty() {
+            return guard.clone();
+        }
+    }
+    vec![0.0f32; 256]
+}
+
 #[wasm_bindgen]
 pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
     data: &[u8], 
@@ -2929,6 +2941,8 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
 
     let mut reassigned_grid_re = vec![0.0f32; grid_size];
     let mut reassigned_grid_im = vec![0.0f32; grid_size];
+    let mut raw_hist_orig = [0.0f32; 128];
+    let mut raw_hist_trans = [0.0f32; 128];
     
     for c in 0..w {
         let start = c * hop;
@@ -2971,6 +2985,15 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
             let k = k.clamp(1, n_stft / 2 - 1);
             
             let mag_sq = s_h.re * s_h.re + s_h.im * s_h.im;
+            if mag_sq > 1e-12 {
+                let mag_orig = mag_sq.sqrt();
+                let r_orig = mag_orig / 4194304.0;
+                if r_orig > 1e-5 {
+                    let db_orig = 20.0 * r_orig.log10();
+                    let b_orig = (((db_orig + 100.0) / 100.0) * 127.0).clamp(0.0, 127.0) as usize;
+                    raw_hist_orig[b_orig] += 1.0;
+                }
+            }
             if mag_sq > 1e-2 {
                 let target_idx = j * w + c;
                 
@@ -3173,6 +3196,13 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
             rgba_buffer[out_idx + 3] = 255;
             continue;
         }
+
+        let abs_z_norm = abs_z / 4194304.0;
+        if abs_z_norm > 1e-5 {
+            let db_trans = 20.0 * abs_z_norm.log10();
+            let b_trans = (((db_trans + 100.0) / 100.0) * 127.0).clamp(0.0, 127.0) as usize;
+            raw_hist_trans[b_trans] += 1.0;
+        }
         
         if palette_type == "snake" {
             // Geodesic Snake (Intensidade) colorizer
@@ -3185,8 +3215,6 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
             rgba_buffer[out_idx + 3] = 255;
         } else {
             // YCbCr Magnitude-Phase Complex colorizer using zero-allocation O(1) LUT!
-            let abs_z_norm = abs_z / 4194304.0;
-            
             let log2_r = abs_z_norm.log2();
             let y_val = (1.0 + 65024.0 * (log2_r + 15.0) / 15.0).sqrt();
             let mut y_f = y_val.floor();
@@ -3220,6 +3248,53 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
             rgba_buffer[out_idx + 2] = b_val.clamp(0.0, 255.0).round() as u8;
             rgba_buffer[out_idx + 3] = 255;
         }
+    }
+
+    // Gaussian Smoothing KDE filter for mirrored continuous density plot
+    let mut kernel = [0.0f32; 11];
+    let mut k_sum = 0.0f32;
+    for i in 0..11 {
+        let x = (i as f32) - 5.0;
+        let v = (-0.5 * (x * x) / (2.5 * 2.5)).exp();
+        kernel[i] = v;
+        k_sum += v;
+    }
+    for i in 0..11 {
+        kernel[i] /= k_sum;
+    }
+
+    let mut density_trans = vec![0.0f32; 128];
+    let mut density_orig = vec![0.0f32; 128];
+
+    for i in 0..128 {
+        let mut sum_trans = 0.0f32;
+        let mut sum_orig = 0.0f32;
+        for k in 0..11 {
+            let idx = (i as isize + k as isize - 5).clamp(0, 127) as usize;
+            sum_trans += raw_hist_trans[idx] * kernel[k];
+            sum_orig += raw_hist_orig[idx] * kernel[k];
+        }
+        density_trans[i] = sum_trans;
+        density_orig[i] = sum_orig;
+    }
+
+    let mut max_val = 1e-12f32;
+    for i in 0..128 {
+        if density_trans[i] > max_val { max_val = density_trans[i]; }
+        if density_orig[i] > max_val { max_val = density_orig[i]; }
+    }
+
+    for i in 0..128 {
+        density_trans[i] /= max_val;
+        density_orig[i] /= max_val;
+    }
+
+    let mut combined_density = Vec::with_capacity(256);
+    combined_density.extend_from_slice(&density_trans);
+    combined_density.extend_from_slice(&density_orig);
+
+    if let Ok(mut guard) = LAST_MIRRORED_DENSITY.lock() {
+        *guard = combined_density;
     }
     
     rgba_buffer

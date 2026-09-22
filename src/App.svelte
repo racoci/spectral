@@ -4,7 +4,8 @@
   import WebGlEditor from './lib/WebGlEditor.svelte';
   import init, { 
     wasm_generate_complex_reassigned_ycbcr_spectrogram,
-    wasm_synthesize_spectrogram_to_wav
+    wasm_synthesize_spectrogram_to_wav,
+    wasm_get_last_mirrored_density_histogram
   } from './wasm/core_wasm.js';
 
   let currentHash = $state<string>(typeof window !== 'undefined' && window.location.hash ? window.location.hash : '#/converter');
@@ -17,6 +18,7 @@
   let rgbaGrid = $state<Uint8Array | null>(null);
   let gridW = $state(0);
   let gridH = $state(0);
+  let mirroredDensity = $state<Float32Array | null>(null);
   let currentView = $derived<'converter' | 'editor'>((currentHash === '#/editor' && rgbaGrid) ? 'editor' : 'converter');
 
   // Advanced DSP Configurations
@@ -124,6 +126,12 @@
       ) as Uint8Array;
       gridH = selectedHeight;
       gridW = (rgbaGrid.length / 4) / selectedHeight;
+      
+      const rawDensity = wasm_get_last_mirrored_density_histogram();
+      if (rawDensity && rawDensity.length === 256) {
+        mirroredDensity = new Float32Array(rawDensity);
+      }
+      
       console.log(`✅ Regenerated Master Spectrogram [Scale: ${frequencyScale}, 2^k: ${horizontalResolutionK} (${gridW} cols)]: size ${rgbaGrid.length} bytes in ${(performance.now() - t0).toFixed(3)} ms.`);
       
       // Rebuild global audio playback if not already created
@@ -305,6 +313,7 @@
     <!-- In editor view, the WebGlEditor fills 100% of the screen as a transparent overlay background -->
     <WebGlEditor 
       rgbaGrid={rgbaGrid} 
+      mirroredDensity={mirroredDensity}
       width={gridW} 
       height={gridH} 
       

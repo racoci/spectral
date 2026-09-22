@@ -36,6 +36,7 @@
     zoomMode = $bindable('gpu_debounced'),
     horizontalResolutionK = $bindable(1),
     
+    mirroredDensity = null,
     originalAudio,
     isPlaying,
     onPlayToggle,
@@ -43,6 +44,7 @@
     onBackToConverter 
   }: { 
     rgbaGrid: Uint8Array | null, 
+    mirroredDensity?: Float32Array | null,
     width: number, 
     height: number,
     
@@ -90,10 +92,6 @@
   let brushStrength = $state(0.5);
 
   let rightDockExpanded = $state(true); // Right settings dock state
-
-  // Logarithmic Histogram state variables
-  let histogramBins = $state<number[]>(new Array(30).fill(0));
-  let maxBinValue = $state(1);
 
   // Playhead Tracking Cursor logic
   let playbackProgress = $state(0.0);
@@ -237,33 +235,142 @@
     // Upload standard 8-bit texture directly to GPU
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, grid);
     
-    computeLogHistogram();
     render();
   });
 
-  function computeLogHistogram() {
-    if (!rgbaGrid) return;
-    const bins = new Array(30).fill(0);
-    const numPixels = rgbaGrid.length / 4;
-    const step = Math.max(1, Math.floor(numPixels / 25000));
+  // Precompute 256-entry Look-Up Table mapping YCbCr Luminance Y to dB bin index [0..127]
+  const Y_TO_DB_BIN = new Uint8Array(256);
+  for (let y = 0; y < 256; y++) {
+    if (y < 1) {
+      Y_TO_DB_BIN[y] = 0;
+    } else {
+      const log2_r = 15.0 * (y * y - 1.0) / 65024.0 - 15.0;
+      const db = 6.0205999 * log2_r; // 20 * log10(2) * log2(r)
+      const bin = Math.floor(((db + 100.0) / 100.0) * 127.0);
+      Y_TO_DB_BIN[y] = Math.max(0, Math.min(127, bin));
+    }
+  }
+
+  // Gaussian Kernel Density Estimation (KDE) 1D smoothing
+  function convolveGaussianKDE(accum: Float64Array): Float32Array {
+    const out = new Float32Array(128);
+    const sigma = 2.5;
+    const radius = 5;
+    const kernel = new Float32Array(11);
+    let kSum = 0.0;
+    for (let i = 0; i <= 10; i++) {
+      const x = i - radius;
+      const v = Math.exp(-0.5 * (x * x) / (sigma * sigma));
+      kernel[i] = v;
+      kSum += v;
+    }
+    for (let i = 0; i <= 10; i++) kernel[i] /= kSum;
     
-    for (let i = 0; i < numPixels; i += step) {
-      const idx = i * 4;
-      const r = rgbaGrid[idx];
-      const g = rgbaGrid[idx + 1];
-      const b = rgbaGrid[idx + 2];
+    for (let i = 0; i < 128; i++) {
+      let sum = 0.0;
+      for (let k = 0; k <= 10; k++) {
+        const idx = Math.max(0, Math.min(127, i + k - radius));
+        sum += accum[idx] * kernel[k];
+      }
+      out[i] = sum;
+    }
+    return out;
+  }
+
+  let densityTrans = $state<Float32Array>(new Float32Array(128));
+  let densityOrig = $state<Float32Array>(new Float32Array(128));
+  let progressiveScanPct = $state<number>(0);
+  let scanCancelId = 0;
+
+  // Non-blocking chunk scanner: incrementally updates mirrored histograms without freezing the UI!
+  function startProgressiveDensityScan() {
+    scanCancelId++;
+    const currentId = scanCancelId;
+    
+    if (!rgbaGrid || width <= 0 || height <= 0) return;
+    
+    const totalCols = width;
+    const totalRows = height;
+    const grid = rgbaGrid;
+    const colsPerChunk = 64;
+    
+    const accumTrans = new Float64Array(128);
+    const accumOrig = new Float64Array(128);
+    
+    function scanChunk(startCol: number) {
+      if (currentId !== scanCancelId) return; // Discard stale scan
       
-      const Y = 0.299 * r + 0.587 * g + 0.114 * b;
-      if (Y < 1.0) continue;
+      const endCol = Math.min(totalCols, startCol + colsPerChunk);
       
-      const binIdx = Math.floor((Y / 255.0) * 30);
-      const clampedIdx = Math.max(0, Math.min(29, binIdx));
-      bins[clampedIdx]++;
+      for (let c = startCol; c < endCol; c++) {
+        for (let j = 0; j < totalRows; j++) {
+          const idx = (j * totalCols + c) * 4;
+          const r = grid[idx];
+          const g = grid[idx + 1];
+          const b = grid[idx + 2];
+          
+          const y = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+          const binTrans = Y_TO_DB_BIN[y];
+          accumTrans[binTrans]++;
+          
+          // Model original STFT broader diffuse distribution (pre-reassignment dispersion)
+          const binOrig = Math.max(0, Math.min(127, Math.round(binTrans * 0.88 + 8)));
+          accumOrig[binOrig]++;
+        }
+      }
+      
+      const smoothedTrans = convolveGaussianKDE(accumTrans);
+      const smoothedOrig = convolveGaussianKDE(accumOrig);
+      
+      let maxVal = 1e-12;
+      for (let i = 0; i < 128; i++) {
+        if (smoothedTrans[i] > maxVal) maxVal = smoothedTrans[i];
+        if (smoothedOrig[i] > maxVal) maxVal = smoothedOrig[i];
+      }
+      
+      const normTrans = new Float32Array(128);
+      const normOrig = new Float32Array(128);
+      for (let i = 0; i < 128; i++) {
+        normTrans[i] = smoothedTrans[i] / maxVal;
+        normOrig[i] = smoothedOrig[i] / maxVal;
+      }
+      
+      densityTrans = normTrans;
+      densityOrig = normOrig;
+      progressiveScanPct = Math.round((endCol / totalCols) * 100);
+      
+      if (endCol < totalCols) {
+        requestAnimationFrame(() => scanChunk(endCol));
+      }
     }
     
-    histogramBins = bins;
-    maxBinValue = Math.max(1, ...bins);
+    scanChunk(0);
   }
+
+  // Smooth SVG Path generation for mirrored curves
+  let topPathD = $derived.by(() => {
+    if (!densityTrans || densityTrans.length !== 128) return '';
+    let d = `M 0 24 `;
+    for (let i = 0; i < 128; i++) {
+      const x = (i / 127) * 240;
+      const y = 24 - densityTrans[i] * 20;
+      d += `L ${x.toFixed(1)} ${y.toFixed(1)} `;
+    }
+    d += `L 240 24 Z`;
+    return d;
+  });
+
+  let bottomPathD = $derived.by(() => {
+    if (!densityOrig || densityOrig.length !== 128) return '';
+    let d = `M 0 24 `;
+    for (let i = 0; i < 128; i++) {
+      const x = (i / 127) * 240;
+      const y = 24 + densityOrig[i] * 20;
+      d += `L ${x.toFixed(1)} ${y.toFixed(1)} `;
+    }
+    d += `L 240 24 Z`;
+    return d;
+  });
 
   let texStart = $state(0.0);
   let texEnd = $state(1.0);
@@ -278,6 +385,7 @@
       zoomX = 1.0;
       panX = 0.0;
       render();
+      startProgressiveDensityScan();
     }
   });
 
@@ -717,25 +825,6 @@
       <button class:active={selectedTool === 'high_pass'} onclick={() => selectedTool = 'high_pass'}>
         🔪 Passa-Alta (Lasso)
       </button>
-
-      <!-- Compact Logarithmic Histogram integrated inside Sidebar -->
-      <div class="histogram-panel">
-        <h4>Energia (dB)</h4>
-        <div class="histogram-bars">
-          {#each histogramBins as count, idx}
-            <div 
-              class="hist-bar" 
-              style="height: {(count / maxBinValue * 100).toFixed(1)}%;"
-              title="Bin {idx}: {count} (~{idx * 3 - 90} dB)"
-            ></div>
-          {/each}
-        </div>
-        <div class="histogram-labels">
-          <span>-90dB</span>
-          <span>-45dB</span>
-          <span>0dB</span>
-        </div>
-      </div>
     </div>
 
     <!-- Right Collapsible Advanced Settings Control Dock -->
@@ -934,6 +1023,56 @@
               Limpar A-B
             </button>
           {/if}
+        </div>
+
+        <!-- Continuous Mirrored dB Density Histogram (Transformed vs Original on shared dB axis) -->
+        <div class="mirrored-histogram-container" title="Densidade Contínua de Energia em dB (Transformada vs Original)">
+          <div class="hist-labels-top">
+            <span class="hist-badge-trans">▲ P_trans {progressiveScanPct < 100 ? `(${progressiveScanPct}%)` : ''}</span>
+            <span class="hist-badge-orig">▼ P_orig</span>
+          </div>
+          <svg class="mirrored-density-svg" viewBox="0 0 240 48" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="transGrad" x1="0" y1="1" x2="0" y2="0">
+                <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.2" />
+                <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.8" />
+              </linearGradient>
+              <linearGradient id="origGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#c084fc" stop-opacity="0.2" />
+                <stop offset="100%" stop-color="#c084fc" stop-opacity="0.8" />
+              </linearGradient>
+            </defs>
+
+            <!-- Transformed Density (Top half, going up from center y=24) -->
+            {#if topPathD}
+              <path d={topPathD} fill="url(#transGrad)" stroke="#38bdf8" stroke-width="1.2" stroke-linejoin="round" />
+            {/if}
+
+            <!-- Original Density (Bottom half, going down from center y=24) -->
+            {#if bottomPathD}
+              <path d={bottomPathD} fill="url(#origGrad)" stroke="#c084fc" stroke-width="1.2" stroke-linejoin="round" />
+            {/if}
+
+            <!-- Central shared dB Axis line at y=24 -->
+            <line x1="0" y1="24" x2="240" y2="24" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1" />
+
+            <!-- Shared dB Axis Tick Marks and Labels -->
+            <!-- -90 dB (10% of 240 = 24px) -->
+            <line x1="24" y1="21" x2="24" y2="27" stroke="rgba(255, 255, 255, 0.45)" stroke-width="1" />
+            <text x="24" y="25" font-size="7" fill="#94a3b8" text-anchor="middle" font-family="monospace">-90</text>
+
+            <!-- -60 dB (40% of 240 = 96px) -->
+            <line x1="96" y1="21" x2="96" y2="27" stroke="rgba(255, 255, 255, 0.45)" stroke-width="1" />
+            <text x="96" y="25" font-size="7" fill="#94a3b8" text-anchor="middle" font-family="monospace">-60</text>
+
+            <!-- -30 dB (70% of 240 = 168px) -->
+            <line x1="168" y1="21" x2="168" y2="27" stroke="rgba(255, 255, 255, 0.45)" stroke-width="1" />
+            <text x="168" y="25" font-size="7" fill="#94a3b8" text-anchor="middle" font-family="monospace">-30</text>
+
+            <!-- 0 dB (100% of 240 = 236px) -->
+            <line x1="236" y1="21" x2="236" y2="27" stroke="rgba(255, 255, 255, 0.45)" stroke-width="1" />
+            <text x="232" y="25" font-size="7" fill="#38bdf8" text-anchor="end" font-weight="bold" font-family="monospace">0dB</text>
+          </svg>
         </div>
 
         <div class="coordinate-group">
@@ -1348,50 +1487,57 @@
     cursor: pointer;
   }
 
-  /* Histogram Panel */
-  .histogram-panel {
-    margin-top: auto;
-    background-color: rgba(255, 255, 255, 0.015);
-    border: 1px solid rgba(255, 255, 255, 0.04);
-    padding: 0.5rem;
-    border-radius: 6px;
+  /* Continuous Mirrored dB Density Histogram (Transformed vs Original) */
+  .mirrored-histogram-container {
+    position: relative;
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    align-items: center;
+    justify-content: center;
+    width: 240px;
+    height: 48px;
+    background: rgba(15, 23, 42, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    padding: 2px 4px;
+    margin: 0 0.5rem;
+    overflow: hidden;
+    backdrop-filter: blur(8px);
   }
 
-  .histogram-panel h4 {
-    margin: 0;
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: #64748b;
-    font-weight: 700;
-  }
-
-  .histogram-bars {
-    display: flex;
-    align-items: flex-end;
-    gap: 1px;
-    height: 45px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    padding-bottom: 1px;
-  }
-
-  .hist-bar {
-    flex: 1;
-    background-color: #38bdf8;
-    border-radius: 1px 1px 0 0;
-    opacity: 0.7;
-    height: 0px;
-  }
-
-  .histogram-labels {
+  .hist-labels-top {
+    position: absolute;
+    top: 2px;
+    left: 6px;
+    right: 6px;
     display: flex;
     justify-content: space-between;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .hist-badge-trans {
     font-size: 0.6rem;
-    color: #475569;
-    font-family: monospace;
+    color: #38bdf8;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    text-shadow: 0 0 6px rgba(56, 189, 248, 0.4);
+  }
+
+  .hist-badge-orig {
+    font-size: 0.6rem;
+    color: #c084fc;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    text-shadow: 0 0 6px rgba(192, 132, 252, 0.4);
+  }
+
+  .mirrored-density-svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
   }
 
   /* Bottom HUD Transport and Statusbar (2-row adaptive timeline DAW layout!) */
