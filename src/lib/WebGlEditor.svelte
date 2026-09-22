@@ -270,57 +270,39 @@
     const panLoc = gl.getUniformLocation(program, 'u_panX');
     const texLoc = gl.getUniformLocation(program, 'u_spectrogramTexture');
     
-    // Stretch the texture in real-time on the GPU during active zoom/pan gestures,
-    // and draw flat when the pre-zoomed WASM spectrogram is generated and uploaded!
-    gl.uniform1f(zoomLoc, zoomX);
-    gl.uniform1f(panLoc, panX);
+    // Always render flat on the GPU: Rust WebAssembly generates the exact viewStart/viewEnd slice!
+    gl.uniform1f(zoomLoc, 1.0);
+    gl.uniform1f(panLoc, 0.0);
     gl.uniform1i(texLoc, 0);
     
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
-  let debounceTimer: any = null;
-
   function handleWheel(e: WheelEvent) {
     e.preventDefault();
-    const zoomFactor = 1.15;
-    const oldZoom = zoomX;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const mouseRatio = Math.max(0.0, Math.min(1.0, (e.clientX - rect.left) / rect.width));
     
-    if (e.deltaY < 0) {
-      zoomX *= zoomFactor;
-    } else {
-      zoomX /= zoomFactor;
+    const currentSpan = viewEnd - viewStart;
+    const zoomFactor = e.deltaY < 0 ? 0.85 : 1.18;
+    const newSpan = Math.max(0.001, Math.min(1.0, currentSpan * zoomFactor));
+    
+    const centerT = viewStart + mouseRatio * currentSpan;
+    let newStart = centerT - mouseRatio * newSpan;
+    let newEnd = centerT + (1.0 - mouseRatio) * newSpan;
+    
+    if (newStart < 0.0) {
+      newEnd = Math.min(1.0, newEnd - newStart);
+      newStart = 0.0;
+    }
+    if (newEnd > 1.0) {
+      newStart = Math.max(0.0, newStart - (newEnd - 1.0));
+      newEnd = 1.0;
     }
     
-    zoomX = Math.max(1.0, Math.min(100.0, zoomX));
-    
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = (e.clientX - rect.left) / rect.width;
-    const clipMouseX = (mouseX * 2.0 - 1.0);
-    
-    const viewPointX = (clipMouseX / oldZoom) + panX;
-    panX = viewPointX - (clipMouseX / zoomX);
-    
-    const maxPan = 1.0 - (1.0 / zoomX);
-    panX = Math.max(-maxPan, Math.min(maxPan, panX));
-
-    // Instantly redraw stretched texture on the GPU at 120fps!
-    render();
-
-    // Debounce the heavy WebAssembly spectrogram regeneration until they STOP scrolling!
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      // Propagate dynamic visible time-frequency window to Svelte / Rust WASM
-      const halfSpan = 0.5 / zoomX;
-      const centerT = panX * 0.5 + 0.5;
-      viewStart = Math.max(0.0, centerT - halfSpan);
-      viewEnd = Math.min(1.0, centerT + halfSpan);
-      
-      // Reset GPU coordinates to let the newly generated and focused texture render flat
-      zoomX = 1.0;
-      panX = 0.0;
-      render();
-    }, 150); // Fluid 150ms focus snapping!
+    viewStart = newStart;
+    viewEnd = newEnd;
   }
 
   function handleMouseDown(e: MouseEvent) {
@@ -344,28 +326,24 @@
     if (isDragging && selectedTool === 'select') {
       const rect = canvas.getBoundingClientRect();
       const deltaX = (e.clientX - lastMouseX) / rect.width;
-      panX -= deltaX * 2.0 / zoomX;
+      const currentSpan = viewEnd - viewStart;
+      const shift = deltaX * currentSpan;
       
-      const maxPan = 1.0 - (1.0 / zoomX);
-      panX = Math.max(-maxPan, Math.min(maxPan, panX));
+      let newStart = viewStart - shift;
+      let newEnd = viewEnd - shift;
       
+      if (newStart < 0.0) {
+        newEnd += -newStart;
+        newStart = 0.0;
+      }
+      if (newEnd > 1.0) {
+        newStart -= (newEnd - 1.0);
+        newEnd = 1.0;
+      }
+      
+      viewStart = Math.max(0.0, newStart);
+      viewEnd = Math.min(1.0, newEnd);
       lastMouseX = e.clientX;
-      render();
-
-      // Debounce the heavy WebAssembly spectrogram regeneration until they STOP panning!
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        // Propagate dynamic visible time-frequency window to Svelte / Rust WASM
-        const halfSpan = 0.5 / zoomX;
-        const centerT = panX * 0.5 + 0.5;
-        viewStart = Math.max(0.0, centerT - halfSpan);
-        viewEnd = Math.min(1.0, centerT + halfSpan);
-        
-        // Reset GPU coordinates to let the newly generated and focused texture render flat
-        zoomX = 1.0;
-        panX = 0.0;
-        render();
-      }, 150); // Fluid 150ms focus snapping!
     } else if (isSelecting && selectedTool === 'region_select') {
       const t = screenXToNormalizedTime(e.clientX);
       selectionEnd = t;
@@ -401,23 +379,19 @@
   }
 
   function screenXToNormalizedTime(clientX: number): number {
-    if (!canvas) return 0.0;
+    if (!canvas || viewEnd <= viewStart) return 0.0;
     const rect = canvas.getBoundingClientRect();
-    const mouseX = clientX - rect.left;
-    const clipX = (mouseX / rect.width) * 2.0 - 1.0;
-    const viewX = (clipX / zoomX) + panX;
-    const t = viewX * 0.5 + 0.5;
-    return Math.max(0.0, Math.min(1.0, t));
+    const ratio = Math.max(0.0, Math.min(1.0, (clientX - rect.left) / rect.width));
+    return viewStart + ratio * (viewEnd - viewStart);
   }
 
   function normalizedTimeToScreenPct(t: number): number {
-    if (!canvas) return 0.0;
-    const clipX = (t * 2.0 - 1.0 - panX) * zoomX;
-    return (clipX * 0.5 + 0.5) * 100.0;
+    if (!canvas || viewEnd <= viewStart) return 0.0;
+    return ((t - viewStart) / (viewEnd - viewStart)) * 100.0;
   }
 
   function getSelectionOverlayStyle(start: number | null, end: number | null) {
-    if (start === null || end === null) return 'display: none;';
+    if (start === null || end === null || viewEnd <= viewStart) return 'display: none;';
     const pct1 = normalizedTimeToScreenPct(start);
     const pct2 = normalizedTimeToScreenPct(end);
     

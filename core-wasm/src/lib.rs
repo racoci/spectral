@@ -3236,6 +3236,186 @@ fn generate_snake_palette_lut() -> Vec<(u8, u8, u8)> {
 }
 
 #[wasm_bindgen]
+pub fn wasm_synthesize_spectrogram_to_wav(
+    rgba_grid: &[u8],
+    width: usize,
+    height: usize,
+    fmin_custom: f32,
+    fmax_custom: f32,
+    scale_type: &str,
+    window_size: usize,
+    zero_padding: usize,
+    start_col: usize,
+    end_col: usize,
+) -> Vec<u8> {
+    if width == 0 || height == 0 || rgba_grid.len() < width * height * 4 {
+        return create_empty_wav();
+    }
+
+    let fs = 44100.0f32;
+    let win_len = if window_size > 0 { window_size } else { 1024 };
+    let pad_factor = if zero_padding > 0 { zero_padding } else { 4 };
+    let n_stft = win_len * pad_factor;
+    let hop = 64;
+
+    let c_start = start_col.min(width - 1);
+    let c_end = end_col.clamp(c_start + 1, width);
+    let num_cols = c_end - c_start;
+
+    let output_len = num_cols * hop + win_len;
+    let mut output_samples = vec![0.0f32; output_len];
+    let mut window_sum = vec![0.0f32; output_len];
+
+    use rustfft::{FftPlanner, num_complex::Complex};
+    let mut planner = FftPlanner::new();
+    let ifft = planner.plan_fft_inverse(n_stft);
+
+    // Synthesis Hann window
+    let mut win_syn = vec![0.0f32; win_len];
+    for i in 0..win_len {
+        let angle = 2.0 * std::f32::consts::PI * i as f32 / (win_len - 1) as f32;
+        win_syn[i] = 0.5 * (1.0 - angle.cos());
+    }
+
+    let fmin = if fmin_custom >= 5.0 { fmin_custom } else { 20.0f32 };
+    let fmax = if fmax_custom > fmin { fmax_custom.min(fs / 2.0) } else { fs / 2.0 };
+    let is_linear = scale_type == "linear";
+    let step_log = (fmax / fmin).log2() / (height as f32 - 1.0);
+    let step_lin = (fmax - fmin) / (height as f32 - 1.0);
+
+    // Precompute a_min and delta_a LUTs
+    let mut a_min_lut = vec![0.0f32; 256];
+    let mut delta_a_lut = vec![0.0f32; 256];
+    for y_idx in 1..=255 {
+        let y_f = y_idx as f32;
+        let amin_pow = -15.0 + 15.0 * (y_f * y_f - 1.0) / 65024.0;
+        let a_min = 2.0f32.powf(amin_pow);
+        let a_max = 2.0f32.powf(-15.0 + 15.0 * ((y_f + 1.0) * (y_f + 1.0) - 1.0) / 65024.0);
+        a_min_lut[y_idx] = a_min;
+        delta_a_lut[y_idx] = a_max - a_min;
+    }
+    delta_a_lut[0] = a_min_lut[1];
+
+    let mut fft_buffer = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
+
+    for col in c_start..c_end {
+        let col_offset = col - c_start;
+        let t_offset = col_offset * hop;
+
+        for i in 0..n_stft {
+            fft_buffer[i] = Complex::new(0.0, 0.0);
+        }
+
+        for j in 0..height {
+            let px_idx = (j * width + col) * 4;
+            let r = rgba_grid[px_idx] as f32;
+            let g = rgba_grid[px_idx + 1] as f32;
+            let b = rgba_grid[px_idx + 2] as f32;
+
+            let y_val = 0.299 * r + 0.587 * g + 0.114 * b;
+            if y_val < 1.0 {
+                continue;
+            }
+
+            let cr = (r - y_val) / 1.402;
+            let cb = (b - y_val) / 1.772;
+
+            let w_re = -cr / 112.0;
+            let w_im = cb / 112.0;
+            let phase = w_im.atan2(w_re);
+            let w_mag = (w_re * w_re + w_im * w_im).sqrt();
+
+            let y_idx = (y_val.round() as usize).clamp(1, 255);
+            let a_min = a_min_lut[y_idx];
+            let delta_a = delta_a_lut[y_idx];
+
+            let magnitude = (a_min + w_mag * delta_a) * 4194304.0;
+            let z = Complex::new(magnitude * phase.cos(), magnitude * phase.sin());
+
+            let fc = if is_linear {
+                fmin + j as f32 * step_lin
+            } else {
+                fmin * 2.0f32.powf(j as f32 * step_log)
+            };
+
+            let k = (fc * n_stft as f32 / fs).round() as usize;
+            if k > 0 && k < n_stft / 2 {
+                fft_buffer[k] += z;
+                fft_buffer[n_stft - k] += z.conj(); // Hermitian symmetry
+            }
+        }
+
+        ifft.process(&mut fft_buffer);
+
+        for i in 0..win_len {
+            if t_offset + i < output_len {
+                let sample_val = fft_buffer[i].re / n_stft as f32;
+                output_samples[t_offset + i] += sample_val * win_syn[i];
+                window_sum[t_offset + i] += win_syn[i] * win_syn[i];
+            }
+        }
+    }
+
+    // Normalize overlap-add
+    for i in 0..output_len {
+        if window_sum[i] > 1e-4 {
+            output_samples[i] /= window_sum[i];
+        }
+    }
+
+    // Find peak and normalize
+    let peak = output_samples.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+    let scale_factor = if peak > 1.0 { 32760.0 / peak } else { 32760.0 };
+
+    // Encode to 16-bit Mono WAV
+    let num_pcm = output_len;
+    let byte_rate = 44100 * 2;
+    let block_align = 2u16;
+    let bits_per_sample = 16u16;
+    let data_chunk_size = (num_pcm * 2) as u32;
+    let file_size = 36 + data_chunk_size;
+
+    let mut wav = Vec::with_capacity(44 + num_pcm * 2);
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&file_size.to_le_bytes());
+    wav.extend_from_slice(b"WAVE");
+    wav.extend_from_slice(b"fmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    wav.extend_from_slice(&1u16.to_le_bytes()); // Mono
+    wav.extend_from_slice(&44100u32.to_le_bytes());
+    wav.extend_from_slice(&(byte_rate as u32).to_le_bytes());
+    wav.extend_from_slice(&block_align.to_le_bytes());
+    wav.extend_from_slice(&bits_per_sample.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&data_chunk_size.to_le_bytes());
+
+    for s in output_samples {
+        let pcm_val = (s * scale_factor).clamp(-32767.0, 32767.0) as i16;
+        wav.extend_from_slice(&pcm_val.to_le_bytes());
+    }
+
+    wav
+}
+
+fn create_empty_wav() -> Vec<u8> {
+    let mut wav = Vec::new();
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&36u32.to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&44100u32.to_le_bytes());
+    wav.extend_from_slice(&88200u32.to_le_bytes());
+    wav.extend_from_slice(&2u16.to_le_bytes());
+    wav.extend_from_slice(&16u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&0u32.to_le_bytes());
+    wav
+}
+
+#[wasm_bindgen]
 pub fn wasm_calculate_log_spectrogram(data: &[u8], h_custom: usize, window_type: &str) -> Vec<u8> {
     let mut h = h_custom;
     if !h.is_power_of_two() || h < 4 { h = 1024; }

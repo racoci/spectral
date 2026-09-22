@@ -89,7 +89,8 @@ async function runBrowserTest() {
     });
 
     console.log('⌛ Waiting for WebAssembly and Svelte WebGL texture upload...');
-    await new Promise(resolve => setTimeout(resolve, 4000)); // Allow WASM compilation, sample fetch, and texture upload
+    await page.waitForSelector('canvas', { timeout: 35000 });
+    await new Promise(resolve => setTimeout(resolve, 3000)); // Allow WASM compilation, sample fetch, and texture upload
 
     // 4. Audit WebGL Framebuffer and read pixels to guarantee non-black visual data!
     console.log('🔍 Executing direct GPU pixel audit...');

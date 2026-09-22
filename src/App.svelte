@@ -2,9 +2,13 @@
   import { onMount, onDestroy, untrack } from 'svelte';
   import AudioConverter from './lib/AudioConverter.svelte';
   import WebGlEditor from './lib/WebGlEditor.svelte';
-  import init, { wasm_generate_complex_reassigned_ycbcr_spectrogram } from './wasm/core_wasm.js';
+  import init, { 
+    wasm_generate_complex_reassigned_ycbcr_spectrogram,
+    wasm_synthesize_spectrogram_to_wav
+  } from './wasm/core_wasm.js';
 
-  let currentView = $state<'converter' | 'editor'>('converter');
+  let currentHash = $state<string>(typeof window !== 'undefined' && window.location.hash ? window.location.hash : '#/converter');
+  let currentView = $derived<'converter' | 'editor'>((currentHash === '#/editor' && rgbaGrid) ? 'editor' : 'converter');
   let wasmLoaded = $state(false);
   
   // Globally preserved state
@@ -42,16 +46,10 @@
   let loopMode = $state<'normal' | 'mirrored' | 'none'>('normal');
   let playbackTimer: any = null;
 
-  // Hash-based client router
+  // Hash-based client router synchronized with Svelte 5 state
   function updateRoute() {
-    const hash = window.location.hash;
-    if (hash === '#/editor' && rgbaGrid) {
-      currentView = 'editor';
-    } else {
-      currentView = 'converter';
-      if (window.location.hash !== '#/converter') {
-        window.location.hash = '#/converter';
-      }
+    if (typeof window !== 'undefined') {
+      currentHash = window.location.hash || '#/converter';
     }
   }
 
@@ -180,61 +178,75 @@
     regenerateSpectrogram();
   }
 
-  // High-Resolution 15ms DAW-Loop Controller supporting Normal, Mirrored (Ping-Pong), and No Loop modes
+  // High-Resolution DAW Controller synthesizing audio directly from the on-screen spectrogram pixels!
   function triggerAudioPlayback() {
-    if (!originalAudio) return;
+    if (!rgbaGrid || gridW === 0 || gridH === 0) return;
     
     if (isPlaying) {
-      originalAudio.pause();
+      if (originalAudio) originalAudio.pause();
       isPlaying = false;
       if (playbackTimer) clearInterval(playbackTimer);
     } else {
       isPlaying = true;
       if (playbackTimer) clearInterval(playbackTimer);
       
-      const duration = originalAudio.duration || 1.0;
-      const startSec = selectionStart !== null ? selectionStart * duration : 0.0;
-      const endSec = selectionEnd !== null ? selectionEnd * duration : duration;
+      // Map normalized selection bounds [0.0, 1.0] to spectrogram texture columns
+      const sStart = selectionStart !== null ? Math.min(selectionStart, selectionEnd ?? selectionStart) : 0.0;
+      const sEnd = selectionEnd !== null ? Math.max(selectionStart ?? selectionEnd, selectionEnd) : 1.0;
       
-      // Initial Play Direction
-      let playbackDirection = 'forward';
-      originalAudio.currentTime = startSec;
-      originalAudio.play();
+      const startCol = Math.floor(sStart * gridW);
+      const endCol = Math.ceil(sEnd * gridW);
       
-      playbackTimer = setInterval(() => {
-        if (!originalAudio) return;
+      console.log(`🔊 Resynthesizing audio from spectrogram cols [${startCol}..${endCol}]...`);
+      const t0 = performance.now();
+      
+      try {
+        const wavBytes = wasm_synthesize_spectrogram_to_wav(
+          rgbaGrid,
+          gridW,
+          gridH,
+          fmin,
+          fmax,
+          frequencyScale,
+          windowSize,
+          zeroPadding,
+          startCol,
+          endCol
+        );
+        console.log(`🔊 Resynthesized ${wavBytes.length} bytes in ${(performance.now() - t0).toFixed(2)}ms!`);
         
-        const current = originalAudio.currentTime;
+        const blob = new Blob([wavBytes as any], { type: 'audio/wav' });
+        const url = URL.createObjectURL(blob);
         
-        if (loopMode === 'mirrored') {
-          // Mirrored / Ping-Pong Looping: Forward tape -> Reverse tape
-          if (playbackDirection === 'forward') {
-            if (current >= endSec || current >= duration) {
-              playbackDirection = 'backward';
-              originalAudio.pause(); // Pause native forward to manually decrement
-            }
-          } else {
-            // Backward decrement socrates-loop
-            originalAudio.currentTime -= 0.015 * originalAudio.playbackRate;
-            if (originalAudio.currentTime <= startSec) {
-              playbackDirection = 'forward';
-              originalAudio.currentTime = startSec;
-              originalAudio.play(); // Resume native forward playback
-            }
-          }
-        } else {
-          // Normal Looping or No Looping
-          if (current >= endSec || current >= duration) {
+        if (originalAudio) {
+          originalAudio.pause();
+        }
+        originalAudio = new Audio(url);
+        
+        const duration = originalAudio.duration || ((endCol - startCol) * 64 / 44100.0);
+        
+        originalAudio.play();
+        
+        playbackTimer = setInterval(() => {
+          if (!originalAudio) return;
+          
+          const current = originalAudio.currentTime;
+          
+          if (current >= duration || originalAudio.ended) {
             if (loopMode === 'normal') {
-              originalAudio.currentTime = startSec;
+              originalAudio.currentTime = 0;
+              originalAudio.play();
             } else {
               originalAudio.pause();
               isPlaying = false;
               if (playbackTimer) clearInterval(playbackTimer);
             }
           }
-        }
-      }, 15); // Tight 15ms interval for flawless looping!
+        }, 15);
+      } catch (err) {
+        console.error("Failed to synthesize audio from spectrogram:", err);
+        isPlaying = false;
+      }
     }
   }
 
