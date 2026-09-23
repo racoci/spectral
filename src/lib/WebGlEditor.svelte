@@ -14,6 +14,8 @@
     fmin = $bindable(20),
     fmax = $bindable(20000),
     algorithmType = $bindable('reassignment'),
+    higherOrderO = $bindable(2),
+    higherOrderVisualMode = $bindable<'ridge' | 'anisotropy' | 'curvature' | 'vector_reassign'>('ridge'),
     paletteType = $bindable('ycbcr'),
     selectedHeight = $bindable(1024),
     
@@ -57,7 +59,9 @@
     zeroPadding: number,
     fmin: number,
     fmax: number,
-    algorithmType: 'reassignment' | 'log',
+    algorithmType: 'reassignment' | 'log' | 'cqt' | 'higher_order',
+    higherOrderO?: number,
+    higherOrderVisualMode?: 'ridge' | 'anisotropy' | 'curvature' | 'vector_reassign',
     paletteType: 'ycbcr' | 'snake',
     selectedHeight: number,
     
@@ -966,8 +970,41 @@
                 <option value="reassignment">Auger-Flandrin Reassign</option>
                 <option value="cqt">Constant-Q (Projeção Esparsa)</option>
                 <option value="log">Smooth Log-Spectrogram</option>
+                <option value="higher_order">✨ Derivadas de Alta Ordem (Hessiana / Cristas)</option>
               </select>
             </div>
+
+            {#if algorithmType === 'higher_order'}
+              <div class="higher-order-panel">
+                <div class="input-control range-box">
+                  <label>
+                    Ordem Máxima (O): <span class="badge-order">O = {higherOrderO}</span>
+                    <input type="range" min="1" max="4" step="1" bind:value={higherOrderO} />
+                  </label>
+                  <div class="order-description">
+                    {#if higherOrderO === 1}
+                      <span>1ª Ordem: Gradientes Lineares (f_inst, t_reassign)</span>
+                    {:else if higherOrderO === 2}
+                      <span>2ª Ordem: Hessiana, Curvatura, Autovalores (λ₁, λ₂), Cristas, Banda -3dB</span>
+                    {:else if higherOrderO === 3}
+                      <span>3ª Ordem: Aceleração de Chirp (ϕ_ttt) e Inflexões de Vibrato</span>
+                    {:else}
+                      <span>4ª Ordem: Curvaturas Hiper-suaves e Primitivas Bézier C³</span>
+                    {/if}
+                  </div>
+                </div>
+
+                <div class="input-control">
+                  <label for="ho-mode-select">Modo Visual Analítico:</label>
+                  <select id="ho-mode-select" bind:value={higherOrderVisualMode}>
+                    <option value="ridge">Cristas & Orientação Direcional (Hessiana)</option>
+                    <option value="anisotropy">Anisotropia Espectral & Chirp Rate</option>
+                    <option value="curvature">Curvatura Principal λ₁ (Agudeza de Pico)</option>
+                    <option value="vector_reassign">Reatribuição Vetorial Curva (Splats)</option>
+                  </select>
+                </div>
+              </div>
+            {/if}
             
             <div class="input-control">
               <label for="palette-select">Paleta:</label>
@@ -1955,5 +1992,34 @@
   .help-text {
     font-size: 0.8rem;
     color: #64748b;
+  }
+
+  .higher-order-panel {
+    background: rgba(30, 41, 59, 0.45);
+    border: 1px solid rgba(59, 130, 246, 0.25);
+    border-radius: 6px;
+    padding: 0.6rem;
+    margin-top: 0.4rem;
+    margin-bottom: 0.6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .badge-order {
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    color: #ffffff;
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+    font-weight: 700;
+    font-size: 0.75rem;
+    margin-left: 0.4rem;
+  }
+
+  .order-description {
+    font-size: 0.72rem;
+    color: #93c5fd;
+    margin-top: 0.25rem;
+    line-height: 1.3;
   }
 </style>

@@ -2729,12 +2729,165 @@ pub struct SpectralQuadruplet {
     pub phi: f32,
 }
 
-static BASE_QUADRUPLETS: std::sync::Mutex<Vec<SpectralQuadruplet>> = std::sync::Mutex::new(Vec::new());
+pub struct KdNode {
+    pub point: SpectralQuadruplet,
+    pub log_f: f32,
+    pub axis: u8,
+    pub left: Option<usize>,
+    pub right: Option<usize>,
+    pub bbox_t_min: f32,
+    pub bbox_t_max: f32,
+    pub bbox_log_f_min: f32,
+    pub bbox_log_f_max: f32,
+}
+
+pub struct SpectralKdTree {
+    pub nodes: Vec<KdNode>,
+    pub root: Option<usize>,
+}
+
+impl SpectralKdTree {
+    pub fn build(mut points: Vec<SpectralQuadruplet>) -> Self {
+        if points.is_empty() {
+            return SpectralKdTree { nodes: Vec::new(), root: None };
+        }
+        let mut nodes = Vec::with_capacity(points.len());
+        let root = Self::build_recursive(&mut points, 0, &mut nodes);
+        SpectralKdTree { nodes, root: Some(root) }
+    }
+
+    fn build_recursive(
+        points: &mut [SpectralQuadruplet],
+        depth: usize,
+        nodes: &mut Vec<KdNode>,
+    ) -> usize {
+        let axis = (depth % 2) as u8;
+        let len = points.len();
+        let mid = len / 2;
+
+        if axis == 0 {
+            points.select_nth_unstable_by(mid, |a, b| a.t.partial_cmp(&b.t).unwrap_or(std::cmp::Ordering::Equal));
+        } else {
+            points.select_nth_unstable_by(mid, |a, b| a.f.partial_cmp(&b.f).unwrap_or(std::cmp::Ordering::Equal));
+        }
+
+        let median_point = points[mid];
+        let log_f = median_point.f.max(1.0).log2();
+
+        let node_idx = nodes.len();
+        nodes.push(KdNode {
+            point: median_point,
+            log_f,
+            axis,
+            left: None,
+            right: None,
+            bbox_t_min: median_point.t,
+            bbox_t_max: median_point.t,
+            bbox_log_f_min: log_f,
+            bbox_log_f_max: log_f,
+        });
+
+        let left_idx = if mid > 0 {
+            Some(Self::build_recursive(&mut points[..mid], depth + 1, nodes))
+        } else {
+            None
+        };
+
+        let right_idx = if mid + 1 < len {
+            Some(Self::build_recursive(&mut points[mid + 1..], depth + 1, nodes))
+        } else {
+            None
+        };
+
+        nodes[node_idx].left = left_idx;
+        nodes[node_idx].right = right_idx;
+
+        let mut t_min = nodes[node_idx].bbox_t_min;
+        let mut t_max = nodes[node_idx].bbox_t_max;
+        let mut f_min = nodes[node_idx].bbox_log_f_min;
+        let mut f_max = nodes[node_idx].bbox_log_f_max;
+
+        if let Some(l) = left_idx {
+            t_min = t_min.min(nodes[l].bbox_t_min);
+            t_max = t_max.max(nodes[l].bbox_t_max);
+            f_min = f_min.min(nodes[l].bbox_log_f_min);
+            f_max = f_max.max(nodes[l].bbox_log_f_max);
+        }
+        if let Some(r) = right_idx {
+            t_min = t_min.min(nodes[r].bbox_t_min);
+            t_max = t_max.max(nodes[r].bbox_t_max);
+            f_min = f_min.min(nodes[r].bbox_log_f_min);
+            f_max = f_max.max(nodes[r].bbox_log_f_max);
+        }
+
+        nodes[node_idx].bbox_t_min = t_min;
+        nodes[node_idx].bbox_t_max = t_max;
+        nodes[node_idx].bbox_log_f_min = f_min;
+        nodes[node_idx].bbox_log_f_max = f_max;
+
+        node_idx
+    }
+
+    pub fn query_range<F: FnMut(&SpectralQuadruplet)>(
+        &self,
+        t_min: f32,
+        t_max: f32,
+        log_f_min: f32,
+        log_f_max: f32,
+        mut visitor: F,
+    ) {
+        if let Some(root) = self.root {
+            self.query_recursive(root, t_min, t_max, log_f_min, log_f_max, &mut visitor);
+        }
+    }
+
+    fn query_recursive<F: FnMut(&SpectralQuadruplet)>(
+        &self,
+        node_idx: usize,
+        t_min: f32,
+        t_max: f32,
+        log_f_min: f32,
+        log_f_max: f32,
+        visitor: &mut F,
+    ) {
+        let node = &self.nodes[node_idx];
+
+        // Hierarchical Bounding Box Culling (Pruning Entire Subtrees)
+        if node.bbox_t_max < t_min || node.bbox_t_min > t_max ||
+           node.bbox_log_f_max < log_f_min || node.bbox_log_f_min > log_f_max {
+            return;
+        }
+
+        // Test current point against query viewport
+        if node.point.t >= t_min && node.point.t <= t_max &&
+           node.log_f >= log_f_min && node.log_f <= log_f_max {
+            visitor(&node.point);
+        }
+
+        let split_val = if node.axis == 0 { node.point.t } else { node.log_f };
+        let query_min = if node.axis == 0 { t_min } else { log_f_min };
+        let query_max = if node.axis == 0 { t_max } else { log_f_max };
+
+        if query_min <= split_val {
+            if let Some(left) = node.left {
+                self.query_recursive(left, t_min, t_max, log_f_min, log_f_max, visitor);
+            }
+        }
+
+        if query_max >= split_val {
+            if let Some(right) = node.right {
+                self.query_recursive(right, t_min, t_max, log_f_min, log_f_max, visitor);
+            }
+        }
+    }
+}
+
+static CACHED_KD_TREE: std::sync::Mutex<Option<SpectralKdTree>> = std::sync::Mutex::new(None);
 
 #[wasm_bindgen]
 pub fn wasm_has_cached_quadruplets() -> bool {
-    if let Ok(guard) = BASE_QUADRUPLETS.lock() {
-        !guard.is_empty()
+    if let Ok(guard) = CACHED_KD_TREE.lock() {
+        guard.as_ref().map_or(false, |tree| !tree.nodes.is_empty())
     } else {
         false
     }
@@ -2909,9 +3062,10 @@ pub fn wasm_cache_base_quadruplets(
         }
     }
 
-    let count = quadruplets.len();
-    if let Ok(mut guard) = BASE_QUADRUPLETS.lock() {
-        *guard = quadruplets;
+    let tree = SpectralKdTree::build(quadruplets);
+    let count = tree.nodes.len();
+    if let Ok(mut guard) = CACHED_KD_TREE.lock() {
+        *guard = Some(tree);
     }
     count
 }
@@ -2932,11 +3086,15 @@ pub fn wasm_render_from_cached_quadruplets(
         return rgba_buffer;
     }
 
-    let guard = match BASE_QUADRUPLETS.lock() {
+    let tree_guard = match CACHED_KD_TREE.lock() {
         Ok(g) => g,
         Err(_) => return rgba_buffer,
     };
-    if guard.is_empty() {
+    let tree = match tree_guard.as_ref() {
+        Some(t) => t,
+        None => return rgba_buffer,
+    };
+    if tree.nodes.is_empty() {
         return rgba_buffer;
     }
 
@@ -2970,33 +3128,33 @@ pub fn wasm_render_from_cached_quadruplets(
     let w_f = (dst_w - 1) as f32;
     let h_f = (dst_h - 1) as f32;
 
-    for q in guard.iter() {
-        if q.t < view_t_start || q.t > view_t_end {
-            continue;
+    // Fast 2D KD-Tree Spatial Range Query with Subtree Bounding-Box Pruning
+    tree.query_range(
+        view_t_start,
+        view_t_end,
+        log_view_fmin,
+        log_view_fmax,
+        |q| {
+            let x_norm = (q.t - view_t_start) / view_t_span;
+            let log_f = q.f.max(1.0).log2();
+            let y_norm = (log_f - log_view_fmin) / log_view_span;
+
+            let x_screen = x_norm * w_f;
+            let y_screen = y_norm * h_f;
+
+            let xi = x_screen.round() as isize;
+            let yi = y_screen.round() as isize;
+
+            if xi >= 0 && xi < dst_w as isize && yi >= 0 && yi < dst_h as isize {
+                let amp = 2.0f32.powf(q.log_a) * 4194304.0;
+                let re = amp * q.phi.cos();
+                let im = amp * q.phi.sin();
+                let idx = yi as usize * dst_w + xi as usize;
+                grid_re[idx] += re;
+                grid_im[idx] += im;
+            }
         }
-        if q.f < view_fmin || q.f > view_fmax {
-            continue;
-        }
-
-        let x_norm = (q.t - view_t_start) / view_t_span;
-        let log_f = q.f.max(1.0).log2();
-        let y_norm = (log_f - log_view_fmin) / log_view_span;
-
-        let x_screen = x_norm * w_f;
-        let y_screen = y_norm * h_f;
-
-        let xi = x_screen.round() as isize;
-        let yi = y_screen.round() as isize;
-
-        if xi >= 0 && xi < dst_w as isize && yi >= 0 && yi < dst_h as isize {
-            let amp = 2.0f32.powf(q.log_a) * 4194304.0;
-            let re = amp * q.phi.cos();
-            let im = amp * q.phi.sin();
-            let idx = yi as usize * dst_w + xi as usize;
-            grid_re[idx] += re;
-            grid_im[idx] += im;
-        }
-    }
+    );
 
     // Colorize accumulated grid
     for idx in 0..(dst_w * dst_h) {
@@ -3071,6 +3229,105 @@ pub fn wasm_get_last_mirrored_density_histogram() -> Vec<f32> {
     vec![0.0f32; 256]
 }
 
+#[inline]
+pub fn hsv_to_rgb(hue_6: f32, sat: f32, val: f32) -> (u8, u8, u8) {
+    let c = val * sat;
+    let x = c * (1.0 - ((hue_6 % 2.0) - 1.0).abs());
+    let m = val - c;
+    let (r1, g1, b1) = if hue_6 < 1.0 {
+        (c, x, 0.0)
+    } else if hue_6 < 2.0 {
+        (x, c, 0.0)
+    } else if hue_6 < 3.0 {
+        (0.0, c, x)
+    } else if hue_6 < 4.0 {
+        (0.0, x, c)
+    } else if hue_6 < 5.0 {
+        (x, 0.0, c)
+    } else {
+        (c, 0.0, x)
+    };
+    (
+        ((r1 + m) * 255.0).clamp(0.0, 255.0) as u8,
+        ((g1 + m) * 255.0).clamp(0.0, 255.0) as u8,
+        ((b1 + m) * 255.0).clamp(0.0, 255.0) as u8,
+    )
+}
+
+pub fn colorize_higher_order_point(
+    derivs: &crate::analysis::higher_order::HigherOrderDerivatives,
+    mode: usize,
+    palette_type: &str,
+    snake_palette: &[(u8, u8, u8)],
+) -> (u8, u8, u8) {
+    let mag = if derivs.peak_magnitude > 0.0 { derivs.peak_magnitude } else { derivs.magnitude };
+    let norm_db = ((20.0 * (mag / 4194304.0).max(1e-6).log10() + 100.0) / 100.0).clamp(0.0, 1.0);
+    
+    if palette_type == "snake" && !snake_palette.is_empty() {
+        let idx = (norm_db * 65535.0) as usize;
+        let base_rgb = snake_palette[idx.min(snake_palette.len() - 1)];
+        if derivs.is_ridge {
+            return (
+                base_rgb.0.saturating_add(60),
+                base_rgb.1.saturating_add(60),
+                base_rgb.2.saturating_add(60),
+            );
+        }
+        return base_rgb;
+    }
+
+    match mode {
+        0 => {
+            // Mode 0: Cristas da Hessiana e Orientação Direcional theta
+            let theta_norm = (derivs.ridge_angle_rad / std::f32::consts::PI + 0.5).clamp(0.0, 1.0);
+            let hue = theta_norm * 6.0;
+            let sat = (0.35 + 0.65 * derivs.anisotropy).clamp(0.0, 1.0);
+            let val = norm_db;
+            
+            let (mut r, mut g, mut b) = hsv_to_rgb(hue, sat, val);
+            if derivs.is_ridge {
+                r = r.saturating_add(50);
+                g = g.saturating_add(50);
+                b = b.saturating_add(50);
+            }
+            (r, g, b)
+        },
+        1 => {
+            // Mode 1: Anisotropia Espectral e Chirp Rate
+            let chirp_norm = (derivs.d2_phi_dt2 * 0.0005).clamp(-1.0, 1.0);
+            let hue = if chirp_norm >= 0.0 {
+                3.0 + chirp_norm
+            } else {
+                0.5 + chirp_norm * 0.5
+            };
+            let sat = derivs.anisotropy.clamp(0.25, 1.0);
+            let val = norm_db * (0.2 + 0.8 * derivs.anisotropy);
+            hsv_to_rgb(hue.clamp(0.0, 6.0), sat, val)
+        },
+        2 => {
+            // Mode 2: Curvatura Principal lambda_1 (Agudeza de Pico)
+            let curv_norm = (-derivs.lambda_1 * 0.0002).clamp(0.0, 1.0);
+            let hue = 4.5 - 2.5 * curv_norm;
+            let sat = 0.85;
+            let val = norm_db * curv_norm.sqrt();
+            let (mut r, mut g, mut b) = hsv_to_rgb(hue, sat, val);
+            if derivs.is_ridge {
+                r = 255;
+                g = g.saturating_add(100);
+                b = 255;
+            }
+            (r, g, b)
+        },
+        _ => {
+            // Mode 3: Reatribuição Vetorial Curva
+            let hue = (derivs.ridge_angle_rad / std::f32::consts::PI + 0.5) * 6.0;
+            let sat = 0.9;
+            let val = norm_db;
+            hsv_to_rgb(hue, sat, val)
+        }
+    }
+}
+
 #[wasm_bindgen]
 pub struct WasmSpectrogramStreamer {
     w: usize,
@@ -3091,6 +3348,7 @@ pub struct WasmSpectrogramStreamer {
     snake_palette: Vec<(u8, u8, u8)>,
     raw_hist_trans: [f32; 128],
     raw_hist_orig: [f32; 128],
+    fs: f32,
     fmin: f32,
     fmax: f32,
     step: f32,
@@ -3104,6 +3362,13 @@ pub struct WasmSpectrogramStreamer {
     buffer_dh: Vec<rustfft::num_complex::Complex<f32>>,
     reassigned_grid_re: Vec<f32>,
     reassigned_grid_im: Vec<f32>,
+    is_higher_order: bool,
+    higher_order_o: usize,
+    higher_order_mode: usize,
+    higher_order_windows: Vec<Vec<f32>>,
+    higher_order_labels: Vec<(usize, usize)>,
+    higher_order_buffers: Vec<Vec<rustfft::num_complex::Complex<f32>>>,
+    higher_order_rgb_grid: Vec<u8>,
 }
 
 #[wasm_bindgen]
@@ -3232,6 +3497,50 @@ impl WasmSpectrogramStreamer {
         let buffer_h_th = vec![rustfft::num_complex::Complex::<f32>::new(0.0, 0.0); n_stft];
         let buffer_dh = vec![rustfft::num_complex::Complex::<f32>::new(0.0, 0.0); n_stft];
 
+        let (is_higher_order, higher_order_o, higher_order_mode) = {
+            if algorithm_type.starts_with("higher_order") {
+                let parts: Vec<&str> = algorithm_type.split(':').collect();
+                let o = if parts.len() > 1 { parts[1].parse::<usize>().unwrap_or(2).clamp(1, 4) } else { 2 };
+                let m = if parts.len() > 2 {
+                    match parts[2] {
+                        "ridge" => 0,
+                        "anisotropy" => 1,
+                        "curvature" => 2,
+                        "vector_reassign" => 3,
+                        s => s.parse::<usize>().unwrap_or(0).min(3),
+                    }
+                } else {
+                    0
+                };
+                (true, o, m)
+            } else {
+                (false, 1, 0)
+            }
+        };
+
+        let mut higher_order_windows = Vec::new();
+        let mut higher_order_labels = Vec::new();
+        if is_higher_order {
+            let sigma_ho = 0.4 * half_win / fs;
+            for p in 0..=higher_order_o {
+                for q in 0..=(higher_order_o - p) {
+                    let win = crate::analysis::higher_order::generate_window_samples(p, q, win_len, fs, sigma_ho);
+                    higher_order_windows.push(win);
+                    higher_order_labels.push((p, q));
+                }
+            }
+        }
+        let num_ho_pairs = (higher_order_windows.len() + 1) / 2;
+        let mut higher_order_buffers = Vec::with_capacity(num_ho_pairs);
+        for _ in 0..num_ho_pairs {
+            higher_order_buffers.push(vec![rustfft::num_complex::Complex::new(0.0, 0.0); n_stft]);
+        }
+        let higher_order_rgb_grid = if is_higher_order {
+            vec![0u8; grid_size * 4]
+        } else {
+            Vec::new()
+        };
+
         WasmSpectrogramStreamer {
             w,
             h,
@@ -3251,6 +3560,7 @@ impl WasmSpectrogramStreamer {
             snake_palette,
             raw_hist_trans: [0.0f32; 128],
             raw_hist_orig: [0.0f32; 128],
+            fs,
             fmin,
             fmax,
             step,
@@ -3264,6 +3574,13 @@ impl WasmSpectrogramStreamer {
             buffer_dh,
             reassigned_grid_re: vec![0.0f32; grid_size],
             reassigned_grid_im: vec![0.0f32; grid_size],
+            is_higher_order,
+            higher_order_o,
+            higher_order_mode,
+            higher_order_windows,
+            higher_order_labels,
+            higher_order_buffers,
+            higher_order_rgb_grid,
         }
     }
 
@@ -3285,6 +3602,12 @@ impl WasmSpectrogramStreamer {
     }
 
     #[wasm_bindgen]
+    pub fn get_higher_order_o(&self) -> usize { self.higher_order_o }
+
+    #[wasm_bindgen]
+    pub fn get_higher_order_mode(&self) -> usize { self.higher_order_mode }
+
+    #[wasm_bindgen]
     pub fn process_chunk(&mut self, chunk_cols: usize) -> Vec<u8> {
         let c_start = self.current_col;
         let c_end = (c_start + chunk_cols).min(self.w);
@@ -3293,131 +3616,280 @@ impl WasmSpectrogramStreamer {
             return Vec::new();
         }
 
-        for c in c_start..c_end {
-            let start = c * self.hop;
-            for i in 0..self.n_stft {
-                self.buffer_h_th[i] = rustfft::num_complex::Complex::new(0.0, 0.0);
-                self.buffer_dh[i] = rustfft::num_complex::Complex::new(0.0, 0.0);
-            }
-            for i in 0..self.win_len {
-                let idx = start as isize + i as isize - (self.win_len as isize / 2);
-                if idx >= 0 && idx < self.sliced_samples as isize {
-                    let sample_val = self.mid_channel[idx as usize];
-                    self.buffer_h_th[i] = rustfft::num_complex::Complex::new(sample_val * self.win_h[i], sample_val * self.win_th[i]);
-                    self.buffer_dh[i] = rustfft::num_complex::Complex::new(sample_val * self.win_dh[i], 0.0);
-                }
-            }
-            self.fft.process_with_scratch(&mut self.buffer_h_th, &mut self.scratch);
-            self.fft.process_with_scratch(&mut self.buffer_dh, &mut self.scratch);
-
-            for j in 0..self.h {
-                let fc = self.fc_lut[j];
-                let k_f = self.k_f_lut[j];
-                let k_floor = (k_f.floor() as usize).clamp(1, self.n_stft / 2 - 2);
-                let k_ceil = k_floor + 1;
-                let delta_k = k_f - k_floor as f32;
-
-                let y_floor = self.buffer_h_th[k_floor];
-                let y_sym_floor = self.buffer_h_th[self.n_stft - k_floor];
-                let s_h_floor = rustfft::num_complex::Complex::new(0.5 * (y_floor.re + y_sym_floor.re), 0.5 * (y_floor.im - y_sym_floor.im));
-                let s_th_floor = rustfft::num_complex::Complex::new(0.5 * (y_floor.im + y_sym_floor.im), 0.5 * (y_sym_floor.re - y_floor.re));
-
-                let y_ceil = self.buffer_h_th[k_ceil];
-                let y_sym_ceil = self.buffer_h_th[self.n_stft - k_ceil];
-                let s_h_ceil = rustfft::num_complex::Complex::new(0.5 * (y_ceil.re + y_sym_ceil.re), 0.5 * (y_ceil.im - y_sym_ceil.im));
-                let s_th_ceil = rustfft::num_complex::Complex::new(0.5 * (y_ceil.im + y_sym_ceil.im), 0.5 * (y_sym_ceil.re - y_ceil.re));
-
-                let s_h = s_h_floor * (1.0 - delta_k) + s_h_ceil * delta_k;
-                let s_th = s_th_floor * (1.0 - delta_k) + s_th_ceil * delta_k;
-                let s_dh = self.buffer_dh[k_floor] * (1.0 - delta_k) + self.buffer_dh[k_ceil] * delta_k;
-
-                let mag_sq = s_h.re * s_h.re + s_h.im * s_h.im;
-                if mag_sq > 1e-12 {
-                    let mag_orig = mag_sq.sqrt();
-                    let r_orig = mag_orig / 4194304.0;
-                    if r_orig > 1e-5 {
-                        let db_orig = 20.0 * r_orig.log10();
-                        let b_orig = (((db_orig + 100.0) / 100.0) * 127.0f32).clamp(0.0, 127.0) as usize;
-                        self.raw_hist_orig[b_orig] += 1.0;
+        if self.is_higher_order {
+            let num_pairs = (self.higher_order_windows.len() + 1) / 2;
+            for c in c_start..c_end {
+                let start = c * self.hop;
+                for pair_idx in 0..num_pairs {
+                    let win_a_idx = pair_idx * 2;
+                    let win_b_idx = pair_idx * 2 + 1;
+                    let buf = &mut self.higher_order_buffers[pair_idx];
+                    for i in 0..self.n_stft {
+                        buf[i] = rustfft::num_complex::Complex::new(0.0, 0.0);
                     }
-                }
-
-                if mag_sq < 1.0 {
-                    if mag_sq > 1e-4 {
-                        let target_idx = j * self.w + c;
-                        self.reassigned_grid_re[target_idx] += s_h.re;
-                        self.reassigned_grid_im[target_idx] += s_h.im;
+                    for i in 0..self.win_len {
+                        let idx = start as isize + i as isize - (self.win_len as isize / 2);
+                        if idx >= 0 && idx < self.sliced_samples as isize {
+                            let sample_val = self.mid_channel[idx as usize];
+                            let val_a = sample_val * self.higher_order_windows[win_a_idx][i];
+                            let val_b = if win_b_idx < self.higher_order_windows.len() {
+                                sample_val * self.higher_order_windows[win_b_idx][i]
+                            } else {
+                                0.0
+                            };
+                            buf[i] = rustfft::num_complex::Complex::new(val_a, val_b);
+                        }
                     }
-                    continue;
+                    self.fft.process_with_scratch(buf, &mut self.scratch);
                 }
 
-                let target_idx = j * self.w + c;
-                if self.algorithm_type == "reassignment" {
-                    let s_th_conj = s_th * s_h.conj();
-                    let t_shift = s_th_conj.re / mag_sq;
-                    let c_reassigned_f = c as f32 + t_shift / self.hop as f32;
-                    let s_dh_conj = s_dh * s_h.conj();
-                    let omega_shift = -s_dh_conj.im / mag_sq;
-                    let f_reassigned = fc + (omega_shift / (2.0 * std::f32::consts::PI));
+                for j in 0..self.h {
+                    let fc = self.fc_lut[j];
+                    let k_f = self.k_f_lut[j];
+                    let k_floor = (k_f.floor() as usize).clamp(1, self.n_stft / 2 - 2);
+                    let k_ceil = k_floor + 1;
+                    let delta_k = k_f - k_floor as f32;
 
-                    let j_reassigned_f = if self.is_linear {
-                        ((f_reassigned - self.fmin) / (self.fmax - self.fmin)) * (self.h as f32 - 1.0)
-                    } else {
-                        (f_reassigned / self.fmin).log2() / self.step
+                    let mut s_vals = vec![crate::analysis::higher_order::Complex32::default(); self.higher_order_windows.len()];
+                    for pair_idx in 0..num_pairs {
+                        let win_a_idx = pair_idx * 2;
+                        let win_b_idx = pair_idx * 2 + 1;
+                        let buf = &self.higher_order_buffers[pair_idx];
+
+                        let y_fl = buf[k_floor];
+                        let y_sym_fl = buf[self.n_stft - k_floor];
+                        let y_cl = buf[k_ceil];
+                        let y_sym_cl = buf[self.n_stft - k_ceil];
+
+                        let w_a_fl_re = 0.5 * (y_fl.re + y_sym_fl.re);
+                        let w_a_fl_im = 0.5 * (y_fl.im - y_sym_fl.im);
+                        let w_a_cl_re = 0.5 * (y_cl.re + y_sym_cl.re);
+                        let w_a_cl_im = 0.5 * (y_cl.im - y_sym_cl.im);
+                        let w_a = crate::analysis::higher_order::Complex32::new(
+                            w_a_fl_re * (1.0 - delta_k) + w_a_cl_re * delta_k,
+                            w_a_fl_im * (1.0 - delta_k) + w_a_cl_im * delta_k,
+                        );
+
+                        let (p_a, q_a) = self.higher_order_labels[win_a_idx];
+                        let sign_p_a = if p_a % 2 == 1 { -1.0 } else { 1.0 };
+                        let mod_q_a = q_a % 4;
+                        let factor_q_a = match mod_q_a {
+                            0 => crate::analysis::higher_order::Complex32::new(1.0, 0.0),
+                            1 => crate::analysis::higher_order::Complex32::new(0.0, -1.0),
+                            2 => crate::analysis::higher_order::Complex32::new(-1.0, 0.0),
+                            _ => crate::analysis::higher_order::Complex32::new(0.0, 1.0),
+                        };
+                        s_vals[win_a_idx] = w_a.scale(sign_p_a).mul(factor_q_a);
+
+                        if win_b_idx < self.higher_order_windows.len() {
+                            let w_b_fl_re = 0.5 * (y_fl.im + y_sym_fl.im);
+                            let w_b_fl_im = 0.5 * (y_sym_fl.re - y_fl.re);
+                            let w_b_cl_re = 0.5 * (y_cl.im + y_sym_cl.im);
+                            let w_b_cl_im = 0.5 * (y_cl.im - y_cl.re);
+                            let w_b = crate::analysis::higher_order::Complex32::new(
+                                w_b_fl_re * (1.0 - delta_k) + w_b_cl_re * delta_k,
+                                w_b_fl_im * (1.0 - delta_k) + w_b_cl_im * delta_k,
+                            );
+
+                            let (p_b, q_b) = self.higher_order_labels[win_b_idx];
+                            let sign_p_b = if p_b % 2 == 1 { -1.0 } else { 1.0 };
+                            let mod_q_b = q_b % 4;
+                            let factor_q_b = match mod_q_b {
+                                0 => crate::analysis::higher_order::Complex32::new(1.0, 0.0),
+                                1 => crate::analysis::higher_order::Complex32::new(0.0, -1.0),
+                                2 => crate::analysis::higher_order::Complex32::new(-1.0, 0.0),
+                                _ => crate::analysis::higher_order::Complex32::new(0.0, 1.0),
+                            };
+                            s_vals[win_b_idx] = w_b.scale(sign_p_b).mul(factor_q_b);
+                        }
+                    }
+
+                    let get_s = |req_p: usize, req_q: usize| -> crate::analysis::higher_order::Complex32 {
+                        for (idx, &(p, q)) in self.higher_order_labels.iter().enumerate() {
+                            if p == req_p && q == req_q {
+                                return s_vals[idx];
+                            }
+                        }
+                        crate::analysis::higher_order::Complex32::default()
                     };
 
-                    let d_log_a_dt = s_dh_conj.re / mag_sq;
-                    let d_log_a_dw = s_th_conj.im / mag_sq;
-                    let curvature_factor = 1.0 + (d_log_a_dt * d_log_a_dt + d_log_a_dw * d_log_a_dw).sqrt();
-                    let sig_x = (self.point_radius * 0.7071 / curvature_factor).clamp(0.05, 4.0);
-                    let sig_y = (self.point_radius * 0.7071 / curvature_factor).clamp(0.05, 4.0);
+                    let t_c = (c * self.hop) as f32 / self.fs;
+                    let derivs = crate::analysis::higher_order::compute_faa_di_bruno_derivatives(
+                        self.higher_order_o,
+                        get_s(0, 0),
+                        get_s(1, 0),
+                        get_s(0, 1),
+                        get_s(2, 0),
+                        get_s(1, 1),
+                        get_s(0, 2),
+                        get_s(3, 0),
+                        get_s(2, 1),
+                        get_s(1, 2),
+                        get_s(0, 3),
+                        get_s(4, 0),
+                        get_s(0, 4),
+                        fc,
+                        t_c,
+                    );
 
-                    let c_reassigned_i = c_reassigned_f.round() as isize;
-                    let j_reassigned_i = j_reassigned_f.round() as isize;
-                    let dx = c_reassigned_f - c_reassigned_i as f32;
-                    let dy = j_reassigned_f - j_reassigned_i as f32;
+                    let (r, g, b) = colorize_higher_order_point(
+                        &derivs,
+                        self.higher_order_mode,
+                        &self.palette_type,
+                        &self.snake_palette,
+                    );
 
-                    let mut wx = [0.0f32; 3];
-                    let mut wy = [0.0f32; 3];
-                    let mut sum_wx = 0.0f32;
-                    let mut sum_wy = 0.0f32;
+                    let grid_idx = j * self.w + c;
+                    self.higher_order_rgb_grid[grid_idx * 4] = r;
+                    self.higher_order_rgb_grid[grid_idx * 4 + 1] = g;
+                    self.higher_order_rgb_grid[grid_idx * 4 + 2] = b;
+                    self.higher_order_rgb_grid[grid_idx * 4 + 3] = 255;
 
-                    for ox in -1isize..=1isize {
-                        let dist_x = ox as f32 - dx;
-                        let val_x = (-0.5 * (dist_x * dist_x) / (sig_x * sig_x)).exp();
-                        wx[(ox + 1) as usize] = val_x;
-                        sum_wx += val_x;
+                    if self.higher_order_mode == 3 && derivs.magnitude > 1.0 {
+                        let c_reass_f = c as f32 + (derivs.time_reassigned_s * self.fs / self.hop as f32) + derivs.delta_t_star;
+                        let f_reass = fc + (derivs.d_phi_dt / (2.0 * std::f32::consts::PI));
+                        let j_reass_f = if self.is_linear {
+                            ((f_reass - self.fmin) / (self.fmax - self.fmin)) * (self.h as f32 - 1.0)
+                        } else {
+                            (f_reass / self.fmin).log2() / self.step
+                        };
+                        let ci = c_reass_f.round() as isize;
+                        let ji = j_reass_f.round() as isize;
+                        if ci >= 0 && ci < self.w as isize && ji >= 0 && ji < self.h as isize {
+                            let target_idx = ji as usize * self.w + ci as usize;
+                            self.reassigned_grid_re[target_idx] += s_vals[0].re;
+                            self.reassigned_grid_im[target_idx] += s_vals[0].im;
+                        }
                     }
-                    for oy in -1isize..=1isize {
-                        let dist_y = oy as f32 - dy;
-                        let val_y = (-0.5 * (dist_y * dist_y) / (sig_y * sig_y)).exp();
-                        wy[(oy + 1) as usize] = val_y;
-                        sum_wy += val_y;
+                }
+            }
+        } else {
+            for c in c_start..c_end {
+                let start = c * self.hop;
+                for i in 0..self.n_stft {
+                    self.buffer_h_th[i] = rustfft::num_complex::Complex::new(0.0, 0.0);
+                    self.buffer_dh[i] = rustfft::num_complex::Complex::new(0.0, 0.0);
+                }
+                for i in 0..self.win_len {
+                    let idx = start as isize + i as isize - (self.win_len as isize / 2);
+                    if idx >= 0 && idx < self.sliced_samples as isize {
+                        let sample_val = self.mid_channel[idx as usize];
+                        self.buffer_h_th[i] = rustfft::num_complex::Complex::new(sample_val * self.win_h[i], sample_val * self.win_th[i]);
+                        self.buffer_dh[i] = rustfft::num_complex::Complex::new(sample_val * self.win_dh[i], 0.0);
+                    }
+                }
+                self.fft.process_with_scratch(&mut self.buffer_h_th, &mut self.scratch);
+                self.fft.process_with_scratch(&mut self.buffer_dh, &mut self.scratch);
+
+                for j in 0..self.h {
+                    let fc = self.fc_lut[j];
+                    let k_f = self.k_f_lut[j];
+                    let k_floor = (k_f.floor() as usize).clamp(1, self.n_stft / 2 - 2);
+                    let k_ceil = k_floor + 1;
+                    let delta_k = k_f - k_floor as f32;
+
+                    let y_floor = self.buffer_h_th[k_floor];
+                    let y_sym_floor = self.buffer_h_th[self.n_stft - k_floor];
+                    let s_h_floor = rustfft::num_complex::Complex::new(0.5 * (y_floor.re + y_sym_floor.re), 0.5 * (y_floor.im - y_sym_floor.im));
+                    let s_th_floor = rustfft::num_complex::Complex::new(0.5 * (y_floor.im + y_sym_floor.im), 0.5 * (y_sym_floor.re - y_floor.re));
+
+                    let y_ceil = self.buffer_h_th[k_ceil];
+                    let y_sym_ceil = self.buffer_h_th[self.n_stft - k_ceil];
+                    let s_h_ceil = rustfft::num_complex::Complex::new(0.5 * (y_ceil.re + y_sym_ceil.re), 0.5 * (y_ceil.im - y_sym_ceil.im));
+                    let s_th_ceil = rustfft::num_complex::Complex::new(0.5 * (y_ceil.im + y_sym_ceil.im), 0.5 * (y_sym_ceil.re - y_ceil.re));
+
+                    let s_h = s_h_floor * (1.0 - delta_k) + s_h_ceil * delta_k;
+                    let s_th = s_th_floor * (1.0 - delta_k) + s_th_ceil * delta_k;
+                    let s_dh = self.buffer_dh[k_floor] * (1.0 - delta_k) + self.buffer_dh[k_ceil] * delta_k;
+
+                    let mag_sq = s_h.re * s_h.re + s_h.im * s_h.im;
+                    if mag_sq > 1e-12 {
+                        let mag_orig = mag_sq.sqrt();
+                        let r_orig = mag_orig / 4194304.0;
+                        if r_orig > 1e-5 {
+                            let db_orig = 20.0 * r_orig.log10();
+                            let b_orig = (((db_orig + 100.0) / 100.0) * 127.0f32).clamp(0.0, 127.0) as usize;
+                            self.raw_hist_orig[b_orig] += 1.0;
+                        }
                     }
 
-                    if sum_wx > 1e-15 && sum_wy > 1e-15 {
-                        let inv_sum = 1.0 / (sum_wx * sum_wy);
+                    if mag_sq < 1.0 {
+                        if mag_sq > 1e-4 {
+                            let target_idx = j * self.w + c;
+                            self.reassigned_grid_re[target_idx] += s_h.re;
+                            self.reassigned_grid_im[target_idx] += s_h.im;
+                        }
+                        continue;
+                    }
+
+                    let target_idx = j * self.w + c;
+                    if self.algorithm_type == "reassignment" {
+                        let s_th_conj = s_th * s_h.conj();
+                        let t_shift = s_th_conj.re / mag_sq;
+                        let c_reassigned_f = c as f32 + t_shift / self.hop as f32;
+                        let s_dh_conj = s_dh * s_h.conj();
+                        let omega_shift = -s_dh_conj.im / mag_sq;
+                        let f_reassigned = fc + (omega_shift / (2.0 * std::f32::consts::PI));
+
+                        let j_reassigned_f = if self.is_linear {
+                            ((f_reassigned - self.fmin) / (self.fmax - self.fmin)) * (self.h as f32 - 1.0)
+                        } else {
+                            (f_reassigned / self.fmin).log2() / self.step
+                        };
+
+                        let d_log_a_dt = s_dh_conj.re / mag_sq;
+                        let d_log_a_dw = s_th_conj.im / mag_sq;
+                        let curvature_factor = 1.0 + (d_log_a_dt * d_log_a_dt + d_log_a_dw * d_log_a_dw).sqrt();
+                        let sig_x = (self.point_radius * 0.7071 / curvature_factor).clamp(0.05, 4.0);
+                        let sig_y = (self.point_radius * 0.7071 / curvature_factor).clamp(0.05, 4.0);
+
+                        let c_reassigned_i = c_reassigned_f.round() as isize;
+                        let j_reassigned_i = j_reassigned_f.round() as isize;
+                        let dx = c_reassigned_f - c_reassigned_i as f32;
+                        let dy = j_reassigned_f - j_reassigned_i as f32;
+
+                        let mut wx = [0.0f32; 3];
+                        let mut wy = [0.0f32; 3];
+                        let mut sum_wx = 0.0f32;
+                        let mut sum_wy = 0.0f32;
+
                         for ox in -1isize..=1isize {
-                            let curr_c = c_reassigned_i + ox;
-                            if curr_c >= 0 && curr_c < self.w as isize {
-                                for oy in -1isize..=1isize {
-                                    let curr_j = j_reassigned_i + oy;
-                                    if curr_j >= 0 && curr_j < self.h as isize {
-                                        let weight = wx[(ox + 1) as usize] * wy[(oy + 1) as usize] * inv_sum;
-                                        let t_idx = curr_j as usize * self.w + curr_c as usize;
-                                        self.reassigned_grid_re[t_idx] += s_h.re * weight;
-                                        self.reassigned_grid_im[t_idx] += s_h.im * weight;
+                            let dist_x = ox as f32 - dx;
+                            let val_x = (-0.5 * (dist_x * dist_x) / (sig_x * sig_x)).exp();
+                            wx[(ox + 1) as usize] = val_x;
+                            sum_wx += val_x;
+                        }
+                        for oy in -1isize..=1isize {
+                            let dist_y = oy as f32 - dy;
+                            let val_y = (-0.5 * (dist_y * dist_y) / (sig_y * sig_y)).exp();
+                            wy[(oy + 1) as usize] = val_y;
+                            sum_wy += val_y;
+                        }
+
+                        if sum_wx > 1e-15 && sum_wy > 1e-15 {
+                            let inv_sum = 1.0 / (sum_wx * sum_wy);
+                            for ox in -1isize..=1isize {
+                                let curr_c = c_reassigned_i + ox;
+                                if curr_c >= 0 && curr_c < self.w as isize {
+                                    for oy in -1isize..=1isize {
+                                        let curr_j = j_reassigned_i + oy;
+                                        if curr_j >= 0 && curr_j < self.h as isize {
+                                            let weight = wx[(ox + 1) as usize] * wy[(oy + 1) as usize] * inv_sum;
+                                            let t_idx = curr_j as usize * self.w + curr_c as usize;
+                                            self.reassigned_grid_re[t_idx] += s_h.re * weight;
+                                            self.reassigned_grid_im[t_idx] += s_h.im * weight;
+                                        }
                                     }
                                 }
                             }
+                        } else {
+                            self.reassigned_grid_re[target_idx] += s_h.re;
+                            self.reassigned_grid_im[target_idx] += s_h.im;
                         }
                     } else {
-                        self.reassigned_grid_re[target_idx] += s_h.re;
-                        self.reassigned_grid_im[target_idx] += s_h.im;
+                        self.reassigned_grid_re[target_idx] = s_h.re;
+                        self.reassigned_grid_im[target_idx] = s_h.im;
                     }
-                } else {
-                    self.reassigned_grid_re[target_idx] = s_h.re;
-                    self.reassigned_grid_im[target_idx] = s_h.im;
                 }
             }
         }
@@ -3428,6 +3900,14 @@ impl WasmSpectrogramStreamer {
             for col in c_start..c_end {
                 let grid_idx = row * self.w + col;
                 let out_idx = (row * chunk_w + (col - c_start)) * 4;
+
+                if self.is_higher_order && self.higher_order_mode != 3 {
+                    rgba_buffer[out_idx] = self.higher_order_rgb_grid[grid_idx * 4];
+                    rgba_buffer[out_idx + 1] = self.higher_order_rgb_grid[grid_idx * 4 + 1];
+                    rgba_buffer[out_idx + 2] = self.higher_order_rgb_grid[grid_idx * 4 + 2];
+                    rgba_buffer[out_idx + 3] = self.higher_order_rgb_grid[grid_idx * 4 + 3];
+                    continue;
+                }
 
                 let re = self.reassigned_grid_re[grid_idx];
                 let im = self.reassigned_grid_im[grid_idx];
@@ -3762,6 +4242,27 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
     let hop = (sliced_samples / target_cols).max(1);
     let w = (sliced_samples / hop).max(2);
     let grid_size = w * h;
+
+    if algorithm_type.starts_with("higher_order") {
+        let mut streamer = WasmSpectrogramStreamer::new(
+            data,
+            h,
+            window_type,
+            win_len,
+            pad_factor,
+            fmin_custom,
+            fmax_custom,
+            algorithm_type,
+            palette_type,
+            t_start,
+            t_end,
+            point_radius,
+            scale_type,
+            horizontal_res_k,
+        );
+        let count = if chunk_count == 0 { streamer.get_width() } else { chunk_count };
+        return streamer.process_chunk(count);
+    }
 
     let (c_start, c_end) = if chunk_count > 0 {
         let cs = chunk_start.min(w - 1);
@@ -4337,6 +4838,144 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
     }
     
     rgba_buffer
+}
+
+#[wasm_bindgen]
+pub struct WasmHigherOrderPointResult {
+    pub freq_inst_hz: f32,
+    pub time_reassigned_s: f32,
+    pub hessian_det: f32,
+    pub hessian_trace: f32,
+    pub lambda_1: f32,
+    pub lambda_2: f32,
+    pub ridge_angle_rad: f32,
+    pub anisotropy: f32,
+    pub delta_t_star: f32,
+    pub delta_w_star: f32,
+    pub peak_magnitude: f32,
+    pub is_ridge: bool,
+    pub bandwidth_3db_hz: f32,
+    pub duration_3db_s: f32,
+    pub chirp_rate: f32,
+    pub delta_t_inflex: f32,
+}
+
+#[wasm_bindgen]
+pub fn wasm_analyze_higher_order_point(
+    data: &[u8],
+    sample_rate: f32,
+    target_time_s: f32,
+    target_freq_hz: f32,
+    window_size: usize,
+    max_order: usize,
+) -> WasmHigherOrderPointResult {
+    let pcm_data = if data.len() >= 44 && &data[0..4] == b"RIFF" {
+        &data[44..]
+    } else {
+        data
+    };
+    let num_samples = pcm_data.len() / 4;
+    let fs = if sample_rate > 0.0 { sample_rate } else { 44100.0 };
+    let win_len = if window_size > 0 { window_size } else { 1024 };
+    let center_sample = ((target_time_s * fs) as isize).clamp(0, (num_samples - 1) as isize);
+
+    let mut frame = vec![0.0f32; win_len];
+    let half_win = (win_len as isize) / 2;
+    for i in 0..win_len {
+        let idx = center_sample - half_win + i as isize;
+        if idx >= 0 && (idx as usize) < num_samples {
+            let offset = idx as usize * 4;
+            let b0 = pcm_data[offset] as u16;
+            let b1 = pcm_data[offset + 1] as u16;
+            let b2 = pcm_data[offset + 2] as u16;
+            let b3 = pcm_data[offset + 3] as u16;
+            let l = ((b1 << 8) | b0) as i16 as f32;
+            let r = ((b3 << 8) | b2) as i16 as f32;
+            frame[i] = (l + r) * 0.5;
+        }
+    }
+
+    let sigma_s = 0.4 * (win_len as f32 * 0.5) / fs;
+    let order = max_order.clamp(1, 4);
+    let mut higher_order_windows = Vec::new();
+    let mut higher_order_labels = Vec::new();
+    for p in 0..=order {
+        for q in 0..=(order - p) {
+            let win = crate::analysis::higher_order::generate_window_samples(p, q, win_len, fs, sigma_s);
+            higher_order_windows.push(win);
+            higher_order_labels.push((p, q));
+        }
+    }
+
+    let mut coeffs = vec![crate::analysis::higher_order::Complex32::default(); higher_order_windows.len()];
+    let half = (win_len as f32 - 1.0) * 0.5;
+    for (idx, win) in higher_order_windows.iter().enumerate() {
+        let mut acc = crate::analysis::higher_order::Complex32::default();
+        for n in 0..win_len {
+            let u = (n as f32 - half) / fs;
+            let phase = -2.0 * std::f32::consts::PI * target_freq_hz * u;
+            let (s, c) = phase.sin_cos();
+            let val = frame[n] * win[n];
+            acc.re += val * c;
+            acc.im += val * s;
+        }
+        let (p, q) = higher_order_labels[idx];
+        let sign_p = if p % 2 == 1 { -1.0 } else { 1.0 };
+        let mod_q = q % 4;
+        let factor_q = match mod_q {
+            0 => crate::analysis::higher_order::Complex32::new(1.0, 0.0),
+            1 => crate::analysis::higher_order::Complex32::new(0.0, -1.0),
+            2 => crate::analysis::higher_order::Complex32::new(-1.0, 0.0),
+            _ => crate::analysis::higher_order::Complex32::new(0.0, 1.0),
+        };
+        coeffs[idx] = acc.scale(sign_p).mul(factor_q);
+    }
+
+    let get_s = |req_p: usize, req_q: usize| -> crate::analysis::higher_order::Complex32 {
+        for (idx, &(p, q)) in higher_order_labels.iter().enumerate() {
+            if p == req_p && q == req_q {
+                return coeffs[idx];
+            }
+        }
+        crate::analysis::higher_order::Complex32::default()
+    };
+
+    let d = crate::analysis::higher_order::compute_faa_di_bruno_derivatives(
+        order,
+        get_s(0, 0),
+        get_s(1, 0),
+        get_s(0, 1),
+        get_s(2, 0),
+        get_s(1, 1),
+        get_s(0, 2),
+        get_s(3, 0),
+        get_s(2, 1),
+        get_s(1, 2),
+        get_s(0, 3),
+        get_s(4, 0),
+        get_s(0, 4),
+        target_freq_hz,
+        target_time_s,
+    );
+
+    WasmHigherOrderPointResult {
+        freq_inst_hz: d.freq_inst_hz,
+        time_reassigned_s: d.time_reassigned_s,
+        hessian_det: d.hessian_det,
+        hessian_trace: d.hessian_trace,
+        lambda_1: d.lambda_1,
+        lambda_2: d.lambda_2,
+        ridge_angle_rad: d.ridge_angle_rad,
+        anisotropy: d.anisotropy,
+        delta_t_star: d.delta_t_star,
+        delta_w_star: d.delta_w_star,
+        peak_magnitude: d.peak_magnitude,
+        is_ridge: d.is_ridge,
+        bandwidth_3db_hz: d.bandwidth_3db_hz,
+        duration_3db_s: d.duration_3db_s,
+        chirp_rate: d.d2_phi_dt2,
+        delta_t_inflex: d.delta_t_inflex,
+    }
 }
 
 // Utility to generate Geodesic Snake LUT inside Rust for 100% self-contained speeds
@@ -5737,5 +6376,67 @@ mod tests {
             let decoded_audio = decode_wavelet(&encoded_rgba).unwrap();
             assert_eq!(original_audio, decoded_audio, "Pipeline failed for order {}", order);
         }
-    }
-}
+        }
+
+        #[test]
+        fn test_higher_order_point_analysis() {
+        let fs = 44100.0f32;
+        let num_samples = 4096;
+        let mut pcm_bytes = Vec::with_capacity(num_samples * 4);
+        for n in 0..num_samples {
+            let t = n as f32 / fs;
+            let s = ((2.0 * std::f32::consts::PI * 880.0 * t).sin() * 16000.0) as i16;
+            let b0 = (s & 0xFF) as u8;
+            let b1 = ((s >> 8) & 0xFF) as u8;
+            // Left channel
+            pcm_bytes.push(b0);
+            pcm_bytes.push(b1);
+            // Right channel
+            pcm_bytes.push(b0);
+            pcm_bytes.push(b1);
+        }
+
+        let res = wasm_analyze_higher_order_point(&pcm_bytes, fs, 0.045, 880.0, 1024, 2);
+        assert!((res.freq_inst_hz - 880.0).abs() < 5.0, "Expected freq ~880, got {}", res.freq_inst_hz);
+        assert!(res.lambda_1 < 0.0, "Expected negative curvature lambda_1, got {}", res.lambda_1);
+        assert!(res.anisotropy > 0.5, "Expected high anisotropy, got {}", res.anisotropy);
+        }
+
+        #[test]
+        fn test_higher_order_streamer_chunk() {
+        let fs = 44100.0f32;
+        let num_samples = 4096;
+        let mut pcm_bytes = Vec::with_capacity(num_samples * 4);
+        for n in 0..num_samples {
+            let t = n as f32 / fs;
+            let s = ((2.0 * std::f32::consts::PI * 440.0 * t).sin() * 16000.0) as i16;
+            let b0 = (s & 0xFF) as u8;
+            let b1 = ((s >> 8) & 0xFF) as u8;
+            pcm_bytes.push(b0);
+            pcm_bytes.push(b1);
+            pcm_bytes.push(b0);
+            pcm_bytes.push(b1);
+        }
+
+        let mut streamer = WasmSpectrogramStreamer::new(
+            &pcm_bytes,
+            512,
+            "hann",
+            1024,
+            2,
+            20.0,
+            20000.0,
+            "higher_order:2:0",
+            "ycbcr",
+            0.0,
+            1.0,
+            1.0,
+            "log",
+            0,
+        );
+        assert_eq!(streamer.get_higher_order_o(), 2);
+        assert_eq!(streamer.get_higher_order_mode(), 0);
+        let chunk = streamer.process_chunk(16);
+        assert_eq!(chunk.len(), 16 * 512 * 4);
+        }
+        }

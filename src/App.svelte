@@ -35,7 +35,9 @@
   let zeroPadding = $state<number>(2);
   let fmin = $state<number>(20);
   let fmax = $state<number>(20000);
-  let algorithmType = $state<'reassignment' | 'log'>('reassignment');
+  let algorithmType = $state<'reassignment' | 'log' | 'cqt' | 'higher_order'>('reassignment');
+  let higherOrderO = $state<number>(2);
+  let higherOrderVisualMode = $state<'ridge' | 'anisotropy' | 'curvature' | 'vector_reassign'>('ridge');
   let paletteType = $state<'ycbcr' | 'snake'>('ycbcr');
 
   // Adaptive Zoom View Bounds (Immediate UI bounds vs Background WASM bounds)
@@ -199,6 +201,10 @@
       const t0 = performance.now();
       currentQualityLod = lod;
       
+      const effectiveAlgo = algorithmType === 'higher_order'
+        ? `higher_order:${higherOrderO}:${higherOrderVisualMode}`
+        : algorithmType;
+
       // If LOD 1 (Draft Mode): instant single-shot 1.5ms computation!
       if (lod === 1) {
         progressiveSessionId++; // cancel any running progressive sweep
@@ -211,7 +217,7 @@
           zeroPadding,
           fmin,
           fmax,
-          algorithmType,
+          effectiveAlgo,
           paletteType,
           wasmViewStart,
           wasmViewEnd,
@@ -237,7 +243,7 @@
         zeroPadding,
         fmin,
         fmax,
-        algorithmType,
+        effectiveAlgo,
         paletteType,
         wasmViewStart,
         wasmViewEnd,
@@ -384,6 +390,8 @@
     const _fmin = fmin;
     const _fmax = fmax;
     const _algo = algorithmType;
+    const _ho_o = higherOrderO;
+    const _ho_m = higherOrderVisualMode;
     const _pal = paletteType;
     const _height = selectedHeight;
     const _bytes = originalBytes;
@@ -394,7 +402,7 @@
     const _scale = frequencyScale;
     const _resK = horizontalResolutionK;
     
-    if (_bytes && _loaded && _winType && _winSize && _zeroPadding && _fmin && _fmax && _algo && _pal && _height && _scale && _resK !== undefined) {
+    if (_bytes && _loaded && _winType && _winSize && _zeroPadding && _fmin && _fmax && _algo && _pal && _height && _scale && _resK !== undefined && _ho_o !== undefined && _ho_m !== undefined) {
       untrack(() => {
         regenerateSpectrogram();
       });
@@ -563,6 +571,8 @@
       bind:fmin={fmin}
       bind:fmax={fmax}
       bind:algorithmType={algorithmType}
+      bind:higherOrderO={higherOrderO}
+      bind:higherOrderVisualMode={higherOrderVisualMode}
       bind:paletteType={paletteType}
       bind:selectedHeight={selectedHeight}
       
