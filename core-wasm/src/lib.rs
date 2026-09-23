@@ -2732,6 +2732,481 @@ pub fn wasm_get_last_mirrored_density_histogram() -> Vec<f32> {
 }
 
 #[wasm_bindgen]
+pub struct WasmSpectrogramStreamer {
+    w: usize,
+    h: usize,
+    current_col: usize,
+    hop: usize,
+    win_len: usize,
+    n_stft: usize,
+    sliced_samples: usize,
+    mid_channel: Vec<f32>,
+    win_h: Vec<f32>,
+    win_th: Vec<f32>,
+    win_dh: Vec<f32>,
+    fc_lut: Vec<f32>,
+    k_f_lut: Vec<f32>,
+    a_min_lut: Vec<f32>,
+    delta_a_lut: Vec<f32>,
+    snake_palette: Vec<(u8, u8, u8)>,
+    raw_hist_trans: [f32; 128],
+    raw_hist_orig: [f32; 128],
+    fmin: f32,
+    fmax: f32,
+    step: f32,
+    point_radius: f32,
+    algorithm_type: String,
+    palette_type: String,
+    is_linear: bool,
+    fft: std::sync::Arc<dyn rustfft::Fft<f32>>,
+    scratch: Vec<rustfft::num_complex::Complex<f32>>,
+    buffer_h_th: Vec<rustfft::num_complex::Complex<f32>>,
+    buffer_dh: Vec<rustfft::num_complex::Complex<f32>>,
+    reassigned_grid_re: Vec<f32>,
+    reassigned_grid_im: Vec<f32>,
+}
+
+#[wasm_bindgen]
+impl WasmSpectrogramStreamer {
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        data: &[u8],
+        h_custom: usize,
+        window_type: &str,
+        window_size: usize,
+        zero_padding: usize,
+        fmin_custom: f32,
+        fmax_custom: f32,
+        algorithm_type: &str,
+        palette_type: &str,
+        t_start: f32,
+        t_end: f32,
+        point_radius: f32,
+        scale_type: &str,
+        horizontal_res_k: usize,
+    ) -> WasmSpectrogramStreamer {
+        let mut h = h_custom;
+        if !h.is_power_of_two() || h < 4 { h = 512; }
+        
+        let pcm_data = if data.len() >= 44 && &data[0..4] == b"RIFF" {
+            &data[44..]
+        } else {
+            data
+        };
+        let num_samples = pcm_data.len() / 4;
+        let start_sample = ((t_start.clamp(0.0, 1.0) * num_samples as f32) as usize).min(num_samples - 2);
+        let end_sample = ((t_end.clamp(0.0, 1.0) * num_samples as f32) as usize).clamp(start_sample + 2, num_samples);
+        let sliced_samples = end_sample - start_sample;
+        
+        let win_len = if window_size > 0 { window_size } else { 1024 };
+        let pad_factor = if zero_padding > 0 { zero_padding } else { 2 };
+        let n_stft = win_len * pad_factor;
+        
+        let k_clamped = horizontal_res_k.min(4);
+        let target_cols = (1024usize << k_clamped).max(512);
+        let hop = (sliced_samples / target_cols).max(1);
+        let w = (sliced_samples / hop).max(2);
+        let grid_size = w * h;
+        
+        let mut mid_channel = vec![0.0f32; sliced_samples];
+        for i in 0..sliced_samples {
+            let offset = (start_sample + i) * 4;
+            let b0 = if offset < pcm_data.len() { pcm_data[offset] } else { 0 };
+            let b1 = if offset + 1 < pcm_data.len() { pcm_data[offset + 1] } else { 0 };
+            let b2 = if offset + 2 < pcm_data.len() { pcm_data[offset + 2] } else { 0 };
+            let b3 = if offset + 3 < pcm_data.len() { pcm_data[offset + 3] } else { 0 };
+            let l = (((b1 as u16) << 8) | (b0 as u16)) as i16 as f32;
+            let r = (((b3 as u16) << 8) | (b2 as u16)) as i16 as f32;
+            mid_channel[i] = (l + r) * 0.5;
+        }
+
+        let mut win_h = vec![0.0f32; win_len];
+        let mut win_th = vec![0.0f32; win_len];
+        let mut win_dh = vec![0.0f32; win_len];
+        let half_win = (win_len as f32 - 1.0) * 0.5;
+        for i in 0..win_len {
+            let t = i as f32 - half_win;
+            let val = match window_type {
+                "hamming" => 0.54 - 0.46 * (2.0 * std::f32::consts::PI * i as f32 / (win_len as f32 - 1.0)).cos(),
+                "gaussian" => {
+                    let sigma = 0.4 * half_win;
+                    (-0.5 * (t / sigma).powi(2)).exp()
+                },
+                "blackman-harris" => {
+                    let a0 = 0.35875;
+                    let a1 = 0.48829;
+                    let a2 = 0.14128;
+                    let a3 = 0.01168;
+                    let z = 2.0 * std::f32::consts::PI * i as f32 / (win_len as f32 - 1.0);
+                    a0 - a1 * z.cos() + a2 * (2.0 * z).cos() - a3 * (3.0 * z).cos()
+                },
+                _ => 0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (win_len as f32 - 1.0)).cos()),
+            };
+            win_h[i] = val;
+            win_th[i] = t * val;
+            win_dh[i] = if i == 0 {
+                win_h[1] - win_h[0]
+            } else if i == win_len - 1 {
+                win_h[win_len - 1] - win_h[win_len - 2]
+            } else {
+                0.5 * (win_h[i + 1] - win_h[i - 1])
+            };
+        }
+
+        let fs = 44100.0f32;
+        let is_linear = scale_type == "linear";
+        let fmin = if is_linear { fmin_custom.max(0.0) } else { fmin_custom.max(10.0) };
+        let fmax = fmax_custom.clamp(fmin + 1.0, fs * 0.5);
+        let step = if is_linear { (fmax - fmin) / (h as f32 - 1.0) } else { (fmax / fmin).log2() / (h as f32 - 1.0) };
+
+        let mut fc_lut = vec![0.0f32; h];
+        let mut k_f_lut = vec![0.0f32; h];
+        for j in 0..h {
+            let fc = if is_linear { fmin + j as f32 * step } else { fmin * 2.0f32.powf(j as f32 * step) };
+            fc_lut[j] = fc;
+            k_f_lut[j] = fc * n_stft as f32 / fs;
+        }
+
+        let mut a_min_lut = vec![0.0f32; 256];
+        let mut delta_a_lut = vec![0.0f32; 256];
+        for y_idx in 1..=255 {
+            let y_f = y_idx as f32;
+            let amin_pow = -15.0 + 15.0 * (y_f * y_f - 1.0) / 65024.0;
+            let a_min = 2.0f32.powf(amin_pow);
+            let a_max = 2.0f32.powf(-15.0 + 15.0 * ((y_f + 1.0) * (y_f + 1.0) - 1.0) / 65024.0);
+            a_min_lut[y_idx] = a_min;
+            delta_a_lut[y_idx] = a_max - a_min;
+        }
+        a_min_lut[0] = 0.0;
+        delta_a_lut[0] = a_min_lut[1];
+
+        let snake_palette = if palette_type == "snake" {
+            generate_snake_palette_lut()
+        } else {
+            Vec::new()
+        };
+
+        let mut planner = rustfft::FftPlanner::new();
+        let fft = planner.plan_fft_forward(n_stft);
+        let scratch = vec![rustfft::num_complex::Complex::<f32>::new(0.0, 0.0); fft.get_inplace_scratch_len()];
+        let buffer_h_th = vec![rustfft::num_complex::Complex::<f32>::new(0.0, 0.0); n_stft];
+        let buffer_dh = vec![rustfft::num_complex::Complex::<f32>::new(0.0, 0.0); n_stft];
+
+        WasmSpectrogramStreamer {
+            w,
+            h,
+            current_col: 0,
+            hop,
+            win_len,
+            n_stft,
+            sliced_samples,
+            mid_channel,
+            win_h,
+            win_th,
+            win_dh,
+            fc_lut,
+            k_f_lut,
+            a_min_lut,
+            delta_a_lut,
+            snake_palette,
+            raw_hist_trans: [0.0f32; 128],
+            raw_hist_orig: [0.0f32; 128],
+            fmin,
+            fmax,
+            step,
+            point_radius,
+            algorithm_type: algorithm_type.to_string(),
+            palette_type: palette_type.to_string(),
+            is_linear,
+            fft,
+            scratch,
+            buffer_h_th,
+            buffer_dh,
+            reassigned_grid_re: vec![0.0f32; grid_size],
+            reassigned_grid_im: vec![0.0f32; grid_size],
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn get_width(&self) -> usize { self.w }
+
+    #[wasm_bindgen]
+    pub fn get_height(&self) -> usize { self.h }
+
+    #[wasm_bindgen]
+    pub fn get_current_col(&self) -> usize { self.current_col }
+
+    #[wasm_bindgen]
+    pub fn is_complete(&self) -> bool { self.current_col >= self.w }
+
+    #[wasm_bindgen]
+    pub fn get_progress_pct(&self) -> f32 {
+        if self.w == 0 { 100.0 } else { (self.current_col as f32 / self.w as f32) * 100.0 }
+    }
+
+    #[wasm_bindgen]
+    pub fn process_chunk(&mut self, chunk_cols: usize) -> Vec<u8> {
+        let c_start = self.current_col;
+        let c_end = (c_start + chunk_cols).min(self.w);
+        let chunk_w = c_end - c_start;
+        if chunk_w == 0 {
+            return Vec::new();
+        }
+
+        for c in c_start..c_end {
+            let start = c * self.hop;
+            for i in 0..self.n_stft {
+                self.buffer_h_th[i] = rustfft::num_complex::Complex::new(0.0, 0.0);
+                self.buffer_dh[i] = rustfft::num_complex::Complex::new(0.0, 0.0);
+            }
+            for i in 0..self.win_len {
+                let idx = start as isize + i as isize - (self.win_len as isize / 2);
+                if idx >= 0 && idx < self.sliced_samples as isize {
+                    let sample_val = self.mid_channel[idx as usize];
+                    self.buffer_h_th[i] = rustfft::num_complex::Complex::new(sample_val * self.win_h[i], sample_val * self.win_th[i]);
+                    self.buffer_dh[i] = rustfft::num_complex::Complex::new(sample_val * self.win_dh[i], 0.0);
+                }
+            }
+            self.fft.process_with_scratch(&mut self.buffer_h_th, &mut self.scratch);
+            self.fft.process_with_scratch(&mut self.buffer_dh, &mut self.scratch);
+
+            for j in 0..self.h {
+                let fc = self.fc_lut[j];
+                let k_f = self.k_f_lut[j];
+                let k_floor = (k_f.floor() as usize).clamp(1, self.n_stft / 2 - 2);
+                let k_ceil = k_floor + 1;
+                let delta_k = k_f - k_floor as f32;
+
+                let y_floor = self.buffer_h_th[k_floor];
+                let y_sym_floor = self.buffer_h_th[self.n_stft - k_floor];
+                let s_h_floor = rustfft::num_complex::Complex::new(0.5 * (y_floor.re + y_sym_floor.re), 0.5 * (y_floor.im - y_sym_floor.im));
+                let s_th_floor = rustfft::num_complex::Complex::new(0.5 * (y_floor.im + y_sym_floor.im), 0.5 * (y_sym_floor.re - y_floor.re));
+
+                let y_ceil = self.buffer_h_th[k_ceil];
+                let y_sym_ceil = self.buffer_h_th[self.n_stft - k_ceil];
+                let s_h_ceil = rustfft::num_complex::Complex::new(0.5 * (y_ceil.re + y_sym_ceil.re), 0.5 * (y_ceil.im - y_sym_ceil.im));
+                let s_th_ceil = rustfft::num_complex::Complex::new(0.5 * (y_ceil.im + y_sym_ceil.im), 0.5 * (y_sym_ceil.re - y_ceil.re));
+
+                let s_h = s_h_floor * (1.0 - delta_k) + s_h_ceil * delta_k;
+                let s_th = s_th_floor * (1.0 - delta_k) + s_th_ceil * delta_k;
+                let s_dh = self.buffer_dh[k_floor] * (1.0 - delta_k) + self.buffer_dh[k_ceil] * delta_k;
+
+                let mag_sq = s_h.re * s_h.re + s_h.im * s_h.im;
+                if mag_sq > 1e-12 {
+                    let mag_orig = mag_sq.sqrt();
+                    let r_orig = mag_orig / 4194304.0;
+                    if r_orig > 1e-5 {
+                        let db_orig = 20.0 * r_orig.log10();
+                        let b_orig = (((db_orig + 100.0) / 100.0) * 127.0f32).clamp(0.0, 127.0) as usize;
+                        self.raw_hist_orig[b_orig] += 1.0;
+                    }
+                }
+
+                if mag_sq < 1.0 {
+                    if mag_sq > 1e-4 {
+                        let target_idx = j * self.w + c;
+                        self.reassigned_grid_re[target_idx] += s_h.re;
+                        self.reassigned_grid_im[target_idx] += s_h.im;
+                    }
+                    continue;
+                }
+
+                let target_idx = j * self.w + c;
+                if self.algorithm_type == "reassignment" {
+                    let s_th_conj = s_th * s_h.conj();
+                    let t_shift = s_th_conj.re / mag_sq;
+                    let c_reassigned_f = c as f32 + t_shift / self.hop as f32;
+                    let s_dh_conj = s_dh * s_h.conj();
+                    let omega_shift = -s_dh_conj.im / mag_sq;
+                    let f_reassigned = fc + (omega_shift / (2.0 * std::f32::consts::PI));
+
+                    let j_reassigned_f = if self.is_linear {
+                        ((f_reassigned - self.fmin) / (self.fmax - self.fmin)) * (self.h as f32 - 1.0)
+                    } else {
+                        (f_reassigned / self.fmin).log2() / self.step
+                    };
+
+                    let d_log_a_dt = s_dh_conj.re / mag_sq;
+                    let d_log_a_dw = s_th_conj.im / mag_sq;
+                    let curvature_factor = 1.0 + (d_log_a_dt * d_log_a_dt + d_log_a_dw * d_log_a_dw).sqrt();
+                    let sig_x = (self.point_radius * 0.7071 / curvature_factor).clamp(0.05, 4.0);
+                    let sig_y = (self.point_radius * 0.7071 / curvature_factor).clamp(0.05, 4.0);
+
+                    let c_reassigned_i = c_reassigned_f.round() as isize;
+                    let j_reassigned_i = j_reassigned_f.round() as isize;
+                    let dx = c_reassigned_f - c_reassigned_i as f32;
+                    let dy = j_reassigned_f - j_reassigned_i as f32;
+
+                    let mut wx = [0.0f32; 3];
+                    let mut wy = [0.0f32; 3];
+                    let mut sum_wx = 0.0f32;
+                    let mut sum_wy = 0.0f32;
+
+                    for ox in -1isize..=1isize {
+                        let dist_x = ox as f32 - dx;
+                        let val_x = (-0.5 * (dist_x * dist_x) / (sig_x * sig_x)).exp();
+                        wx[(ox + 1) as usize] = val_x;
+                        sum_wx += val_x;
+                    }
+                    for oy in -1isize..=1isize {
+                        let dist_y = oy as f32 - dy;
+                        let val_y = (-0.5 * (dist_y * dist_y) / (sig_y * sig_y)).exp();
+                        wy[(oy + 1) as usize] = val_y;
+                        sum_wy += val_y;
+                    }
+
+                    if sum_wx > 1e-15 && sum_wy > 1e-15 {
+                        let inv_sum = 1.0 / (sum_wx * sum_wy);
+                        for ox in -1isize..=1isize {
+                            let curr_c = c_reassigned_i + ox;
+                            if curr_c >= 0 && curr_c < self.w as isize {
+                                for oy in -1isize..=1isize {
+                                    let curr_j = j_reassigned_i + oy;
+                                    if curr_j >= 0 && curr_j < self.h as isize {
+                                        let weight = wx[(ox + 1) as usize] * wy[(oy + 1) as usize] * inv_sum;
+                                        let t_idx = curr_j as usize * self.w + curr_c as usize;
+                                        self.reassigned_grid_re[t_idx] += s_h.re * weight;
+                                        self.reassigned_grid_im[t_idx] += s_h.im * weight;
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        self.reassigned_grid_re[target_idx] += s_h.re;
+                        self.reassigned_grid_im[target_idx] += s_h.im;
+                    }
+                } else {
+                    self.reassigned_grid_re[target_idx] = s_h.re;
+                    self.reassigned_grid_im[target_idx] = s_h.im;
+                }
+            }
+        }
+
+        // Colorize slice
+        let mut rgba_buffer = vec![0u8; chunk_w * self.h * 4];
+        for row in 0..self.h {
+            for col in c_start..c_end {
+                let grid_idx = row * self.w + col;
+                let out_idx = (row * chunk_w + (col - c_start)) * 4;
+
+                let re = self.reassigned_grid_re[grid_idx];
+                let im = self.reassigned_grid_im[grid_idx];
+                let abs_z = (re * re + im * im).sqrt();
+
+                if abs_z < 1e-12 {
+                    rgba_buffer[out_idx] = 0;
+                    rgba_buffer[out_idx + 1] = 0;
+                    rgba_buffer[out_idx + 2] = 0;
+                    rgba_buffer[out_idx + 3] = 255;
+                    continue;
+                }
+
+                let abs_z_norm = abs_z / 4194304.0;
+                if abs_z_norm > 1e-5 {
+                    let db_trans = 20.0 * abs_z_norm.log10();
+                    let b_trans = (((db_trans + 100.0) / 100.0) * 127.0f32).clamp(0.0, 127.0) as usize;
+                    self.raw_hist_trans[b_trans] += 1.0;
+                }
+
+                if self.palette_type == "snake" {
+                    let intensity = (abs_z / 4194304.0 * 65535.0).clamp(0.0, 65535.0) as usize;
+                    let (r, g, b) = self.snake_palette[intensity];
+                    rgba_buffer[out_idx] = r;
+                    rgba_buffer[out_idx + 1] = g;
+                    rgba_buffer[out_idx + 2] = b;
+                    rgba_buffer[out_idx + 3] = 255;
+                } else {
+                    let log2_r = abs_z_norm.log2();
+                    let y_val = (1.0 + 65024.0 * (log2_r + 15.0) / 15.0).sqrt();
+                    let mut y_f = y_val.floor();
+                    if y_f < 1.0 { y_f = 1.0; }
+                    if y_f > 255.0 { y_f = 255.0; }
+
+                    let y_idx = y_f as usize;
+                    let a_min = self.a_min_lut[y_idx];
+                    let delta_a = self.delta_a_lut[y_idx];
+
+                    let r_resid = abs_z_norm - a_min;
+                    let r_norm = r_resid / if delta_a > 1e-15 { delta_a } else { 1e-15 };
+
+                    let re_norm = re / 4194304.0;
+                    let im_norm = im / 4194304.0;
+                    let w_re = r_norm * (re_norm / abs_z_norm);
+                    let w_im = r_norm * (im_norm / abs_z_norm);
+
+                    let cr = -w_re;
+                    let cb = w_im;
+
+                    let cb_byte = (cb * 112.0 + 128.0).clamp(16.0, 240.0);
+                    let cr_byte = (cr * 112.0 + 128.0).clamp(16.0, 240.0);
+
+                    let r_val = y_f + 1.402 * (cr_byte - 128.0);
+                    let g_val = y_f - 0.344136 * (cb_byte - 128.0) - 0.714136 * (cr_byte - 128.0);
+                    let b_val = y_f + 1.772 * (cb_byte - 128.0);
+
+                    rgba_buffer[out_idx] = r_val.clamp(0.0, 255.0).round() as u8;
+                    rgba_buffer[out_idx + 1] = g_val.clamp(0.0, 255.0).round() as u8;
+                    rgba_buffer[out_idx + 2] = b_val.clamp(0.0, 255.0).round() as u8;
+                    rgba_buffer[out_idx + 3] = 255;
+                }
+            }
+        }
+
+        self.current_col = c_end;
+
+        if self.current_col >= self.w {
+            let mut kernel = [0.0f32; 11];
+            let mut k_sum = 0.0f32;
+            for i in 0..11 {
+                let x = (i as f32) - 5.0;
+                let v = (-0.5 * (x * x) / (2.5 * 2.5)).exp();
+                kernel[i] = v;
+                k_sum += v;
+            }
+            for i in 0..11 {
+                kernel[i] /= k_sum;
+            }
+
+            let mut density_trans = vec![0.0f32; 128];
+            let mut density_orig = vec![0.0f32; 128];
+
+            for i in 0..128 {
+                let mut sum_trans = 0.0f32;
+                let mut sum_orig = 0.0f32;
+                for k in 0..11 {
+                    let idx = (i as isize + k as isize - 5).clamp(0, 127) as usize;
+                    sum_trans += self.raw_hist_trans[idx] * kernel[k];
+                    sum_orig += self.raw_hist_orig[idx] * kernel[k];
+                }
+                density_trans[i] = sum_trans;
+                density_orig[i] = sum_orig;
+            }
+
+            let mut max_val = 1e-12f32;
+            for i in 0..128 {
+                if density_trans[i] > max_val { max_val = density_trans[i]; }
+                if density_orig[i] > max_val { max_val = density_orig[i]; }
+            }
+
+            for i in 0..128 {
+                density_trans[i] /= max_val;
+                density_orig[i] /= max_val;
+            }
+
+            let mut combined_density = Vec::with_capacity(256);
+            combined_density.extend_from_slice(&density_trans);
+            combined_density.extend_from_slice(&density_orig);
+
+            if let Ok(mut guard) = LAST_MIRRORED_DENSITY.lock() {
+                *guard = combined_density;
+            }
+        }
+
+        rgba_buffer
+    }
+}
+
+#[wasm_bindgen]
 pub fn wasm_get_spectrogram_dimensions(
     data: &[u8],
     h_custom: usize,

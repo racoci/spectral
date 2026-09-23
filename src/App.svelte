@@ -5,6 +5,7 @@
   import init, { 
     wasm_generate_complex_reassigned_ycbcr_spectrogram,
     wasm_get_spectrogram_dimensions,
+    WasmSpectrogramStreamer,
     wasm_synthesize_spectrogram_to_wav,
     wasm_get_last_mirrored_density_histogram
   } from './wasm/core_wasm.js';
@@ -128,6 +129,54 @@
     }, 200);
   }
 
+  // Persistent texture cache for Pyramidal Spatial Resampling & Zoom Refinement
+  let lastTextureGrid: Uint8Array | null = null;
+  let lastTextureW = 0;
+  let lastTextureH = 0;
+  let lastTextureViewStart = 0.0;
+  let lastTextureViewEnd = 1.0;
+  let lastTextureFmin = 20;
+  let lastTextureFmax = 20000;
+
+  function resamplePreviousGrid(
+    prevGrid: Uint8Array, prevW: number, prevH: number,
+    prevTStart: number, prevTEnd: number, prevFmin: number, prevFmax: number,
+    newW: number, newH: number,
+    newTStart: number, newTEnd: number, newFmin: number, newFmax: number
+  ): Uint8Array {
+    const newGrid = new Uint8Array(newW * newH * 4);
+    const logPrevFmin = Math.log2(Math.max(1, prevFmin));
+    const logPrevSpan = Math.log2(prevFmax / Math.max(1, prevFmin));
+    const logNewFmin = Math.log2(Math.max(1, newFmin));
+    const logNewSpan = Math.log2(newFmax / Math.max(1, newFmin));
+    const prevTSpan = Math.max(1e-6, prevTEnd - prevTStart);
+    const newTSpan = Math.max(1e-6, newTEnd - newTStart);
+
+    for (let r = 0; r < newH; r++) {
+      const freqRatio = r / Math.max(1, newH - 1);
+      const logF = logNewFmin + freqRatio * logNewSpan;
+      const prevFreqRatio = (logF - logPrevFmin) / logPrevSpan;
+      const srcRow = Math.round(prevFreqRatio * (prevH - 1));
+      if (srcRow < 0 || srcRow >= prevH) continue;
+
+      for (let c = 0; c < newW; c++) {
+        const timeRatio = c / Math.max(1, newW - 1);
+        const t = newTStart + timeRatio * newTSpan;
+        const prevTimeRatio = (t - prevTStart) / prevTSpan;
+        const srcCol = Math.round(prevTimeRatio * (prevW - 1));
+        if (srcCol < 0 || srcCol >= prevW) continue;
+
+        const srcIdx = (srcRow * prevW + srcCol) * 4;
+        const dstIdx = (r * newW + c) * 4;
+        newGrid[dstIdx] = prevGrid[srcIdx];
+        newGrid[dstIdx + 1] = prevGrid[srcIdx + 1];
+        newGrid[dstIdx + 2] = prevGrid[srcIdx + 2];
+        newGrid[dstIdx + 3] = prevGrid[srcIdx + 3];
+      }
+    }
+    return newGrid;
+  }
+
   function regenerateSpectrogram(lod = 0) {
     if (!originalBytes || !wasmLoaded) return;
     try {
@@ -162,97 +211,93 @@
         return;
       }
 
-      // Pre-populate with immediate draft preview (1.5ms) if not already present
-      if (!rgbaGrid) {
-        rgbaGrid = wasm_generate_complex_reassigned_ycbcr_spectrogram(
-          originalBytes,
-          selectedHeight,
-          windowType,
-          windowSize,
-          zeroPadding,
-          fmin,
-          fmax,
-          algorithmType,
-          paletteType,
-          wasmViewStart,
-          wasmViewEnd,
-          pointRadius,
-          frequencyScale,
-          horizontalResolutionK,
-          1,
-          0,
-          0
-        ) as Uint8Array;
-        gridH = 256;
-        gridW = (rgbaGrid.length / 4) / gridH;
-      }
-
-      // If LOD 0 (Refined Ultra-Foco): Progressive Sweep in 128-column chunks!
-      const currentSession = ++progressiveSessionId;
-      const dims = wasm_get_spectrogram_dimensions(
+      // If LOD 0 (Refined Ultra-Foco):
+      // 1. Initialize persistent state streamer in WebAssembly
+      const streamer = new WasmSpectrogramStreamer(
         originalBytes,
         selectedHeight,
-        horizontalResolutionK,
-        0,
+        windowType,
+        windowSize,
+        zeroPadding,
+        fmin,
+        fmax,
+        algorithmType,
+        paletteType,
         wasmViewStart,
-        wasmViewEnd
+        wasmViewEnd,
+        pointRadius,
+        frequencyScale,
+        horizontalResolutionK
       );
-      const targetW = dims[0];
-      const targetH = dims[1];
-      
-      // Allocate the destination high-resolution grid buffer
-      const fullGrid = new Uint8Array(targetW * targetH * 4);
-      let currentCol = 0;
-      const CHUNK_SIZE = 128; // ~6-8ms per chunk
-      
-      const safeBytes = originalBytes;
-      
+      const targetW = streamer.get_width();
+      const targetH = streamer.get_height();
+      const currentSession = ++progressiveSessionId;
+
+      // 2. REUSE PREVIOUS IMAGE: Resample previously generated texture into the new dimensions and viewport
+      let fullGrid: Uint8Array;
+      if (lastTextureGrid && lastTextureW > 0 && lastTextureH > 0) {
+        fullGrid = resamplePreviousGrid(
+          lastTextureGrid, lastTextureW, lastTextureH,
+          lastTextureViewStart, lastTextureViewEnd, lastTextureFmin, lastTextureFmax,
+          targetW, targetH,
+          wasmViewStart, wasmViewEnd, fmin, fmax
+        );
+      } else if (rgbaGrid && gridW > 0 && gridH > 0) {
+        fullGrid = resamplePreviousGrid(
+          rgbaGrid, gridW, gridH,
+          wasmViewStart, wasmViewEnd, fmin, fmax,
+          targetW, targetH,
+          wasmViewStart, wasmViewEnd, fmin, fmax
+        );
+      } else {
+        fullGrid = new Uint8Array(targetW * targetH * 4);
+      }
+
+      // Display the resampled base image immediately!
+      rgbaGrid = fullGrid;
+      gridW = targetW;
+      gridH = targetH;
+
+      // 3. Ultra-light gradual streaming: 24 columns per chunk (~0.6 ms per chunk!)
+      const CHUNK_SIZE = 24;
+
       function streamNextChunk() {
-        if (currentSession !== progressiveSessionId || !safeBytes) return; // Cancelled by newer user action!
-        
-        const count = Math.min(CHUNK_SIZE, targetW - currentCol);
-        const chunkBytes = wasm_generate_complex_reassigned_ycbcr_spectrogram(
-          safeBytes,
-          selectedHeight,
-          windowType,
-          windowSize,
-          zeroPadding,
-          fmin,
-          fmax,
-          algorithmType,
-          paletteType,
-          wasmViewStart,
-          wasmViewEnd,
-          pointRadius,
-          frequencyScale,
-          horizontalResolutionK,
-          0,
-          currentCol,
-          count
-        ) as Uint8Array;
-        
-        // Symmetrically copy row-major slice into fullGrid
-        for (let r = 0; r < targetH; r++) {
-          const srcOffset = r * count * 4;
-          const dstOffset = (r * targetW + currentCol) * 4;
-          fullGrid.set(chunkBytes.subarray(srcOffset, srcOffset + count * 4), dstOffset);
+        if (currentSession !== progressiveSessionId) {
+          streamer.free();
+          return;
         }
-        
-        currentCol += count;
-        
-        // Incrementally update UI with partial results!
-        rgbaGrid = fullGrid;
-        gridW = targetW;
-        gridH = targetH;
-        
-        const pct = Math.round((currentCol / targetW) * 100);
-        refinementProgress = pct;
-        
-        if (currentCol < targetW) {
+
+        const startCol = streamer.get_current_col();
+        const chunkBytes = streamer.process_chunk(CHUNK_SIZE);
+        const chunkW = streamer.get_current_col() - startCol;
+
+        if (chunkW > 0) {
+          // Overwrite the resampled coarse pixels with razor-sharp Auger-Flandrin lines!
+          for (let r = 0; r < targetH; r++) {
+            const srcOffset = r * chunkW * 4;
+            const dstOffset = (r * targetW + startCol) * 4;
+            fullGrid.set(chunkBytes.subarray(srcOffset, srcOffset + chunkW * 4), dstOffset);
+          }
+
+          rgbaGrid = fullGrid;
+          refinementProgress = Math.round(streamer.get_progress_pct());
+        }
+
+        if (!streamer.is_complete()) {
           requestAnimationFrame(streamNextChunk);
         } else {
           // Completed full sweep!
           refinementProgress = null;
+          lastTextureGrid = new Uint8Array(fullGrid);
+          lastTextureW = targetW;
+          lastTextureH = targetH;
+          lastTextureViewStart = wasmViewStart;
+          lastTextureViewEnd = wasmViewEnd;
+          lastTextureFmin = fmin;
+          lastTextureFmax = fmax;
+
+          streamer.free();
+
           const rawDensity = wasm_get_last_mirrored_density_histogram();
           if (rawDensity && rawDensity.length === 256) {
             mirroredDensity = new Float32Array(rawDensity);
@@ -260,9 +305,9 @@
           console.log(`✅ [LOD 0 - REFINED COMPLETED] (${targetW}x${targetH}) in ${(performance.now() - t0).toFixed(2)} ms.`);
         }
       }
-      
+
       requestAnimationFrame(streamNextChunk);
-      
+
       // Rebuild global audio playback if not already created
       if (!originalAudio) {
         const blob = new Blob([originalBytes as any], { type: 'audio/wav' });
