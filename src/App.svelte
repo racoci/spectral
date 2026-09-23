@@ -107,10 +107,30 @@
   }
 
   // Master Spectrogram Regeneration function using all dynamic DSP parameters
-  function regenerateSpectrogram() {
+  let currentQualityLod = $state<number>(0); // 0 = Refined High-Res, 1 = Fast Draft Preview
+  let adaptiveRefineTimer: any = null;
+  let isInteracting = $state<boolean>(false);
+
+  // Progressive Two-Stage LOD Trigger:
+  // 1. Immediately renders Fast Draft LOD 1 (<5ms) while the user is actively sliding or zooming
+  // 2. Automatically refines into Full Resolution LOD 0 (80ms) when the user stops moving!
+  function triggerAdaptiveInteraction() {
+    isInteracting = true;
+    regenerateSpectrogram(1); // Fast 3ms draft!
+    
+    if (adaptiveRefineTimer) clearTimeout(adaptiveRefineTimer);
+    adaptiveRefineTimer = setTimeout(() => {
+      isInteracting = false;
+      regenerateSpectrogram(0); // Full quality refinement!
+    }, 200);
+  }
+
+  function regenerateSpectrogram(lod = 0) {
     if (!originalBytes || !wasmLoaded) return;
     try {
       const t0 = performance.now();
+      currentQualityLod = lod;
+      
       rgbaGrid = wasm_generate_complex_reassigned_ycbcr_spectrogram(
         originalBytes,
         selectedHeight,
@@ -125,17 +145,18 @@
         wasmViewEnd,
         pointRadius,
         frequencyScale,
-        horizontalResolutionK
+        horizontalResolutionK,
+        lod
       ) as Uint8Array;
-      gridH = selectedHeight;
-      gridW = (rgbaGrid.length / 4) / selectedHeight;
+      gridH = lod === 1 ? 256 : selectedHeight;
+      gridW = (rgbaGrid.length / 4) / gridH;
       
       const rawDensity = wasm_get_last_mirrored_density_histogram();
       if (rawDensity && rawDensity.length === 256) {
         mirroredDensity = new Float32Array(rawDensity);
       }
       
-      console.log(`✅ Regenerated Master Spectrogram [Scale: ${frequencyScale}, 2^k: ${horizontalResolutionK} (${gridW} cols)]: size ${rgbaGrid.length} bytes in ${(performance.now() - t0).toFixed(3)} ms.`);
+      console.log(`✅ [LOD ${lod} - ${lod === 1 ? 'DRAFT' : 'REFINED'}] Generated Spectrogram (${gridW}x${gridH}) in ${(performance.now() - t0).toFixed(2)} ms.`);
       
       // Rebuild global audio playback if not already created
       if (!originalAudio) {
@@ -361,6 +382,8 @@
       
       originalAudio={originalAudio}
       isPlaying={isPlaying}
+      currentQualityLod={currentQualityLod}
+      onAdaptiveInteract={triggerAdaptiveInteraction}
       onPlayToggle={triggerAudioPlayback}
       onAudioUploaded={handleDirectAudioUpload}
       onBackToConverter={() => navigateTo('converter')}

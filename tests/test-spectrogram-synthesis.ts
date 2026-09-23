@@ -32,7 +32,8 @@ import init, {
     1.0,
     1.0,
     'log',
-    1
+    1,
+    0
   );
   const genTime = performance.now() - t0;
   const width = (rgbaGrid.length / 4) / height;

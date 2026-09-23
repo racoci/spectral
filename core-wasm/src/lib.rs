@@ -2747,9 +2747,15 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
     point_radius: f32,
     scale_type: &str,
     horizontal_res_k: usize,
+    quality_lod: usize,
 ) -> Vec<u8> {
-    let mut h = h_custom;
-    if !h.is_power_of_two() || h < 4 { h = 1024; }
+    let is_draft = quality_lod >= 1;
+    
+    // Adaptive LOD:
+    // If draft mode (user actively sliding/zooming): use lightweight 256 rows and 512 cols for instant 3ms rendering!
+    // If refined mode (user stopped): use full selected height, zero_padding, and 2^k resolution!
+    let mut h = if is_draft { 256 } else { h_custom };
+    if !h.is_power_of_two() || h < 4 { h = 512; }
     
     let pcm_data = if data.len() >= 44 && &data[0..4] == b"RIFF" {
         &data[44..]
@@ -2765,14 +2771,17 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
     let sliced_samples = end_sample - start_sample;
     
     // Dynamic STFT parameters
-    let win_len = if window_size > 0 { window_size } else { 1024 };
-    let pad_factor = if zero_padding > 0 { zero_padding } else { 4 };
+    let win_len = if is_draft { 512 } else if window_size > 0 { window_size } else { 1024 };
+    let pad_factor = if is_draft { 1 } else if zero_padding > 0 { zero_padding } else { 2 };
     let n_stft = win_len * pad_factor;
     
-    // Precalculate 2^k times more horizontal pixels (configurable via horizontal_res_k)
-    // so that initial zoom has rich resolution before needing re-sampling!
-    let k_clamped = horizontal_res_k.min(4);
-    let target_cols = (1024usize << k_clamped).max(512);
+    // Precalculate target columns: 512 cols for draft, up to 1024*2^k for refined
+    let target_cols = if is_draft {
+        512usize
+    } else {
+        let k_clamped = horizontal_res_k.min(4);
+        (1024usize << k_clamped).max(512)
+    };
     let hop = (sliced_samples / target_cols).max(1);
     let w = (sliced_samples / hop).max(2);
     let grid_size = w * h;
@@ -3006,6 +3015,13 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
             }
 
             let target_idx = j * w + c;
+            
+            if is_draft {
+                // Draft Preview: Direct deposit in ~3ms without transcendental evaluations
+                reassigned_grid_re[target_idx] += s_h.re;
+                reassigned_grid_im[target_idx] += s_h.im;
+                continue;
+            }
             
             if algorithm_type == "reassignment" {
                 // Time shift calculation: shift_t = Re{X_th / X_h}

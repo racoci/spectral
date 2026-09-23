@@ -31,7 +31,8 @@ import init, {
     1.0,
     1.0,
     'log',
-    1
+    1,
+    0
   );
 
   console.log('📊 Fetching mirrored density histogram from WebAssembly...');

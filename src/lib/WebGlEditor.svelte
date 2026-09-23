@@ -36,6 +36,9 @@
     zoomMode = $bindable('gpu_debounced'),
     horizontalResolutionK = $bindable(0),
     
+    currentQualityLod = 0,
+    onAdaptiveInteract = () => {},
+    
     mirroredDensity = null,
     originalAudio,
     isPlaying,
@@ -67,6 +70,8 @@
     frequencyScale: 'log' | 'linear',
     zoomMode: 'gpu_debounced' | 'continuous_resample',
     horizontalResolutionK: number,
+    currentQualityLod?: number,
+    onAdaptiveInteract?: () => void,
     
     originalAudio: HTMLAudioElement | null,
     isPlaying: boolean,
@@ -419,6 +424,7 @@
     const val = Number((e.target as HTMLInputElement).value);
     const logVal = MIN_FMIN_LOG + (val / 1000) * (MAX_FMIN_LOG - MIN_FMIN_LOG);
     fmin = Math.round(Math.pow(10, logVal));
+    onAdaptiveInteract();
   }
 
   function getFmaxSliderValue(freq: number): number {
@@ -430,6 +436,7 @@
     const val = Number((e.target as HTMLInputElement).value);
     const logVal = MIN_FMAX_LOG + (val / 1000) * (MAX_FMAX_LOG - MIN_FMAX_LOG);
     fmax = Math.round(Math.pow(10, logVal));
+    onAdaptiveInteract();
   }
 
   let texStart = $state(0.0);
@@ -798,8 +805,9 @@
         📁 Subir WAV
       </button>
       
-      <div class="status-indicator">
-        <span class="pulse-dot"></span> {width}x{height} [Complex]
+      <div class="status-indicator" class:draft={currentQualityLod === 1}>
+        <span class="pulse-dot" class:pulsing={currentQualityLod === 1}></span> 
+        {width}x{height} [{currentQualityLod === 1 ? '⚡ Rascunho Rápido' : '✨ Ultra-Foco'}]
       </div>
 
       <button class="settings-toggle-btn" class:active={rightDockExpanded} onclick={() => rightDockExpanded = !rightDockExpanded}>
@@ -1322,6 +1330,11 @@
     font-size: 0.85rem;
     color: #10b981;
     font-family: monospace;
+    transition: all 0.2s ease;
+  }
+
+  .status-indicator.draft {
+    color: #facc15;
   }
 
   .pulse-dot {
@@ -1331,6 +1344,18 @@
     border-radius: 50%;
     box-shadow: 0 0 8px #10b981;
     display: inline-block;
+    transition: all 0.2s ease;
+  }
+
+  .pulse-dot.pulsing {
+    background-color: #facc15;
+    box-shadow: 0 0 12px #facc15;
+    animation: draftPulse 0.5s infinite alternate;
+  }
+
+  @keyframes draftPulse {
+    from { opacity: 0.5; transform: scale(0.85); }
+    to { opacity: 1.0; transform: scale(1.2); }
   }
 
   /* Left DSP Sidebar HUD style */
