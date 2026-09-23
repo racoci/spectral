@@ -2929,8 +2929,7 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
     }
     
     // 2. Single heap allocation for FFT buffers (Zero-allocation inside hot loop)
-    let mut buffer_h = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
-    let mut buffer_th = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
+    let mut buffer_h_th = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
     let mut buffer_dh = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
     let mut scratch = vec![Complex::<f32>::new(0.0, 0.0); fft.get_inplace_scratch_len()];
     
@@ -2958,25 +2957,32 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
         
         // Zero-fill the reused buffers safely
         for i in 0..n_stft {
-            buffer_h[i] = Complex::new(0.0, 0.0);
-            buffer_th[i] = Complex::new(0.0, 0.0);
-            buffer_dh[i] = Complex::new(0.0, 0.0);
+            buffer_h_th[i] = Complex::new(0.0, 0.0);
+            if !is_draft {
+                buffer_dh[i] = Complex::new(0.0, 0.0);
+            }
         }
         
         for i in 0..win_len {
             let idx = start as isize + i as isize - (win_len as isize / 2);
             if idx >= 0 && idx < sliced_samples as isize {
                 let sample_val = mid_channel[idx as usize];
-                buffer_h[i] = Complex::new(sample_val * win_h[i], 0.0);
-                buffer_th[i] = Complex::new(sample_val * win_th[i], 0.0);
-                buffer_dh[i] = Complex::new(sample_val * win_dh[i], 0.0);
+                if is_draft {
+                    // Draft mode: 1 single real FFT per column (<1.5ms total!)
+                    buffer_h_th[i] = Complex::new(sample_val * win_h[i], 0.0);
+                } else {
+                    // Refined mode: 2-in-1 Real FFTs (packs h and th into single complex FFT!)
+                    buffer_h_th[i] = Complex::new(sample_val * win_h[i], sample_val * win_th[i]);
+                    buffer_dh[i] = Complex::new(sample_val * win_dh[i], 0.0);
+                }
             }
         }
         
         // Use process_with_scratch to completely eliminate RustFFT's internal dynamic heap allocations
-        fft.process_with_scratch(&mut buffer_h, &mut scratch);
-        fft.process_with_scratch(&mut buffer_th, &mut scratch);
-        fft.process_with_scratch(&mut buffer_dh, &mut scratch);
+        fft.process_with_scratch(&mut buffer_h_th, &mut scratch);
+        if !is_draft {
+            fft.process_with_scratch(&mut buffer_dh, &mut scratch);
+        }
         
         for j in 0..h {
             let fc = fc_lut[j];
@@ -2985,13 +2991,29 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
             let k_ceil = k_floor + 1;
             let delta_k = k_f - k_floor as f32;
             
-            // Linear interpolation of the complex spectrum to completely eliminate low-frequency discrete banding!
-            let s_h = buffer_h[k_floor] * (1.0 - delta_k) + buffer_h[k_ceil] * delta_k;
-            let s_th = buffer_th[k_floor] * (1.0 - delta_k) + buffer_th[k_ceil] * delta_k;
-            let s_dh = buffer_dh[k_floor] * (1.0 - delta_k) + buffer_dh[k_ceil] * delta_k;
+            if is_draft {
+                // Draft Preview: Direct linear sample with ZERO phase derivations or splines
+                let s_h = buffer_h_th[k_floor] * (1.0 - delta_k) + buffer_h_th[k_ceil] * delta_k;
+                let target_idx = j * w + c;
+                reassigned_grid_re[target_idx] += s_h.re;
+                reassigned_grid_im[target_idx] += s_h.im;
+                continue;
+            }
+
+            // Refined mode: Unpack two real FFTs from single complex FFT in O(1) arithmetic!
+            let y_floor = buffer_h_th[k_floor];
+            let y_sym_floor = buffer_h_th[n_stft - k_floor];
+            let s_h_floor = Complex::new(0.5 * (y_floor.re + y_sym_floor.re), 0.5 * (y_floor.im - y_sym_floor.im));
+            let s_th_floor = Complex::new(0.5 * (y_floor.im + y_sym_floor.im), 0.5 * (y_sym_floor.re - y_floor.re));
             
-            let k = k_f.round() as usize; // keep for central reference compatibility
-            let k = k.clamp(1, n_stft / 2 - 1);
+            let y_ceil = buffer_h_th[k_ceil];
+            let y_sym_ceil = buffer_h_th[n_stft - k_ceil];
+            let s_h_ceil = Complex::new(0.5 * (y_ceil.re + y_sym_ceil.re), 0.5 * (y_ceil.im - y_sym_ceil.im));
+            let s_th_ceil = Complex::new(0.5 * (y_ceil.im + y_sym_ceil.im), 0.5 * (y_sym_ceil.re - y_ceil.re));
+            
+            let s_h = s_h_floor * (1.0 - delta_k) + s_h_ceil * delta_k;
+            let s_th = s_th_floor * (1.0 - delta_k) + s_th_ceil * delta_k;
+            let s_dh = buffer_dh[k_floor] * (1.0 - delta_k) + buffer_dh[k_ceil] * delta_k;
             
             let mag_sq = s_h.re * s_h.re + s_h.im * s_h.im;
             if mag_sq > 1e-12 {
@@ -3015,13 +3037,6 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
             }
 
             let target_idx = j * w + c;
-            
-            if is_draft {
-                // Draft Preview: Direct deposit in ~3ms without transcendental evaluations
-                reassigned_grid_re[target_idx] += s_h.re;
-                reassigned_grid_im[target_idx] += s_h.im;
-                continue;
-            }
             
             if algorithm_type == "reassignment" {
                 // Time shift calculation: shift_t = Re{X_th / X_h}
@@ -3120,7 +3135,9 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
                         let (g_val, gy_val) = kernel[i];
                         
                         if g_val > 1e-6 {
-                            let fft_bin = buffer_h[curr_k];
+                            let y_k = buffer_h_th[curr_k];
+                            let y_sym = buffer_h_th[n_stft - curr_k];
+                            let fft_bin = Complex::new(0.5 * (y_k.re + y_sym.re), 0.5 * (y_k.im - y_sym.im));
                             
                             // Compute the continuous phase-shifted sum for sample index n = c * hop
                             // e^(i 2pi k n / N)
