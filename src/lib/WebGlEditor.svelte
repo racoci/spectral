@@ -34,7 +34,7 @@
     
     // Bindable zoom mode & horizontal precomputed resolution multiplier (2^k)
     zoomMode = $bindable('gpu_debounced'),
-    horizontalResolutionK = $bindable(1),
+    horizontalResolutionK = $bindable(0),
     
     mirroredDensity = null,
     originalAudio,

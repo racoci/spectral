@@ -13,7 +13,7 @@
   
   // Globally preserved state
   let originalBytes = $state<Uint8Array | null>(null);
-  let selectedHeight = $state<number>(1024);
+  let selectedHeight = $state<number>(512);
   
   let rgbaGrid = $state<Uint8Array | null>(null);
   let gridW = $state(0);
@@ -24,7 +24,7 @@
   // Advanced DSP Configurations
   let windowType = $state<'hann' | 'hamming' | 'gaussian' | 'blackman-harris'>('hann');
   let windowSize = $state<number>(1024);
-  let zeroPadding = $state<number>(4);
+  let zeroPadding = $state<number>(2);
   let fmin = $state<number>(20);
   let fmax = $state<number>(20000);
   let algorithmType = $state<'reassignment' | 'log'>('reassignment');
@@ -45,7 +45,7 @@
 
   // Zoom Strategy & Horizontal Precomputation Factor (2^k)
   let zoomMode = $state<'gpu_debounced' | 'continuous_resample'>('gpu_debounced');
-  let horizontalResolutionK = $state<number>(1);
+  let horizontalResolutionK = $state<number>(0);
 
   // Global Audio Transport & Selection Looping State
   let originalAudio = $state<HTMLAudioElement | null>(null);

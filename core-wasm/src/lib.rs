@@ -2994,81 +2994,98 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
                     raw_hist_orig[b_orig] += 1.0;
                 }
             }
-            if mag_sq > 1e-2 {
-                let target_idx = j * w + c;
+            
+            // Ultra-Fast Noise-Floor Bypass: Quiet bins below -60dB don't need heavy 9-point Gaussian splines
+            if mag_sq < 1.0 {
+                if mag_sq > 1e-4 {
+                    let target_idx = j * w + c;
+                    reassigned_grid_re[target_idx] += s_h.re;
+                    reassigned_grid_im[target_idx] += s_h.im;
+                }
+                continue;
+            }
+
+            let target_idx = j * w + c;
+            
+            if algorithm_type == "reassignment" {
+                // Time shift calculation: shift_t = Re{X_th / X_h}
+                let s_th_conj = s_th * s_h.conj();
+                let t_shift = s_th_conj.re / mag_sq;
+                let c_reassigned_f = c as f32 + t_shift / hop as f32;
                 
-                if algorithm_type == "reassignment" {
-                    // Time shift calculation: shift_t = Re{X_th / X_h}
-                    let s_th_conj = s_th * s_h.conj();
-                    let t_shift = s_th_conj.re / mag_sq;
-                    let c_reassigned_f = c as f32 + t_shift / hop as f32;
+                // Frequency shift calculation: shift_w = Im{X_dh / X_h}
+                let s_dh_conj = s_dh * s_h.conj();
+                let omega_shift = s_dh_conj.im / mag_sq; // shift in rad/sample
+                let f_reassigned = fc - (omega_shift * fs_f32 / (2.0 * std::f32::consts::PI));
+                
+                let j_reassigned_f = if is_linear {
+                    ((f_reassigned - fmin) / (fmax - fmin)) * (h as f32 - 1.0)
+                } else {
+                    (f_reassigned / fmin).log2() / step
+                };
+                
+                // Resolve nearest integer coordinates
+                let c_reassigned_i = c_reassigned_f.round() as isize;
+                let j_reassigned_i = j_reassigned_f.round() as isize;
+                
+                // Calculate fractional sub-sample offsets
+                let dx = c_reassigned_f - c_reassigned_i as f32;
+                let dy = j_reassigned_f - j_reassigned_i as f32;
+                
+                // Sub-Pixel Center Shortcut: if point is within 0.15 px of grid center, deposit directly with 0 exponentials!
+                if (dx * dx + dy * dy) < 0.0225 {
+                    if c_reassigned_i >= 0 && c_reassigned_i < w as isize && j_reassigned_i >= 0 && j_reassigned_i < h as isize {
+                        let target_idx_center = j_reassigned_i as usize * w + c_reassigned_i as usize;
+                        reassigned_grid_re[target_idx_center] += s_h.re;
+                        reassigned_grid_im[target_idx_center] += s_h.im;
+                    }
+                    continue;
+                }
+
+                // 1st order derivative of log amplitude with respect to time (Re{X_dh / X_h})
+                let d_log_A_dt = s_dh_conj.re / mag_sq;
+                
+                // 1st order derivative of log amplitude with respect to frequency (Im{X_th / X_h})
+                let d_log_A_dw = s_th_conj.im / mag_sq;
+                
+                let sig_t = (point_radius * 0.5 / (1.0 + d_log_A_dt.abs())).clamp(0.1, 4.0);
+                let sig_f = (point_radius * 0.5 / (1.0 + d_log_A_dw.abs())).clamp(0.1, 4.0);
+                
+                let inv_2_sig_t_sq = 0.5 / (sig_t * sig_t);
+                let inv_2_sig_f_sq = 0.5 / (sig_f * sig_f);
+                
+                // Fast Separable Gaussian (Only 6 exp calls instead of 9!)
+                let wx_m1 = (-(-1.0 - dx) * (-1.0 - dx) * inv_2_sig_t_sq).exp();
+                let wx_0  = (-(-dx * dx) * inv_2_sig_t_sq).exp();
+                let wx_p1 = (-( 1.0 - dx) * ( 1.0 - dx) * inv_2_sig_t_sq).exp();
+                
+                let wy_m1 = (-(-1.0 - dy) * (-1.0 - dy) * inv_2_sig_f_sq).exp();
+                let wy_0  = (-(-dy * dy) * inv_2_sig_f_sq).exp();
+                let wy_p1 = (-( 1.0 - dy) * ( 1.0 - dy) * inv_2_sig_f_sq).exp();
+                
+                let sum_x = wx_m1 + wx_0 + wx_p1;
+                let sum_y = wy_m1 + wy_0 + wy_p1;
+                let inv_sum = 1.0 / ((sum_x * sum_y).max(1e-12));
+                
+                let wx = [wx_m1, wx_0, wx_p1];
+                let wy = [wy_m1, wy_0, wy_p1];
+                
+                for ox in -1isize..=1isize {
+                    let curr_c = c_reassigned_i + ox;
+                    if curr_c < 0 || curr_c >= w as isize { continue; }
+                    let w_x_val = wx[(ox + 1) as usize];
                     
-                    // Frequency shift calculation: shift_w = Im{X_dh / X_h}
-                    let s_dh_conj = s_dh * s_h.conj();
-                    let omega_shift = s_dh_conj.im / mag_sq; // shift in rad/sample
-                    let f_reassigned = fc - (omega_shift * fs_f32 / (2.0 * std::f32::consts::PI));
-                    
-                    let j_reassigned_f = if is_linear {
-                        ((f_reassigned - fmin) / (fmax - fmin)) * (h as f32 - 1.0)
-                    } else {
-                        (f_reassigned / fmin).log2() / step
-                    };
-                    
-                    // 1st order derivative of log amplitude with respect to time (Re{X_dh / X_h})
-                    let d_log_A_dt = s_dh_conj.re / mag_sq;
-                    
-                    // 1st order derivative of log amplitude with respect to frequency (Im{X_th / X_h})
-                    let d_log_A_dw = s_th_conj.im / mag_sq;
-                    
-                    // Compute adaptive Gaussian widths sigma_t and sigma_f from amplitude derivatives and customizable point_radius
-                    // High log-amplitude derivatives (edges/transitions) shrink the Gaussian widths to focus energy tightly!
-                    let sig_t = (point_radius * 0.5 / (1.0 + d_log_A_dt.abs())).clamp(0.05, 5.0);
-                    let sig_f = (point_radius * 0.5 / (1.0 + d_log_A_dw.abs())).clamp(0.05, 5.0);
-                    
-                    // Resolve nearest integer coordinates
-                    let c_reassigned_i = c_reassigned_f.round() as isize;
-                    let j_reassigned_i = j_reassigned_f.round() as isize;
-                    
-                    // Calculate fractional sub-sample offsets
-                    let dx = c_reassigned_f - c_reassigned_i as f32;
-                    let dy = j_reassigned_f - j_reassigned_i as f32;
-                    
-                    // Perform Super-Resolution 3x3 Anisotropic Gaussian Spread / Interpolation
-                    let mut weight_sum = 0.0f32;
-                    let mut weights = [0.0f32; 9];
-                    let mut coords = [(0isize, 0isize); 9];
-                    
-                    let mut ptr = 0;
-                    for ox in -1isize..=1isize {
-                        for oy in -1isize..=1isize {
-                            let curr_c = c_reassigned_i + ox;
-                            let curr_j = j_reassigned_i + oy;
-                            coords[ptr] = (curr_c, curr_j);
-                            
-                            // Distance from current grid cell center to the exact continuous coordinate
-                            let dist_x = ox as f32 - dx;
-                            let dist_y = oy as f32 - dy;
-                            
-                            let w_val = (-0.5 * ((dist_x * dist_x) / (sig_t * sig_t) + (dist_y * dist_y) / (sig_f * sig_f))).exp();
-                            weights[ptr] = w_val;
-                            weight_sum += w_val;
-                            ptr += 1;
+                    for oy in -1isize..=1isize {
+                        let curr_j = j_reassigned_i + oy;
+                        if curr_j >= 0 && curr_j < h as isize {
+                            let target_idx_gauss = curr_j as usize * w + curr_c as usize;
+                            let norm_w = (w_x_val * wy[(oy + 1) as usize]) * inv_sum;
+                            reassigned_grid_re[target_idx_gauss] += s_h.re * norm_w;
+                            reassigned_grid_im[target_idx_gauss] += s_h.im * norm_w;
                         }
                     }
-                    
-                    // Distribute complex energy coherently with Normalized Gaussian weights (conserving total energy!)
-                    if weight_sum > 1e-15 {
-                        for p in 0..9 {
-                            let (curr_c, curr_j) = coords[p];
-                            if curr_c >= 0 && curr_c < w as isize && curr_j >= 0 && curr_j < h as isize {
-                                let target_idx_gauss = curr_j as usize * w + curr_c as usize;
-                                let norm_w = weights[p] / weight_sum;
-                                reassigned_grid_re[target_idx_gauss] += s_h.re * norm_w;
-                                reassigned_grid_im[target_idx_gauss] += s_h.im * norm_w;
-                            }
-                        }
-                    }
-                } else if algorithm_type == "cqt" {
+                }
+            } else if algorithm_type == "cqt" {
                     // Constant-Q Log-Gaussian Spectral Jet (fCQT-Jet) - ZERO ALLOCATION / O(1) LUT HOT LOOP!
                     let k_low = cqt_k_low_lut[j];
                     let k_high = cqt_k_high_lut[j];
@@ -3168,7 +3185,6 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
                     reassigned_grid_re[target_idx] = s_h.re;
                     reassigned_grid_im[target_idx] = s_h.im;
                 }
-            }
         }
     }
     

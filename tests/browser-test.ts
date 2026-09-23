@@ -12,8 +12,8 @@ async function runBrowserTest() {
 
   try {
     // 1. Launch Vite Dev Server in the background bound to IPv4 loopback
-    console.log('🚀 Starting Vite development server on 127.0.0.1...');
-    viteProcess = spawn('npx', ['vite', '--host', '127.0.0.1', '--port', '5173'], { shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    console.log('🚀 Starting Vite production preview server on 127.0.0.1...');
+    viteProcess = spawn('npx', ['vite', 'preview', '--host', '127.0.0.1', '--port', '5173'], { shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
 
     // Setup timeouts to prevent hanging indefinitely
     const serverTimeout = setTimeout(() => {
