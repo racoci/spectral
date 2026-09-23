@@ -2721,6 +2721,346 @@ pub fn wasm_calculate_complex_reassigned_spectrogram(data: &[u8], h_custom: usiz
 
 static LAST_MIRRORED_DENSITY: std::sync::Mutex<Vec<f32>> = std::sync::Mutex::new(Vec::new());
 
+#[derive(Clone, Copy)]
+pub struct SpectralQuadruplet {
+    pub t: f32,
+    pub f: f32,
+    pub log_a: f32,
+    pub phi: f32,
+}
+
+static BASE_QUADRUPLETS: std::sync::Mutex<Vec<SpectralQuadruplet>> = std::sync::Mutex::new(Vec::new());
+
+#[wasm_bindgen]
+pub fn wasm_has_cached_quadruplets() -> bool {
+    if let Ok(guard) = BASE_QUADRUPLETS.lock() {
+        !guard.is_empty()
+    } else {
+        false
+    }
+}
+
+#[wasm_bindgen]
+pub fn wasm_cache_base_quadruplets(
+    data: &[u8],
+    h_custom: usize,
+    window_type: &str,
+    window_size: usize,
+    zero_padding: usize,
+    fmin_custom: f32,
+    fmax_custom: f32,
+    algorithm_type: &str,
+    scale_type: &str,
+    horizontal_res_k: usize,
+) -> usize {
+    let mut h = h_custom;
+    if !h.is_power_of_two() || h < 4 { h = 512; }
+    
+    let pcm_data = if data.len() >= 44 && &data[0..4] == b"RIFF" {
+        &data[44..]
+    } else {
+        data
+    };
+    let num_samples = pcm_data.len() / 4;
+    let win_len = if window_size > 0 { window_size } else { 1024 };
+    let pad_factor = if zero_padding > 0 { zero_padding } else { 2 };
+    let n_stft = win_len * pad_factor;
+    
+    let k_clamped = horizontal_res_k.min(4);
+    let target_cols = (1024usize << k_clamped).max(512);
+    let hop = (num_samples / target_cols).max(1);
+    let w = (num_samples / hop).max(2);
+    
+    let mut mid_channel = vec![0.0f32; num_samples];
+    for i in 0..num_samples {
+        let offset = i * 4;
+        let b0 = if offset < pcm_data.len() { pcm_data[offset] } else { 0 };
+        let b1 = if offset + 1 < pcm_data.len() { pcm_data[offset + 1] } else { 0 };
+        let b2 = if offset + 2 < pcm_data.len() { pcm_data[offset + 2] } else { 0 };
+        let b3 = if offset + 3 < pcm_data.len() { pcm_data[offset + 3] } else { 0 };
+        let l = (((b1 as u16) << 8) | (b0 as u16)) as i16 as f32;
+        let r = (((b3 as u16) << 8) | (b2 as u16)) as i16 as f32;
+        mid_channel[i] = (l + r) * 0.5;
+    }
+
+    let mut win_h = vec![0.0f32; win_len];
+    let mut win_th = vec![0.0f32; win_len];
+    let mut win_dh = vec![0.0f32; win_len];
+    let half_win = (win_len as f32 - 1.0) * 0.5;
+    for i in 0..win_len {
+        let t = i as f32 - half_win;
+        let val = match window_type {
+            "hamming" => 0.54 - 0.46 * (2.0 * std::f32::consts::PI * i as f32 / (win_len as f32 - 1.0)).cos(),
+            "gaussian" => {
+                let sigma = 0.4 * half_win;
+                (-0.5 * (t / sigma).powi(2)).exp()
+            },
+            "blackman-harris" => {
+                let a0 = 0.35875;
+                let a1 = 0.48829;
+                let a2 = 0.14128;
+                let a3 = 0.01168;
+                let z = 2.0 * std::f32::consts::PI * i as f32 / (win_len as f32 - 1.0);
+                a0 - a1 * z.cos() + a2 * (2.0 * z).cos() - a3 * (3.0 * z).cos()
+            },
+            _ => 0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (win_len as f32 - 1.0)).cos()),
+        };
+        win_h[i] = val;
+        win_th[i] = t * val;
+        win_dh[i] = if i == 0 {
+            win_h[1] - win_h[0]
+        } else if i == win_len - 1 {
+            win_h[win_len - 1] - win_h[win_len - 2]
+        } else {
+            0.5 * (win_h[i + 1] - win_h[i - 1])
+        };
+    }
+
+    let fs = 44100.0f32;
+    let is_linear = scale_type == "linear";
+    let fmin = if is_linear { fmin_custom.max(0.0) } else { fmin_custom.max(10.0) };
+    let fmax = fmax_custom.clamp(fmin + 1.0, fs * 0.5);
+    let step = if is_linear { (fmax - fmin) / (h as f32 - 1.0) } else { (fmax / fmin).log2() / (h as f32 - 1.0) };
+
+    let mut fc_lut = vec![0.0f32; h];
+    let mut k_f_lut = vec![0.0f32; h];
+    for j in 0..h {
+        let fc = if is_linear { fmin + j as f32 * step } else { fmin * 2.0f32.powf(j as f32 * step) };
+        fc_lut[j] = fc;
+        k_f_lut[j] = fc * n_stft as f32 / fs;
+    }
+
+    let mut planner = rustfft::FftPlanner::new();
+    let fft = planner.plan_fft_forward(n_stft);
+    let mut scratch = vec![rustfft::num_complex::Complex::<f32>::new(0.0, 0.0); fft.get_inplace_scratch_len()];
+    let mut buffer_h_th = vec![rustfft::num_complex::Complex::<f32>::new(0.0, 0.0); n_stft];
+    let mut buffer_dh = vec![rustfft::num_complex::Complex::<f32>::new(0.0, 0.0); n_stft];
+
+    let mut quadruplets = Vec::with_capacity(w * h / 4);
+
+    for c in 0..w {
+        let start = c * hop;
+        for i in 0..n_stft {
+            buffer_h_th[i] = rustfft::num_complex::Complex::new(0.0, 0.0);
+            buffer_dh[i] = rustfft::num_complex::Complex::new(0.0, 0.0);
+        }
+        for i in 0..win_len {
+            let idx = start as isize + i as isize - (win_len as isize / 2);
+            if idx >= 0 && idx < num_samples as isize {
+                let sample_val = mid_channel[idx as usize];
+                buffer_h_th[i] = rustfft::num_complex::Complex::new(sample_val * win_h[i], sample_val * win_th[i]);
+                buffer_dh[i] = rustfft::num_complex::Complex::new(sample_val * win_dh[i], 0.0);
+            }
+        }
+        fft.process_with_scratch(&mut buffer_h_th, &mut scratch);
+        fft.process_with_scratch(&mut buffer_dh, &mut scratch);
+
+        let t_base = c as f32 / (w as f32 - 1.0).max(1.0);
+
+        for j in 0..h {
+            let fc = fc_lut[j];
+            let k_f = k_f_lut[j];
+            let k_floor = (k_f.floor() as usize).clamp(1, n_stft / 2 - 2);
+            let k_ceil = k_floor + 1;
+            let delta_k = k_f - k_floor as f32;
+
+            let y_floor = buffer_h_th[k_floor];
+            let y_sym_floor = buffer_h_th[n_stft - k_floor];
+            let s_h_floor = rustfft::num_complex::Complex::new(0.5 * (y_floor.re + y_sym_floor.re), 0.5 * (y_floor.im - y_sym_floor.im));
+            let s_th_floor = rustfft::num_complex::Complex::new(0.5 * (y_floor.im + y_sym_floor.im), 0.5 * (y_sym_floor.re - y_floor.re));
+
+            let y_ceil = buffer_h_th[k_ceil];
+            let y_sym_ceil = buffer_h_th[n_stft - k_ceil];
+            let s_h_ceil = rustfft::num_complex::Complex::new(0.5 * (y_ceil.re + y_sym_ceil.re), 0.5 * (y_ceil.im - y_sym_ceil.im));
+            let s_th_ceil = rustfft::num_complex::Complex::new(0.5 * (y_ceil.im + y_sym_ceil.im), 0.5 * (y_sym_ceil.re - y_ceil.re));
+
+            let s_h = s_h_floor * (1.0 - delta_k) + s_h_ceil * delta_k;
+            let s_th = s_th_floor * (1.0 - delta_k) + s_th_ceil * delta_k;
+            let s_dh = buffer_dh[k_floor] * (1.0 - delta_k) + buffer_dh[k_ceil] * delta_k;
+
+            let mag_sq = s_h.re * s_h.re + s_h.im * s_h.im;
+            if mag_sq > 1e-4 {
+                let mag = mag_sq.sqrt();
+                let norm_mag = mag / 4194304.0;
+                if norm_mag > 1e-5 {
+                    let log_a = norm_mag.log2();
+                    let phi = s_h.im.atan2(s_h.re);
+
+                    let (t_reass, f_reass) = if algorithm_type == "reassignment" {
+                        let s_th_conj = s_th * s_h.conj();
+                        let t_shift = s_th_conj.re / mag_sq;
+                        let s_dh_conj = s_dh * s_h.conj();
+                        let omega_shift = -s_dh_conj.im / mag_sq;
+                        let f_r = fc + (omega_shift / (2.0 * std::f32::consts::PI));
+                        let t_r = (start as f32 + t_shift) / (num_samples as f32 - 1.0).max(1.0);
+                        (t_r.clamp(0.0, 1.0), f_r.clamp(1.0, 22050.0))
+                    } else {
+                        (t_base, fc)
+                    };
+
+                    quadruplets.push(SpectralQuadruplet {
+                        t: t_reass,
+                        f: f_reass,
+                        log_a,
+                        phi,
+                    });
+                }
+            }
+        }
+    }
+
+    let count = quadruplets.len();
+    if let Ok(mut guard) = BASE_QUADRUPLETS.lock() {
+        *guard = quadruplets;
+    }
+    count
+}
+
+#[wasm_bindgen]
+pub fn wasm_render_from_cached_quadruplets(
+    dst_w: usize,
+    dst_h: usize,
+    view_t_start: f32,
+    view_t_end: f32,
+    view_fmin: f32,
+    view_fmax: f32,
+    point_radius: f32,
+    palette_type: &str,
+) -> Vec<u8> {
+    let mut rgba_buffer = vec![0u8; dst_w * dst_h * 4];
+    if dst_w == 0 || dst_h == 0 {
+        return rgba_buffer;
+    }
+
+    let guard = match BASE_QUADRUPLETS.lock() {
+        Ok(g) => g,
+        Err(_) => return rgba_buffer,
+    };
+    if guard.is_empty() {
+        return rgba_buffer;
+    }
+
+    let log_view_fmin = view_fmin.max(1.0).log2();
+    let log_view_fmax = view_fmax.max(view_fmin + 1.0).log2();
+    let log_view_span = (log_view_fmax - log_view_fmin).max(1e-6);
+    let view_t_span = (view_t_end - view_t_start).max(1e-6);
+
+    let mut a_min_lut = vec![0.0f32; 256];
+    let mut delta_a_lut = vec![0.0f32; 256];
+    for y_idx in 1..=255 {
+        let y_f = y_idx as f32;
+        let amin_pow = -15.0 + 15.0 * (y_f * y_f - 1.0) / 65024.0;
+        let a_min = 2.0f32.powf(amin_pow);
+        let a_max = 2.0f32.powf(-15.0 + 15.0 * ((y_f + 1.0) * (y_f + 1.0) - 1.0) / 65024.0);
+        a_min_lut[y_idx] = a_min;
+        delta_a_lut[y_idx] = a_max - a_min;
+    }
+    a_min_lut[0] = 0.0;
+    delta_a_lut[0] = a_min_lut[1];
+
+    let snake_palette = if palette_type == "snake" {
+        generate_snake_palette_lut()
+    } else {
+        Vec::new()
+    };
+
+    let mut grid_re = vec![0.0f32; dst_w * dst_h];
+    let mut grid_im = vec![0.0f32; dst_w * dst_h];
+
+    let w_f = (dst_w - 1) as f32;
+    let h_f = (dst_h - 1) as f32;
+
+    for q in guard.iter() {
+        if q.t < view_t_start || q.t > view_t_end {
+            continue;
+        }
+        if q.f < view_fmin || q.f > view_fmax {
+            continue;
+        }
+
+        let x_norm = (q.t - view_t_start) / view_t_span;
+        let log_f = q.f.max(1.0).log2();
+        let y_norm = (log_f - log_view_fmin) / log_view_span;
+
+        let x_screen = x_norm * w_f;
+        let y_screen = y_norm * h_f;
+
+        let xi = x_screen.round() as isize;
+        let yi = y_screen.round() as isize;
+
+        if xi >= 0 && xi < dst_w as isize && yi >= 0 && yi < dst_h as isize {
+            let amp = 2.0f32.powf(q.log_a) * 4194304.0;
+            let re = amp * q.phi.cos();
+            let im = amp * q.phi.sin();
+            let idx = yi as usize * dst_w + xi as usize;
+            grid_re[idx] += re;
+            grid_im[idx] += im;
+        }
+    }
+
+    // Colorize accumulated grid
+    for idx in 0..(dst_w * dst_h) {
+        let re = grid_re[idx];
+        let im = grid_im[idx];
+        let abs_z = (re * re + im * im).sqrt();
+        let out_idx = idx * 4;
+
+        if abs_z < 1e-12 {
+            rgba_buffer[out_idx] = 0;
+            rgba_buffer[out_idx + 1] = 0;
+            rgba_buffer[out_idx + 2] = 0;
+            rgba_buffer[out_idx + 3] = 255;
+            continue;
+        }
+
+        let abs_z_norm = abs_z / 4194304.0;
+
+        if palette_type == "snake" {
+            let intensity = (abs_z / 4194304.0 * 65535.0).clamp(0.0, 65535.0) as usize;
+            let (r, g, b) = snake_palette[intensity];
+            rgba_buffer[out_idx] = r;
+            rgba_buffer[out_idx + 1] = g;
+            rgba_buffer[out_idx + 2] = b;
+            rgba_buffer[out_idx + 3] = 255;
+        } else {
+            let log2_r = abs_z_norm.log2();
+            let y_val = (1.0 + 65024.0 * (log2_r + 15.0) / 15.0).sqrt();
+            let mut y_f = y_val.floor();
+            if y_f < 1.0 { y_f = 1.0; }
+            if y_f > 255.0 { y_f = 255.0; }
+
+            let y_idx = y_f as usize;
+            let a_min = a_min_lut[y_idx];
+            let delta_a = delta_a_lut[y_idx];
+
+            let r_resid = abs_z_norm - a_min;
+            let r_norm = r_resid / if delta_a > 1e-15 { delta_a } else { 1e-15 };
+
+            let re_norm = re / 4194304.0;
+            let im_norm = im / 4194304.0;
+            let w_re = r_norm * (re_norm / abs_z_norm);
+            let w_im = r_norm * (im_norm / abs_z_norm);
+
+            let cr = -w_re;
+            let cb = w_im;
+
+            let cb_byte = (cb * 112.0 + 128.0).clamp(16.0, 240.0);
+            let cr_byte = (cr * 112.0 + 128.0).clamp(16.0, 240.0);
+
+            let r_val = y_f + 1.402 * (cr_byte - 128.0);
+            let g_val = y_f - 0.344136 * (cb_byte - 128.0) - 0.714136 * (cr_byte - 128.0);
+            let b_val = y_f + 1.772 * (cb_byte - 128.0);
+
+            rgba_buffer[out_idx] = r_val.clamp(0.0, 255.0).round() as u8;
+            rgba_buffer[out_idx + 1] = g_val.clamp(0.0, 255.0).round() as u8;
+            rgba_buffer[out_idx + 2] = b_val.clamp(0.0, 255.0).round() as u8;
+            rgba_buffer[out_idx + 3] = 255;
+        }
+    }
+
+    rgba_buffer
+}
+
 #[wasm_bindgen]
 pub fn wasm_get_last_mirrored_density_histogram() -> Vec<f32> {
     if let Ok(guard) = LAST_MIRRORED_DENSITY.lock() {
@@ -3204,6 +3544,131 @@ impl WasmSpectrogramStreamer {
 
         rgba_buffer
     }
+}
+
+#[inline(always)]
+fn cubic_hermite(p0: f32, p1: f32, p2: f32, p3: f32, t: f32) -> f32 {
+    let a = -0.5 * p0 + 1.5 * p1 - 1.5 * p2 + 0.5 * p3;
+    let b = p0 - 2.5 * p1 + 2.0 * p2 - 0.5 * p3;
+    let c = -0.5 * p0 + 0.5 * p2;
+    let d = p1;
+    ((a * t + b) * t + c) * t + d
+}
+
+#[wasm_bindgen]
+pub fn wasm_bicubic_resample_spectrogram(
+    src_grid: &[u8],
+    src_w: usize,
+    src_h: usize,
+    src_t_start: f32,
+    src_t_end: f32,
+    src_fmin: f32,
+    src_fmax: f32,
+    dst_w: usize,
+    dst_h: usize,
+    dst_t_start: f32,
+    dst_t_end: f32,
+    dst_fmin: f32,
+    dst_fmax: f32,
+) -> Vec<u8> {
+    let mut dst_grid = vec![0u8; dst_w * dst_h * 4];
+    if src_w < 2 || src_h < 2 || dst_w == 0 || dst_h == 0 || src_grid.len() < src_w * src_h * 4 {
+        return dst_grid;
+    }
+
+    let log_src_fmin = src_fmin.max(1.0).log2();
+    let log_src_fmax = src_fmax.max(src_fmin + 1.0).log2();
+    let log_src_span = (log_src_fmax - log_src_fmin).max(1e-6);
+
+    let log_dst_fmin = dst_fmin.max(1.0).log2();
+    let log_dst_fmax = dst_fmax.max(dst_fmin + 1.0).log2();
+    let log_dst_span = (log_dst_fmax - log_dst_fmin).max(1e-6);
+
+    let src_t_span = (src_t_end - src_t_start).max(1e-6);
+    let dst_t_span = (dst_t_end - dst_t_start).max(1e-6);
+
+    // Precompute horizontal x_src and weights for all destination columns
+    let mut x_int_lut = Vec::with_capacity(dst_w);
+    let mut x_frac_lut = Vec::with_capacity(dst_w);
+
+    for c in 0..dst_w {
+        let t_ratio = if dst_w > 1 { c as f32 / (dst_w - 1) as f32 } else { 0.0 };
+        let t = dst_t_start + t_ratio * dst_t_span;
+        let norm_x = (t - src_t_start) / src_t_span;
+        let x_f = norm_x * (src_w - 1) as f32;
+        let x_clamped = x_f.clamp(0.0, (src_w - 1) as f32);
+        let xi = x_clamped.floor() as isize;
+        let xf = x_clamped - xi as f32;
+        x_int_lut.push(xi);
+        x_frac_lut.push(xf);
+    }
+
+    for r in 0..dst_h {
+        let freq_ratio = if dst_h > 1 { r as f32 / (dst_h - 1) as f32 } else { 0.0 };
+        let log_f = log_dst_fmin + freq_ratio * log_dst_span;
+        let norm_y = (log_f - log_src_fmin) / log_src_span;
+        let y_f = norm_y * (src_h - 1) as f32;
+        let y_clamped = y_f.clamp(0.0, (src_h - 1) as f32);
+        let yi = y_clamped.floor() as isize;
+        let yf = y_clamped - yi as f32;
+
+        let y_m1 = (yi - 1).clamp(0, (src_h - 1) as isize) as usize;
+        let y_0 = yi.clamp(0, (src_h - 1) as isize) as usize;
+        let y_1 = (yi + 1).clamp(0, (src_h - 1) as isize) as usize;
+        let y_2 = (yi + 2).clamp(0, (src_h - 1) as isize) as usize;
+
+        let row_m1_offset = y_m1 * src_w * 4;
+        let row_0_offset = y_0 * src_w * 4;
+        let row_1_offset = y_1 * src_w * 4;
+        let row_2_offset = y_2 * src_w * 4;
+
+        let dst_row_offset = r * dst_w * 4;
+
+        for c in 0..dst_w {
+            let xi = x_int_lut[c];
+            let u = x_frac_lut[c];
+
+            let x_m1 = (xi - 1).clamp(0, (src_w - 1) as isize) as usize * 4;
+            let x_0 = xi.clamp(0, (src_w - 1) as isize) as usize * 4;
+            let x_1 = (xi + 1).clamp(0, (src_w - 1) as isize) as usize * 4;
+            let x_2 = (xi + 2).clamp(0, (src_w - 1) as isize) as usize * 4;
+
+            let dst_idx = dst_row_offset + c * 4;
+
+            // Bicubic interpolation for R, G, B channels
+            for ch in 0..3 {
+                let p00 = src_grid[row_m1_offset + x_m1 + ch] as f32;
+                let p01 = src_grid[row_m1_offset + x_0 + ch] as f32;
+                let p02 = src_grid[row_m1_offset + x_1 + ch] as f32;
+                let p03 = src_grid[row_m1_offset + x_2 + ch] as f32;
+                let row0 = cubic_hermite(p00, p01, p02, p03, u);
+
+                let p10 = src_grid[row_0_offset + x_m1 + ch] as f32;
+                let p11 = src_grid[row_0_offset + x_0 + ch] as f32;
+                let p12 = src_grid[row_0_offset + x_1 + ch] as f32;
+                let p13 = src_grid[row_0_offset + x_2 + ch] as f32;
+                let row1 = cubic_hermite(p10, p11, p12, p13, u);
+
+                let p20 = src_grid[row_1_offset + x_m1 + ch] as f32;
+                let p21 = src_grid[row_1_offset + x_0 + ch] as f32;
+                let p22 = src_grid[row_1_offset + x_1 + ch] as f32;
+                let p23 = src_grid[row_1_offset + x_2 + ch] as f32;
+                let row2 = cubic_hermite(p20, p21, p22, p23, u);
+
+                let p30 = src_grid[row_2_offset + x_m1 + ch] as f32;
+                let p31 = src_grid[row_2_offset + x_0 + ch] as f32;
+                let p32 = src_grid[row_2_offset + x_1 + ch] as f32;
+                let p33 = src_grid[row_2_offset + x_2 + ch] as f32;
+                let row3 = cubic_hermite(p30, p31, p32, p33, u);
+
+                let final_val = cubic_hermite(row0, row1, row2, row3, yf);
+                dst_grid[dst_idx + ch] = final_val.clamp(0.0, 255.0).round() as u8;
+            }
+            dst_grid[dst_idx + 3] = 255;
+        }
+    }
+
+    dst_grid
 }
 
 #[wasm_bindgen]

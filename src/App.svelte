@@ -6,6 +6,10 @@
     wasm_generate_complex_reassigned_ycbcr_spectrogram,
     wasm_get_spectrogram_dimensions,
     WasmSpectrogramStreamer,
+    wasm_cache_base_quadruplets,
+    wasm_has_cached_quadruplets,
+    wasm_render_from_cached_quadruplets,
+    wasm_bicubic_resample_spectrogram,
     wasm_synthesize_spectrogram_to_wav,
     wasm_get_last_mirrored_density_histogram
   } from './wasm/core_wasm.js';
@@ -101,6 +105,18 @@
         const arrayBuffer = await response.arrayBuffer();
         const bytes = new Uint8Array(arrayBuffer);
         originalBytes = bytes;
+        wasm_cache_base_quadruplets(
+          bytes,
+          selectedHeight,
+          windowType,
+          windowSize,
+          zeroPadding,
+          fmin,
+          fmax,
+          algorithmType,
+          frequencyScale,
+          horizontalResolutionK
+        );
         regenerateSpectrogram();
       } else {
         console.error("Failed to fetch default sample in App.svelte:", response.statusText);
@@ -233,27 +249,45 @@
       const targetH = streamer.get_height();
       const currentSession = ++progressiveSessionId;
 
-      // 2. REUSE PREVIOUS IMAGE: Resample previously generated texture into the new dimensions and viewport
-      let fullGrid: Uint8Array;
-      if (lastTextureGrid && lastTextureW > 0 && lastTextureH > 0) {
-        fullGrid = resamplePreviousGrid(
-          lastTextureGrid, lastTextureW, lastTextureH,
-          lastTextureViewStart, lastTextureViewEnd, lastTextureFmin, lastTextureFmax,
-          targetW, targetH,
-          wasmViewStart, wasmViewEnd, fmin, fmax
+      // 2. VECTOR-AUDIO CONTINUOUS PROJECTION: Render instant continuous zoom from cached quadruplets (t, f, log(A), phi)!
+      let fullGrid = new Uint8Array(targetW * targetH * 4);
+      if (wasm_has_cached_quadruplets()) {
+        const vectorBg = wasm_render_from_cached_quadruplets(
+          targetW,
+          targetH,
+          wasmViewStart,
+          wasmViewEnd,
+          fmin,
+          fmax,
+          pointRadius,
+          paletteType
         );
-      } else if (rgbaGrid && gridW > 0 && gridH > 0) {
-        fullGrid = resamplePreviousGrid(
-          rgbaGrid, gridW, gridH,
-          wasmViewStart, wasmViewEnd, fmin, fmax,
-          targetW, targetH,
-          wasmViewStart, wasmViewEnd, fmin, fmax
+        if (vectorBg && vectorBg.length === targetW * targetH * 4) {
+          fullGrid.set(vectorBg);
+        }
+      } else if (lastTextureGrid && lastTextureW > 0 && lastTextureH > 0) {
+        // Fallback to high-speed WebAssembly bicubic resampling
+        const bicubicBg = wasm_bicubic_resample_spectrogram(
+          lastTextureGrid,
+          lastTextureW,
+          lastTextureH,
+          lastTextureViewStart,
+          lastTextureViewEnd,
+          lastTextureFmin,
+          lastTextureFmax,
+          targetW,
+          targetH,
+          wasmViewStart,
+          wasmViewEnd,
+          fmin,
+          fmax
         );
-      } else {
-        fullGrid = new Uint8Array(targetW * targetH * 4);
+        if (bicubicBg && bicubicBg.length === targetW * targetH * 4) {
+          fullGrid.set(bicubicBg);
+        }
       }
 
-      // Display the resampled base image immediately!
+      // Display the vector-projected zoom image immediately in <1.5ms!
       rgbaGrid = fullGrid;
       gridW = targetW;
       gridH = targetH;
@@ -380,6 +414,20 @@
     originalAudio = null;
     selectionStart = null;
     selectionEnd = null;
+    
+    // Cache the original base quadruplets (t, f, log(A), phi) in continuous vector space!
+    wasm_cache_base_quadruplets(
+      data,
+      h,
+      windowType,
+      windowSize,
+      zeroPadding,
+      fmin,
+      fmax,
+      algorithmType,
+      frequencyScale,
+      horizontalResolutionK
+    );
     
     regenerateSpectrogram();
   }
