@@ -408,34 +408,100 @@
     return d;
   });
 
-  // Logarithmic Sliders mapping for fmin (5 Hz to 1000 Hz) and fmax (200 Hz to 22050 Hz)
-  const MIN_FMIN_LOG = Math.log10(5);
-  const MAX_FMIN_LOG = Math.log10(1000);
-  
-  const MIN_FMAX_LOG = Math.log10(200);
-  const MAX_FMAX_LOG = Math.log10(22050);
+  // Interactive Vertical Frequency Zoom & Pan Controllers
+  let isFreqDragging = false;
+  let freqDragMode: 'fmax' | 'fmin' | 'pan' = 'pan';
+  let lastFreqMouseY = 0;
 
-  function getFminSliderValue(freq: number): number {
-    const clamped = Math.max(5, Math.min(1000, freq));
-    return Math.round(((Math.log10(clamped) - MIN_FMIN_LOG) / (MAX_FMIN_LOG - MIN_FMIN_LOG)) * 1000);
+  function handleFreqMouseDown(e: MouseEvent, mode: 'fmax' | 'fmin' | 'pan') {
+    e.stopPropagation();
+    isFreqDragging = true;
+    freqDragMode = mode;
+    lastFreqMouseY = e.clientY;
   }
 
-  function handleFminSliderInput(e: Event) {
-    const val = Number((e.target as HTMLInputElement).value);
-    const logVal = MIN_FMIN_LOG + (val / 1000) * (MAX_FMIN_LOG - MIN_FMIN_LOG);
-    fmin = Math.round(Math.pow(10, logVal));
+  function handleFreqMouseMove(e: MouseEvent) {
+    if (!isFreqDragging) return;
+    const deltaY = lastFreqMouseY - e.clientY; // positive = dragging UP, negative = dragging DOWN
+    lastFreqMouseY = e.clientY;
+    
+    // Each pixel of drag represents a fractional octave shift
+    const octaveShift = deltaY * 0.015;
+    const factor = Math.pow(2, octaveShift);
+    
+    if (freqDragMode === 'fmax') {
+      const newFmax = Math.round(Math.max(fmin * 1.5, Math.min(22050, fmax * factor)));
+      fmax = newFmax;
+      onAdaptiveInteract();
+    } else if (freqDragMode === 'fmin') {
+      const newFmin = Math.round(Math.max(10, Math.min(fmax / 1.5, fmin * factor)));
+      fmin = newFmin;
+      onAdaptiveInteract();
+    } else if (freqDragMode === 'pan') {
+      const currentLogSpan = Math.log2(fmax / Math.max(1, fmin));
+      let newLogMin = Math.log2(Math.max(10, fmin)) + octaveShift;
+      let newLogMax = newLogMin + currentLogSpan;
+      
+      const logFloor = Math.log2(10);
+      const logCeil = Math.log2(22050);
+      
+      if (newLogMin < logFloor) {
+        newLogMin = logFloor;
+        newLogMax = newLogMin + currentLogSpan;
+      }
+      if (newLogMax > logCeil) {
+        newLogMax = logCeil;
+        newLogMin = Math.max(logFloor, newLogMax - currentLogSpan);
+      }
+      
+      fmin = Math.round(Math.pow(2, newLogMin));
+      fmax = Math.round(Math.pow(2, newLogMax));
+      onAdaptiveInteract();
+    }
+  }
+
+  function handleFreqMouseUp() {
+    isFreqDragging = false;
+  }
+
+  function handleFreqWheel(e: WheelEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const yRatio = Math.max(0.0, Math.min(1.0, 1.0 - (e.clientY - rect.top) / rect.height));
+    
+    const logMin = Math.log2(Math.max(10, fmin));
+    const logMax = Math.log2(Math.min(22050, fmax));
+    const logSpan = logMax - logMin;
+    
+    const zoomFactor = e.deltaY < 0 ? 0.85 : 1.18;
+    const logFloor = Math.log2(10);
+    const logCeil = Math.log2(22050);
+    const maxSpan = logCeil - logFloor;
+    const newSpan = Math.max(0.8, Math.min(maxSpan, logSpan * zoomFactor));
+    
+    const logCursor = logMin + yRatio * logSpan;
+    let newLogMin = logCursor - yRatio * newSpan;
+    let newLogMax = newLogMin + newSpan;
+    
+    if (newLogMin < logFloor) {
+      newLogMin = logFloor;
+      newLogMax = Math.min(logCeil, newLogMin + newSpan);
+    }
+    if (newLogMax > logCeil) {
+      newLogMax = logCeil;
+      newLogMin = Math.max(logFloor, newLogMax - newSpan);
+    }
+    
+    fmin = Math.round(Math.pow(2, newLogMin));
+    fmax = Math.round(Math.pow(2, newLogMax));
     onAdaptiveInteract();
   }
 
-  function getFmaxSliderValue(freq: number): number {
-    const clamped = Math.max(200, Math.min(22050, freq));
-    return Math.round(((Math.log10(clamped) - MIN_FMAX_LOG) / (MAX_FMAX_LOG - MIN_FMAX_LOG)) * 1000);
-  }
-
-  function handleFmaxSliderInput(e: Event) {
-    const val = Number((e.target as HTMLInputElement).value);
-    const logVal = MIN_FMAX_LOG + (val / 1000) * (MAX_FMAX_LOG - MIN_FMAX_LOG);
-    fmax = Math.round(Math.pow(10, logVal));
+  function resetVerticalZoom() {
+    fmin = 20;
+    fmax = 20000;
     onAdaptiveInteract();
   }
 
@@ -586,6 +652,13 @@
   function handleGlobalMouseUp() {
     handleMouseUp();
     handleTimelineMouseUp();
+    handleFreqMouseUp();
+  }
+
+  function handleGlobalMouseMove(e: MouseEvent) {
+    if (isFreqDragging) {
+      handleFreqMouseMove(e);
+    }
   }
 
   function clearSelection() {
@@ -734,7 +807,7 @@
   });
 </script>
 
-<svelte:window onkeydown={handleKeyDown} onmouseup={handleGlobalMouseUp} />
+<svelte:window onkeydown={handleKeyDown} onmouseup={handleGlobalMouseUp} onmousemove={handleGlobalMouseMove} />
 
 <div class="full-screen-editor">
   <input 
@@ -755,17 +828,47 @@
       onmouseleave={handleMouseUp}
     ></canvas>
 
-    <!-- Glowing Frequency Ruler with tick marks -->
-    <div class="frequency-ruler">
+    <!-- Interactive Vertical Frequency Ruler & Zoom Controller -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div 
+      class="frequency-ruler interactive"
+      onwheel={handleFreqWheel}
+      ondblclick={resetVerticalZoom}
+      onmousedown={(e) => handleFreqMouseDown(e, 'pan')}
+      title="Régua Vertical de Frequência: Role o mouse para zoom vertical, arraste para mover o eixo, duplo-clique para resetar."
+    >
+      <div class="freq-ruler-header">
+        <span>↕ FREQ</span>
+      </div>
+
       {#each tickFrequencies as f}
         {#if f >= fmin && f <= fmax}
           {@const y = calculateFreqY(f)}
           <div class="freq-tick" style="bottom: {(y * 100).toFixed(2)}%;">
-            <span class="freq-label">{f >= 1000 ? (f/1000).toFixed(1) + ' kHz' : f + ' Hz'}</span>
+            <span class="freq-label">{f >= 1000 ? (f/1000).toFixed(1) + 'k' : f}</span>
             <div class="freq-line"></div>
           </div>
         {/if}
       {/each}
+
+      <!-- Top and Bottom interactive handles for stretching frequency limits -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div 
+        class="freq-gripper top-gripper" 
+        onmousedown={(e) => handleFreqMouseDown(e, 'fmax')}
+        title="Arraste para ajustar Frequência Máxima"
+      >
+        <div class="gripper-bar"></div>
+      </div>
+
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div 
+        class="freq-gripper bottom-gripper" 
+        onmousedown={(e) => handleFreqMouseDown(e, 'fmin')}
+        title="Arraste para ajustar Frequência Mínima"
+      >
+        <div class="gripper-bar"></div>
+      </div>
     </div>
 
     {#if selectionStart !== null && selectionEnd !== null}
@@ -957,33 +1060,32 @@
             </div>
           </div>
 
-          <!-- Section C: Frequency Bounds (Logarithmic Sliders) -->
+          <!-- Section C: Frequency Bounds (Controlled via Vertical Ruler Zoom on Left) -->
           <div class="dock-section">
-            <h4>📐 Filtro Hertz (Eixo Y)</h4>
-            <div class="input-control range-box">
-              <label>Freq Mínima (Log): {fmin} Hz
-                <input 
-                  type="range" 
-                  min="0" 
-                  max="1000" 
-                  step="1" 
-                  value={getFminSliderValue(fmin)} 
-                  oninput={handleFminSliderInput} 
-                />
-              </label>
-            </div>
+            <h4>📐 Eixo Vertical (Hertz)</h4>
             
-            <div class="input-control range-box">
-              <label>Freq Máxima (Log): {fmax} Hz
-                <input 
-                  type="range" 
-                  min="0" 
-                  max="1000" 
-                  step="1" 
-                  value={getFmaxSliderValue(fmax)} 
-                  oninput={handleFmaxSliderInput} 
-                />
-              </label>
+            <div class="freq-readout-card">
+              <div class="freq-readout-row">
+                <span class="freq-readout-label">Banda Visível:</span>
+                <span class="freq-readout-val font-mono">
+                  {fmin >= 1000 ? (fmin/1000).toFixed(1) + ' kHz' : fmin + ' Hz'} — {fmax >= 1000 ? (fmax/1000).toFixed(1) + ' kHz' : fmax + ' Hz'}
+                </span>
+              </div>
+
+              <div class="freq-readout-row">
+                <span class="freq-readout-label">Extensão:</span>
+                <span class="freq-readout-val font-mono">
+                  {Math.log2(fmax / Math.max(1, fmin)).toFixed(1)} oitavas
+                </span>
+              </div>
+
+              <p class="freq-controller-hint">
+                💡 <strong>Zoom Vertical:</strong> Role o mouse ou arraste as alças na régua à esquerda para dar zoom e mover o eixo Y.
+              </p>
+
+              <button class="reset-freq-btn" onclick={resetVerticalZoom}>
+                ↺ Resetar Eixo Y (20Hz - 20kHz)
+              </button>
             </div>
           </div>
 
@@ -1178,28 +1280,58 @@
     box-shadow: 0 0 8px #10b981, 0 0 15px rgba(16, 185, 129, 0.6);
   }
 
-  /* Translucent Frequency ruler on the left edge of the canvas */
+  /* Interactive Vertical Frequency Ruler & Zoom Controller */
   .frequency-ruler {
     position: absolute;
-    left: 15rem;
-    top: 0;
-    bottom: 0;
-    width: 5.5rem;
-    pointer-events: none;
-    z-index: 15;
+    left: 14.5rem;
+    top: 4.75rem;
+    bottom: 5.5rem;
+    width: 4.25rem;
+    pointer-events: auto;
+    z-index: 25;
     font-family: monospace;
     font-size: 0.65rem;
     color: rgba(255, 255, 255, 0.45);
+    background: rgba(15, 23, 42, 0.45);
+    backdrop-filter: blur(12px);
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0 6px 6px 0;
+    user-select: none;
+    cursor: grab;
+    transition: background 0.2s ease, border-color 0.2s ease;
+  }
+
+  .frequency-ruler:hover {
+    background: rgba(15, 23, 42, 0.65);
+    border-color: rgba(56, 189, 248, 0.25);
+  }
+
+  .frequency-ruler:active {
+    cursor: grabbing;
+  }
+
+  .freq-ruler-header {
+    position: absolute;
+    top: -1.2rem;
+    left: 0;
+    width: 100%;
+    text-align: center;
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: #38bdf8;
+    letter-spacing: 0.05em;
+    pointer-events: none;
   }
 
   .freq-tick {
     position: absolute;
-    left: 0;
-    width: 100%;
+    left: 0.25rem;
+    right: 0;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    transform: translateY(50%); /* perfectly centers text label with the tick line */
+    gap: 0.35rem;
+    transform: translateY(50%);
+    pointer-events: none;
   }
 
   .freq-label {
@@ -1213,6 +1345,94 @@
     height: 1px;
     background-color: rgba(255, 255, 255, 0.12);
     box-shadow: 0 0 2px rgba(255, 255, 255, 0.08);
+  }
+
+  .freq-gripper {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    height: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: ns-resize;
+    z-index: 30;
+    background: rgba(56, 189, 248, 0.15);
+    transition: background 0.15s ease;
+  }
+
+  .freq-gripper:hover {
+    background: rgba(56, 189, 248, 0.4);
+  }
+
+  .top-gripper {
+    top: 0;
+    border-bottom: 1px solid #38bdf8;
+    border-radius: 0 6px 0 0;
+  }
+
+  .bottom-gripper {
+    bottom: 0;
+    border-top: 1px solid #38bdf8;
+    border-radius: 0 0 6px 0;
+  }
+
+  .gripper-bar {
+    width: 18px;
+    height: 2px;
+    background-color: #38bdf8;
+    border-radius: 1px;
+    box-shadow: 0 0 4px #38bdf8;
+  }
+
+  /* Right Dock Section C Readout styling */
+  .freq-readout-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .freq-readout-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+  }
+
+  .freq-readout-label {
+    color: #94a3b8;
+  }
+
+  .freq-readout-val {
+    color: #38bdf8;
+    font-weight: 700;
+  }
+
+  .freq-controller-hint {
+    font-size: 0.7rem;
+    color: #64748b;
+    margin: 0.25rem 0 0.5rem 0;
+    line-height: 1.3;
+  }
+
+  .reset-freq-btn {
+    background: rgba(56, 189, 248, 0.12);
+    color: #38bdf8;
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    padding: 0.4rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .reset-freq-btn:hover {
+    background: rgba(56, 189, 248, 0.25);
+    border-color: #38bdf8;
   }
 
   .selection-boundary {
