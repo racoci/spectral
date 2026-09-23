@@ -33,6 +33,8 @@ import init, {
     1.0,
     'log',
     1,
+    0,
+    0,
     0
   );
   const genTime = performance.now() - t0;

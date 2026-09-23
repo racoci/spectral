@@ -37,6 +37,7 @@
     horizontalResolutionK = $bindable(0),
     
     currentQualityLod = 0,
+    refinementProgress = null,
     onAdaptiveInteract = () => {},
     
     mirroredDensity = null,
@@ -71,6 +72,7 @@
     zoomMode: 'gpu_debounced' | 'continuous_resample',
     horizontalResolutionK: number,
     currentQualityLod?: number,
+    refinementProgress?: number | null,
     onAdaptiveInteract?: () => void,
     
     originalAudio: HTMLAudioElement | null,
@@ -908,9 +910,9 @@
         📁 Subir WAV
       </button>
       
-      <div class="status-indicator" class:draft={currentQualityLod === 1}>
-        <span class="pulse-dot" class:pulsing={currentQualityLod === 1}></span> 
-        {width}x{height} [{currentQualityLod === 1 ? '⚡ Rascunho Rápido' : '✨ Ultra-Foco'}]
+      <div class="status-indicator" class:draft={currentQualityLod === 1 || (refinementProgress !== null && refinementProgress !== undefined)}>
+        <span class="pulse-dot" class:pulsing={currentQualityLod === 1 || (refinementProgress !== null && refinementProgress !== undefined)}></span> 
+        {width}x{height} [{#if refinementProgress !== null && refinementProgress !== undefined}⚡ Refinando {refinementProgress}%{:else if currentQualityLod === 1}⚡ Rascunho Rápido{:else}✨ Ultra-Foco{/if}]
       </div>
 
       <button class="settings-toggle-btn" class:active={rightDockExpanded} onclick={() => rightDockExpanded = !rightDockExpanded}>
@@ -1285,15 +1287,14 @@
     position: absolute;
     left: 14.5rem;
     top: 4.75rem;
-    bottom: 5.5rem;
+    bottom: 8.75rem; /* Safely positioned above the bottom timeline scrub bar */
     width: 4.25rem;
     pointer-events: auto;
     z-index: 25;
     font-family: monospace;
     font-size: 0.65rem;
     color: rgba(255, 255, 255, 0.45);
-    background: rgba(15, 23, 42, 0.45);
-    backdrop-filter: blur(12px);
+    background: rgba(15, 23, 42, 0.88);
     border-right: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 0 6px 6px 0;
     user-select: none;
@@ -1302,7 +1303,7 @@
   }
 
   .frequency-ruler:hover {
-    background: rgba(15, 23, 42, 0.65);
+    background: rgba(15, 23, 42, 0.95);
     border-color: rgba(56, 189, 248, 0.25);
   }
 
@@ -1449,12 +1450,10 @@
 
   .hud-panel {
     pointer-events: auto;
-    background: rgba(15, 23, 42, 0.65) !important;
-    backdrop-filter: blur(24px) !important;
-    -webkit-backdrop-filter: blur(24px) !important;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(15, 23, 42, 0.88) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 8px;
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.35);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
     color: #cbd5e1;
     font-family: system-ui, -apple-system, sans-serif;
     z-index: 30 !important;
@@ -1731,15 +1730,14 @@
   }
 
   .input-control select {
-    background-color: rgba(15, 23, 42, 0.45);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background-color: rgba(15, 23, 42, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     color: #cbd5e1;
     padding: 0.35rem 0.5rem;
     border-radius: 4px;
     outline: none;
     cursor: pointer;
     font-size: 0.75rem;
-    backdrop-filter: blur(8px);
   }
 
   .input-control select:hover {
@@ -1767,13 +1765,12 @@
     justify-content: center;
     width: 260px;
     height: 56px;
-    background: rgba(15, 23, 42, 0.7);
+    background: rgba(15, 23, 42, 0.88);
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 6px;
     padding: 2px 4px;
     margin: 0 0.5rem;
     overflow: hidden;
-    backdrop-filter: blur(8px);
   }
 
   .hist-labels-top {

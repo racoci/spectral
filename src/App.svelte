@@ -4,6 +4,7 @@
   import WebGlEditor from './lib/WebGlEditor.svelte';
   import init, { 
     wasm_generate_complex_reassigned_ycbcr_spectrogram,
+    wasm_get_spectrogram_dimensions,
     wasm_synthesize_spectrogram_to_wav,
     wasm_get_last_mirrored_density_histogram
   } from './wasm/core_wasm.js';
@@ -18,8 +19,10 @@
   let rgbaGrid = $state<Uint8Array | null>(null);
   let gridW = $state(0);
   let gridH = $state(0);
+  let progressiveSessionId = 0;
+  let refinementProgress = $state<number | null>(null);
   let mirroredDensity = $state<Float32Array | null>(null);
-  let currentView = $derived<'converter' | 'editor'>((currentHash === '#/editor' && rgbaGrid) ? 'editor' : 'converter');
+  let currentView = $derived<'converter' | 'editor'>((currentHash === '#/editor' && (rgbaGrid || originalBytes)) ? 'editor' : 'converter');
 
   // Advanced DSP Configurations
   let windowType = $state<'hann' | 'hamming' | 'gaussian' | 'blackman-harris'>('hann');
@@ -131,32 +134,134 @@
       const t0 = performance.now();
       currentQualityLod = lod;
       
-      rgbaGrid = wasm_generate_complex_reassigned_ycbcr_spectrogram(
+      // If LOD 1 (Draft Mode): instant single-shot 1.5ms computation!
+      if (lod === 1) {
+        progressiveSessionId++; // cancel any running progressive sweep
+        refinementProgress = null;
+        rgbaGrid = wasm_generate_complex_reassigned_ycbcr_spectrogram(
+          originalBytes,
+          selectedHeight,
+          windowType,
+          windowSize,
+          zeroPadding,
+          fmin,
+          fmax,
+          algorithmType,
+          paletteType,
+          wasmViewStart,
+          wasmViewEnd,
+          pointRadius,
+          frequencyScale,
+          horizontalResolutionK,
+          1,
+          0,
+          0
+        ) as Uint8Array;
+        gridH = 256;
+        gridW = (rgbaGrid.length / 4) / gridH;
+        return;
+      }
+
+      // Pre-populate with immediate draft preview (1.5ms) if not already present
+      if (!rgbaGrid) {
+        rgbaGrid = wasm_generate_complex_reassigned_ycbcr_spectrogram(
+          originalBytes,
+          selectedHeight,
+          windowType,
+          windowSize,
+          zeroPadding,
+          fmin,
+          fmax,
+          algorithmType,
+          paletteType,
+          wasmViewStart,
+          wasmViewEnd,
+          pointRadius,
+          frequencyScale,
+          horizontalResolutionK,
+          1,
+          0,
+          0
+        ) as Uint8Array;
+        gridH = 256;
+        gridW = (rgbaGrid.length / 4) / gridH;
+      }
+
+      // If LOD 0 (Refined Ultra-Foco): Progressive Sweep in 128-column chunks!
+      const currentSession = ++progressiveSessionId;
+      const dims = wasm_get_spectrogram_dimensions(
         originalBytes,
         selectedHeight,
-        windowType,
-        windowSize,
-        zeroPadding,
-        fmin,
-        fmax,
-        algorithmType,
-        paletteType,
-        wasmViewStart,
-        wasmViewEnd,
-        pointRadius,
-        frequencyScale,
         horizontalResolutionK,
-        lod
-      ) as Uint8Array;
-      gridH = lod === 1 ? 256 : selectedHeight;
-      gridW = (rgbaGrid.length / 4) / gridH;
+        0,
+        wasmViewStart,
+        wasmViewEnd
+      );
+      const targetW = dims[0];
+      const targetH = dims[1];
       
-      const rawDensity = wasm_get_last_mirrored_density_histogram();
-      if (rawDensity && rawDensity.length === 256) {
-        mirroredDensity = new Float32Array(rawDensity);
+      // Allocate the destination high-resolution grid buffer
+      const fullGrid = new Uint8Array(targetW * targetH * 4);
+      let currentCol = 0;
+      const CHUNK_SIZE = 128; // ~6-8ms per chunk
+      
+      const safeBytes = originalBytes;
+      
+      function streamNextChunk() {
+        if (currentSession !== progressiveSessionId || !safeBytes) return; // Cancelled by newer user action!
+        
+        const count = Math.min(CHUNK_SIZE, targetW - currentCol);
+        const chunkBytes = wasm_generate_complex_reassigned_ycbcr_spectrogram(
+          safeBytes,
+          selectedHeight,
+          windowType,
+          windowSize,
+          zeroPadding,
+          fmin,
+          fmax,
+          algorithmType,
+          paletteType,
+          wasmViewStart,
+          wasmViewEnd,
+          pointRadius,
+          frequencyScale,
+          horizontalResolutionK,
+          0,
+          currentCol,
+          count
+        ) as Uint8Array;
+        
+        // Symmetrically copy row-major slice into fullGrid
+        for (let r = 0; r < targetH; r++) {
+          const srcOffset = r * count * 4;
+          const dstOffset = (r * targetW + currentCol) * 4;
+          fullGrid.set(chunkBytes.subarray(srcOffset, srcOffset + count * 4), dstOffset);
+        }
+        
+        currentCol += count;
+        
+        // Incrementally update UI with partial results!
+        rgbaGrid = fullGrid;
+        gridW = targetW;
+        gridH = targetH;
+        
+        const pct = Math.round((currentCol / targetW) * 100);
+        refinementProgress = pct;
+        
+        if (currentCol < targetW) {
+          requestAnimationFrame(streamNextChunk);
+        } else {
+          // Completed full sweep!
+          refinementProgress = null;
+          const rawDensity = wasm_get_last_mirrored_density_histogram();
+          if (rawDensity && rawDensity.length === 256) {
+            mirroredDensity = new Float32Array(rawDensity);
+          }
+          console.log(`✅ [LOD 0 - REFINED COMPLETED] (${targetW}x${targetH}) in ${(performance.now() - t0).toFixed(2)} ms.`);
+        }
       }
       
-      console.log(`✅ [LOD ${lod} - ${lod === 1 ? 'DRAFT' : 'REFINED'}] Generated Spectrogram (${gridW}x${gridH}) in ${(performance.now() - t0).toFixed(2)} ms.`);
+      requestAnimationFrame(streamNextChunk);
       
       // Rebuild global audio playback if not already created
       if (!originalAudio) {
@@ -383,6 +488,7 @@
       originalAudio={originalAudio}
       isPlaying={isPlaying}
       currentQualityLod={currentQualityLod}
+      refinementProgress={refinementProgress}
       onAdaptiveInteract={triggerAdaptiveInteraction}
       onPlayToggle={triggerAudioPlayback}
       onAudioUploaded={handleDirectAudioUpload}

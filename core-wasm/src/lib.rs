@@ -2732,6 +2732,41 @@ pub fn wasm_get_last_mirrored_density_histogram() -> Vec<f32> {
 }
 
 #[wasm_bindgen]
+pub fn wasm_get_spectrogram_dimensions(
+    data: &[u8],
+    h_custom: usize,
+    horizontal_res_k: usize,
+    quality_lod: usize,
+    t_start: f32,
+    t_end: f32,
+) -> Vec<usize> {
+    let is_draft = quality_lod >= 1;
+    let mut h = if is_draft { 256 } else { h_custom };
+    if !h.is_power_of_two() || h < 4 { h = 512; }
+    
+    let pcm_data = if data.len() >= 44 && &data[0..4] == b"RIFF" {
+        &data[44..]
+    } else {
+        data
+    };
+    let num_samples = pcm_data.len() / 4;
+    let start_sample = ((t_start.clamp(0.0, 1.0) * num_samples as f32) as usize).min(num_samples - 2);
+    let end_sample = ((t_end.clamp(0.0, 1.0) * num_samples as f32) as usize).clamp(start_sample + 2, num_samples);
+    let sliced_samples = end_sample - start_sample;
+    
+    let target_cols = if is_draft {
+        512usize
+    } else {
+        let k_clamped = horizontal_res_k.min(4);
+        (1024usize << k_clamped).max(512)
+    };
+    let hop = (sliced_samples / target_cols).max(1);
+    let w = (sliced_samples / hop).max(2);
+    
+    vec![w, h]
+}
+
+#[wasm_bindgen]
 pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
     data: &[u8], 
     h_custom: usize, 
@@ -2748,6 +2783,8 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
     scale_type: &str,
     horizontal_res_k: usize,
     quality_lod: usize,
+    chunk_start: usize,
+    chunk_count: usize,
 ) -> Vec<u8> {
     let is_draft = quality_lod >= 1;
     
@@ -2785,6 +2822,14 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
     let hop = (sliced_samples / target_cols).max(1);
     let w = (sliced_samples / hop).max(2);
     let grid_size = w * h;
+
+    let (c_start, c_end) = if chunk_count > 0 {
+        let cs = chunk_start.min(w - 1);
+        let ce = (cs + chunk_count).min(w);
+        (cs, ce)
+    } else {
+        (0, w)
+    };
     
     let mut mid_channel = vec![0.0f32; sliced_samples];
     for i in 0..sliced_samples {
@@ -2952,7 +2997,7 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
     let mut raw_hist_orig = [0.0f32; 128];
     let mut raw_hist_trans = [0.0f32; 128];
     
-    for c in 0..w {
+    for c in c_start..c_end {
         let start = c * hop;
         
         // Zero-fill the reused buffers safely
@@ -3222,7 +3267,8 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
     }
     
     // Perform Colorization on the CPU
-    let mut rgba_buffer = vec![0u8; grid_size * 4];
+    let chunk_w = c_end - c_start;
+    let mut rgba_buffer = vec![0u8; chunk_w * h * 4];
     
     // Prepare Snake Palette table internally if needed
     let mut snake_palette = Vec::new();
@@ -3230,120 +3276,124 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
         snake_palette = generate_snake_palette_lut();
     }
     
-    let log_base_factor = 15.0f32 / 254.0f32;
-    
-    for i in 0..grid_size {
-        let re = reassigned_grid_re[i];
-        let im = reassigned_grid_im[i];
-        let abs_z = (re * re + im * im).sqrt();
-        
-        let out_idx = i * 4;
-        if abs_z < 1e-12 {
-            rgba_buffer[out_idx] = 0;
-            rgba_buffer[out_idx + 1] = 0;
-            rgba_buffer[out_idx + 2] = 0;
-            rgba_buffer[out_idx + 3] = 255;
-            continue;
+    for row in 0..h {
+        for col in c_start..c_end {
+            let grid_idx = row * w + col;
+            let out_idx = (row * chunk_w + (col - c_start)) * 4;
+            
+            let re = reassigned_grid_re[grid_idx];
+            let im = reassigned_grid_im[grid_idx];
+            let abs_z = (re * re + im * im).sqrt();
+            
+            if abs_z < 1e-12 {
+                rgba_buffer[out_idx] = 0;
+                rgba_buffer[out_idx + 1] = 0;
+                rgba_buffer[out_idx + 2] = 0;
+                rgba_buffer[out_idx + 3] = 255;
+                continue;
+            }
+
+            let abs_z_norm = abs_z / 4194304.0;
+            if abs_z_norm > 1e-5 {
+                let db_trans = 20.0 * abs_z_norm.log10();
+                let b_trans = (((db_trans + 100.0) / 100.0) * 127.0).clamp(0.0, 127.0) as usize;
+                raw_hist_trans[b_trans] += 1.0;
+            }
+            
+            if palette_type == "snake" {
+                // Geodesic Snake (Intensidade) colorizer
+                // Map magnitude to 16-bit space
+                let intensity = (abs_z / 4194304.0 * 65535.0).clamp(0.0, 65535.0) as usize;
+                let (r, g, b) = snake_palette[intensity];
+                rgba_buffer[out_idx] = r;
+                rgba_buffer[out_idx + 1] = g;
+                rgba_buffer[out_idx + 2] = b;
+                rgba_buffer[out_idx + 3] = 255;
+            } else {
+                // YCbCr Magnitude-Phase Complex colorizer using zero-allocation O(1) LUT!
+                let log2_r = abs_z_norm.log2();
+                let y_val = (1.0 + 65024.0 * (log2_r + 15.0) / 15.0).sqrt();
+                let mut y_f = y_val.floor();
+                if y_f < 1.0 { y_f = 1.0; }
+                if y_f > 255.0 { y_f = 255.0; }
+                
+                let y_idx = y_f as usize;
+                let a_min = a_min_lut[y_idx];
+                let delta_a = delta_a_lut[y_idx];
+                
+                let r_resid = abs_z_norm - a_min;
+                let r_norm = r_resid / if delta_a > 1e-15 { delta_a } else { 1e-15 };
+                
+                let re_norm = re / 4194304.0;
+                let im_norm = im / 4194304.0;
+                let w_re = r_norm * (re_norm / abs_z_norm);
+                let w_im = r_norm * (im_norm / abs_z_norm);
+                
+                let cr = -w_re;
+                let cb = w_im;
+                
+                let cb_byte = (cb * 112.0 + 128.0).clamp(16.0, 240.0);
+                let cr_byte = (cr * 112.0 + 128.0).clamp(16.0, 240.0);
+                
+                let r_val = y_f + 1.402 * (cr_byte - 128.0);
+                let g_val = y_f - 0.344136 * (cb_byte - 128.0) - 0.714136 * (cr_byte - 128.0);
+                let b_val = y_f + 1.772 * (cb_byte - 128.0);
+                
+                rgba_buffer[out_idx] = r_val.clamp(0.0, 255.0).round() as u8;
+                rgba_buffer[out_idx + 1] = g_val.clamp(0.0, 255.0).round() as u8;
+                rgba_buffer[out_idx + 2] = b_val.clamp(0.0, 255.0).round() as u8;
+                rgba_buffer[out_idx + 3] = 255;
+            }
+        }
+    }
+
+    if c_end >= w {
+        // Gaussian Smoothing KDE filter for mirrored continuous density plot
+        let mut kernel = [0.0f32; 11];
+        let mut k_sum = 0.0f32;
+        for i in 0..11 {
+            let x = (i as f32) - 5.0;
+            let v = (-0.5 * (x * x) / (2.5 * 2.5)).exp();
+            kernel[i] = v;
+            k_sum += v;
+        }
+        for i in 0..11 {
+            kernel[i] /= k_sum;
         }
 
-        let abs_z_norm = abs_z / 4194304.0;
-        if abs_z_norm > 1e-5 {
-            let db_trans = 20.0 * abs_z_norm.log10();
-            let b_trans = (((db_trans + 100.0) / 100.0) * 127.0).clamp(0.0, 127.0) as usize;
-            raw_hist_trans[b_trans] += 1.0;
+        let mut density_trans = vec![0.0f32; 128];
+        let mut density_orig = vec![0.0f32; 128];
+
+        for i in 0..128 {
+            let mut sum_trans = 0.0f32;
+            let mut sum_orig = 0.0f32;
+            for k in 0..11 {
+                let idx = (i as isize + k as isize - 5).clamp(0, 127) as usize;
+                sum_trans += raw_hist_trans[idx] * kernel[k];
+                sum_orig += raw_hist_orig[idx] * kernel[k];
+            }
+            density_trans[i] = sum_trans;
+            density_orig[i] = sum_orig;
         }
-        
-        if palette_type == "snake" {
-            // Geodesic Snake (Intensidade) colorizer
-            // Map magnitude to 16-bit space
-            let intensity = (abs_z / 4194304.0 * 65535.0).clamp(0.0, 65535.0) as usize;
-            let (r, g, b) = snake_palette[intensity];
-            rgba_buffer[out_idx] = r;
-            rgba_buffer[out_idx + 1] = g;
-            rgba_buffer[out_idx + 2] = b;
-            rgba_buffer[out_idx + 3] = 255;
-        } else {
-            // YCbCr Magnitude-Phase Complex colorizer using zero-allocation O(1) LUT!
-            let log2_r = abs_z_norm.log2();
-            let y_val = (1.0 + 65024.0 * (log2_r + 15.0) / 15.0).sqrt();
-            let mut y_f = y_val.floor();
-            if y_f < 1.0 { y_f = 1.0; }
-            if y_f > 255.0 { y_f = 255.0; }
-            
-            let y_idx = y_f as usize;
-            let a_min = a_min_lut[y_idx];
-            let delta_a = delta_a_lut[y_idx];
-            
-            let r_resid = abs_z_norm - a_min;
-            let r_norm = r_resid / if delta_a > 1e-15 { delta_a } else { 1e-15 };
-            
-            let re_norm = re / 4194304.0;
-            let im_norm = im / 4194304.0;
-            let w_re = r_norm * (re_norm / abs_z_norm);
-            let w_im = r_norm * (im_norm / abs_z_norm);
-            
-            let cr = -w_re;
-            let cb = w_im;
-            
-            let cb_byte = (cb * 112.0 + 128.0).clamp(16.0, 240.0);
-            let cr_byte = (cr * 112.0 + 128.0).clamp(16.0, 240.0);
-            
-            let r_val = y_f + 1.402 * (cr_byte - 128.0);
-            let g_val = y_f - 0.344136 * (cb_byte - 128.0) - 0.714136 * (cr_byte - 128.0);
-            let b_val = y_f + 1.772 * (cb_byte - 128.0);
-            
-            rgba_buffer[out_idx] = r_val.clamp(0.0, 255.0).round() as u8;
-            rgba_buffer[out_idx + 1] = g_val.clamp(0.0, 255.0).round() as u8;
-            rgba_buffer[out_idx + 2] = b_val.clamp(0.0, 255.0).round() as u8;
-            rgba_buffer[out_idx + 3] = 255;
+
+        let mut max_val = 1e-12f32;
+        for i in 0..128 {
+            if density_trans[i] > max_val { max_val = density_trans[i]; }
+            if density_orig[i] > max_val { max_val = density_orig[i]; }
         }
-    }
 
-    // Gaussian Smoothing KDE filter for mirrored continuous density plot
-    let mut kernel = [0.0f32; 11];
-    let mut k_sum = 0.0f32;
-    for i in 0..11 {
-        let x = (i as f32) - 5.0;
-        let v = (-0.5 * (x * x) / (2.5 * 2.5)).exp();
-        kernel[i] = v;
-        k_sum += v;
-    }
-    for i in 0..11 {
-        kernel[i] /= k_sum;
-    }
-
-    let mut density_trans = vec![0.0f32; 128];
-    let mut density_orig = vec![0.0f32; 128];
-
-    for i in 0..128 {
-        let mut sum_trans = 0.0f32;
-        let mut sum_orig = 0.0f32;
-        for k in 0..11 {
-            let idx = (i as isize + k as isize - 5).clamp(0, 127) as usize;
-            sum_trans += raw_hist_trans[idx] * kernel[k];
-            sum_orig += raw_hist_orig[idx] * kernel[k];
+        for i in 0..128 {
+            density_trans[i] /= max_val;
+            density_orig[i] /= max_val;
         }
-        density_trans[i] = sum_trans;
-        density_orig[i] = sum_orig;
-    }
 
-    let mut max_val = 1e-12f32;
-    for i in 0..128 {
-        if density_trans[i] > max_val { max_val = density_trans[i]; }
-        if density_orig[i] > max_val { max_val = density_orig[i]; }
-    }
+        let mut combined_density = Vec::with_capacity(256);
+        combined_density.extend_from_slice(&density_trans);
+        combined_density.extend_from_slice(&density_orig);
 
-    for i in 0..128 {
-        density_trans[i] /= max_val;
-        density_orig[i] /= max_val;
-    }
-
-    let mut combined_density = Vec::with_capacity(256);
-    combined_density.extend_from_slice(&density_trans);
-    combined_density.extend_from_slice(&density_orig);
-
-    if let Ok(mut guard) = LAST_MIRRORED_DENSITY.lock() {
-        *guard = combined_density;
+        if let Ok(mut guard) = LAST_MIRRORED_DENSITY.lock() {
+            *guard = combined_density;
+        }
     }
     
     rgba_buffer
