@@ -996,60 +996,238 @@ A continuidade $C^2$ entre segmentos sucessivos é garantida por construção ma
 
 ---
 
-## 14. Resumo da Arquitetura de Implementação
+## 14. O Paradigma Sliding Jet DFT: Zero FFTs por Frame e Redução Holomórfica de Bargmann-Fock
 
-O pipeline completo de processamento opera em estágios rigorosamente sequenciados:
+Enquanto a abordagem por banco de janelas modificadas (Seções 3 a 11) reduz o cálculo das derivadas a $\frac{(O+1)(O+2)}{2}$ STFTs (ou $\frac{O+2}{2}$ FFTs complexas com empacotamento dual), o **Paradigma Sliding Jet DFT** promove um salto qualitativo superior: ele trata todas as derivadas como um **único objeto matemático (um jato de Taylor truncado $\mathcal{S}_m(\delta)$)** que desliza recursivamente junto com um banco de ressonadores Sliding DFT.
+
+Após a inicialização do primeiro quadro, o custo de FFT é **estritamente zero por quadro** ($N_{\text{FFT/frame}} = 0$).
 
 ```text
 +-----------------------------------------------------------------------------------+
-|                        PIPELINE COMPLETO DE ALTA ORDEM                            |
+|                        PARADIGMA SLIDING JET DFT vs BANCO FFT                     |
 +-----------------------------------------------------------------------------------+
-| 1. GERAÇÃO DE JANELAS:                                                            |
-|    h_{p,q}(u) = (-1)^p sigma^(q-p) (u/sigma)^q He_p(u/sigma) exp(-u^2 / 2sigma^2)  |
+| ABORDAGEM TRADICIONAL (BANCO DE JANELAS):                                         |
+|   Quadro x[n] ---> [Janela g]    ---> FFT 1 ---> S_0,0                            |
+|               ---> [Janela g']   ---> FFT 2 ---> S_1,0  Complexidade: O(K N log N)|
+|               ---> [Janela ug]   ---> FFT 3 ---> S_0,1  (K transformadas por frame|
+|               ---> [Janela g'']  ---> FFT 4 ---> S_2,0                            |
 |                                                                                   |
-| 2. BANCO DE FFTS EM REFERENCIAL MÓVEL (EMPACOTAMENTO HERMITIANO):                 |
-|    S_{p,q} <- FFT{ x * h_{p,q} } (3 FFTs complexas cobrem toda 2ª ordem)          |
-|                                                                                   |
-| 3. PARTIÇÕES DE FAÀ DI BRUNO NO REFERENCIAL MÓVEL:                                |
-|    D^{p,q} log S = sum_{pi} (-1)^(|pi|-1) (|pi|-1)! prod S_{p_B, q_B} / S^|pi|    |
-|                                                                                   |
-| 4. DESACOPLAMENTO CANÔNICO:                                                       |
-|    - D^{p,q} log A = Re{ D^{p,q} log S }                                          |
-|    - D^{p,q} phi   = Im{ D^{p,q} log S }  (com ajuste de -1 em phi_{tw})          |
-|                                                                                   |
-| 5. INVARIANTES ANALÍTICOS:                                                        |
-|    - Sub-pixel Peak: delta t*, delta w*, A*                                       |
-|    - Geometria: theta_ridge, autovalores lambda_1,2, anisotropia gamma_aniso      |
-|    - Bandwidth: B_{-3dB}, Delta t_{-3dB}                                          |
-|                                                                                   |
-| 6. PROJEÇÃO VISUAL E VETORIZAÇÃO:                                                 |
-|    - Shaders GLSL: Normais 3D, SSAO, Filtragem Beltrami                           |
-|    - Vector Audio V7: Geração analítica O(1) de Splines de Bézier C2              |
+| PARADIGMA SLIDING JET DFT:                                                        |
+|   1. Holomorfia de Bargmann: Derivadas 2D colapsam em O+1 graus 1D em frequência  |
+|   2. Recorrência Sliding Jet:                                                     |
+|      Amostra velha x[m] + Amostra nova x[m+N] ---> Resonador O(1)                 |
+|      Jato Polinomial: S_{m+1}(delta) = exp(i theta) P(delta) * S_m(delta)         |
+|   3. Logaritmo por Série Formal: L' = C'/C mod delta^(O+1) (sem Faà di Bruno)    |
+|   CUSTO: 0 FFTs por frame, O(1) aritmético por canal!                            |
 +-----------------------------------------------------------------------------------+
 ```
 
 ```mermaid
-flowchart TD
-    subgraph S1 [Estágio 1: Janelas Analíticas de Hermite]
-        W1["h_p,q(u) = Polinômio de Hermite * Gaussiana"]
+graph TD
+    subgraph Inicializacao [Inicialização: Frame 0]
+        X0[Sinal x_0..N-1] --> FFT0[1 FFT com Zero-Padding]
+        FFT0 --> J0["Jato de Taylor Inicial S_0(delta)"]
     end
-    subgraph S2 [Estágio 2: FFTs no Referencial Móvel]
-        W1 --> F1["3 FFTs Complexas com Empacotamento Hermitiano"]
-        F1 --> F2["Desempacotamento de S_0,0 até S_0,2"]
+
+    subgraph Recorrencia [Frames Subsequentes: m -> m+1]
+        X_OUT[Amostra saindo x_m] & X_IN[Amostra entrando x_m+N] --> RSDFT["Ressonador Sliding Jet O(1)"]
+        J_OLD["Jato Anterior S_m(delta)"] --> RSDFT
+        RSDFT --> J_NEW["Novo Jato S_m+1(delta) mod delta^(O+1)"]
     end
-    subgraph S3 [Estágio 3: Álgebra de Faà di Bruno]
-        F2 --> L1["D^p,q log S via Partições Multivariadas"]
-    end
-    subgraph S4 [Estágio 4: Extração de Invariantes Analíticos]
-        L1 --> INV1["Sub-pixel (delta t*, delta w*) e Amplitude A*"]
-        L1 --> INV2["Autovalores lambda_1,2 e Ângulo theta_ridge"]
-        L1 --> INV3["Largura de Banda B_-3dB e Duração delta t_-3dB"]
-    end
-    subgraph S5 [Estágio 5: Visualização e Síntese Vetorial]
-        INV1 & INV2 --> V1["Pinceladas Vetoriais e Cristas Sub-pixel"]
-        INV2 --> V2["Normal Mapping e Shading 3D WebGL2"]
-        INV1 & INV3 --> V3["Primitivas Bézier C2 em O(1) - Modelo V7"]
+
+    subgraph ExtracaoAnalitica [Extração Holomórfica Instantânea]
+        J_NEW --> LOG["Série Formal: L' = C'/C"]
+        LOG --> L_W["Derivadas em Frequência: L_0, L_1, ..., L_O"]
+        L_W -->|Bargmann-Fock| DERIVS["Todas Derivadas Mistas D^p,q log A e D^p,q phi"]
+        DERIVS --> OUT["Cristas, Hessiana, Ângulo theta, Chirp Rate em O(1)"]
     end
 ```
 
-Este procedimento constitui a infraestrutura matemática e computacional definitiva para os motores de análise, renderização WebGL2 e síntese vetorial da suíte **Spectral**.
+---
+
+### 14.1 A Redução Holomórfica de Bargmann-Fock: De $\mathcal{O}(O^2)$ para $\mathcal{O}(O+1)$
+
+Para uma janela de análise Gaussiana contínua $g(u) = e^{-u^2 / (2\sigma^2)}$, a transformada de Fourier de tempo curto não é uma função arbitrária de duas variáveis reais $(t, \omega)$. Ela pertence ao **espaço de Bargmann-Fock** de funções inteiras holomorfas:
+
+$$
+C(t, \omega) = e^{-\frac{t^2}{2\sigma^2}} \, F\left(t - i\sigma^2 \omega\right)
+$$
+
+onde $F(z)$ é uma função complexa estritamente analítica na coordenada complexa $z = t - i\sigma^2 \omega$.
+
+Pela regra da cadeia holomórfica:
+$$
+\frac{\partial}{\partial t} = \frac{\partial}{\partial z}, \qquad \frac{\partial}{\partial \omega} = -i\sigma^2 \frac{\partial}{\partial z}
+$$
+Portanto, a relação entre os operadores diferenciais no plano tempo-frequência satisfaz identicamente:
+$$
+\boxed{
+\frac{\partial}{\partial t} = \frac{i}{\sigma^2} \frac{\partial}{\partial \omega}
+}
+$$
+Isso acarreta um teorema fundamental de compressão dimensional:
+> **Teorema de Redução de Bargmann-Fock**: Todas as derivadas mistas de mesma ordem total $n = p + q$ de uma STFT Gaussiana são completamente e unicamente determinadas por uma única derivada $n$-ésima de frequência:
+> $$
+> \text{Graus diferenciais independentes} = O + 1 \quad \text{em vez de} \quad \frac{(O + 1)(O + 2)}{2}
+> $$
+
+#### Relação Fechada para o Logaritmo $L = \log C$:
+Definindo $L(t, \omega) = \log C(t, \omega) = -\frac{t^2}{2\sigma^2} + G(z)$, onde $G(z) = \log F(z)$ é analítica, e seja $L_n^{(\omega)} = \frac{\partial^n L}{\partial \omega^n}$ a $n$-ésima derivada pura em frequência.
+
+Qualquer derivada mista de qualquer ordem $n = p + q \ge 1$ é obtida analiticamente sem qualquer janela adicional:
+
+$$
+\boxed{
+\frac{\partial^{p+q} L}{\partial t^p \, \partial \omega^q} = (-i\sigma^2)^{-p} \, L_{p+q}^{(\omega)} - \delta_{q,0} \left[ \frac{t}{\sigma^2} \mathbf{1}_{p=1} + \frac{1}{\sigma^2} \mathbf{1}_{p=2} \right]
+}
+$$
+
+Deduções explícitas fundamentais para ordens 1, 2 e 3:
+*   **Primeira Ordem ($n=1$)**:
+    $$
+    L_t = \frac{i}{\sigma^2} L_1^{(\omega)} - \frac{t}{\sigma^2}, \qquad L_\omega = L_1^{(\omega)}
+    $$
+*   **Segunda Ordem ($n=2$)**:
+    $$
+    L_{tt} = -\frac{1}{\sigma^4} L_2^{(\omega)} - \frac{1}{\sigma^2}, \qquad L_{t\omega} = \frac{i}{\sigma^2} L_2^{(\omega)}, \qquad L_{\omega\omega} = L_2^{(\omega)}
+    $$
+*   **Terceira Ordem ($n=3$)**:
+    $$
+    L_{ttt} = \frac{i}{\sigma^6} L_3^{(\omega)}, \qquad L_{tt\omega} = -\frac{1}{\sigma^4} L_3^{(\omega)}, \qquad L_{t\omega\omega} = \frac{i}{\sigma^2} L_3^{(\omega)}, \qquad L_{\omega\omega\omega} = L_3^{(\omega)}
+    $$
+
+Separando partes real e imaginária:
+$$
+\boxed{ D^{p,q} \log A = \operatorname{Re}\left( D^{p,q} L \right) }, \qquad \boxed{ D^{p,q} \phi = \operatorname{Im}\left( D^{p,q} L \right) }
+$$
+
+---
+
+### 14.2 Sliding Jet DFT: Atualização de Jatos Polinomiais de Taylor
+
+Seja a DFT discreta móvel centrada em uma frequência base $\theta_0 = \omega_0 / f_s$:
+$$
+S_m(\theta) = \sum_{n=0}^{N-1} x[m + n] \, e^{-i\theta n}
+$$
+A relação de recorrência exata da Sliding DFT clássica entre as amostras $m$ e $m+1$ é:
+$$
+S_{m+1}(\theta) = e^{i\theta} \left[ S_m(\theta) - x[m] + x[m + N] e^{-i N \theta} \right]
+$$
+
+Em vez de armazenar um número complexo escalar $S_m(\theta_0)$, representamos o estado espectral por um **polinômio de Taylor em torno de $\theta_0$** (um jato de ordem $O$):
+
+$$
+\boxed{
+\mathcal{S}_m(\delta) = \sum_{q=0}^{O} \frac{S_m^{(q)}(\theta_0)}{q!} \, \delta^q = c_0 + c_1 \delta + c_2 \delta^2 + \dots + c_O \delta^O \pmod{\delta^{O+1}}
+}
+$$
+
+onde $\delta = \theta - \theta_0$.
+
+Substituindo $\theta = \theta_0 + \delta$ diretamente na equação diferencial de recorrência:
+
+$$
+\boxed{
+\mathcal{S}_{m+1}(\delta) = e^{i\theta_0} \, e^{i\delta} \, \left[ \mathcal{S}_m(\delta) - x[m] + x[m + N] \, e^{-i N \theta_0} \, e^{-i N \delta} \right] \pmod{\delta^{O+1}}
+}
+$$
+
+As exponenciais em $\delta$ são polinômios fixos pré-computados truncados em ordem $O$:
+$$
+e^{i\delta} = \sum_{q=0}^{O} \frac{i^q}{q!} \, \delta^q = 1 + i\delta - \frac{\delta^2}{2} - i\frac{\delta^3}{6} + \frac{\delta^4}{24} \pmod{\delta^{O+1}}
+$$
+$$
+e^{-iN\delta} = \sum_{q=0}^{O} \frac{(-iN)^q}{q!} \, \delta^q = 1 - iN\delta - \frac{N^2 \delta^2}{2} + i\frac{N^3 \delta^3}{6} + \frac{N^4 \delta^4}{24} \pmod{\delta^{O+1}}
+$$
+
+A cada nova amostra de áudio que entra e cada amostra que sai, a atualização do jato de Taylor completo requer apenas **adições escalares e uma multiplicação de polinômios truncados de grau $O$** ($O=2 \implies 9$ multiplicações complexas).
+
+---
+
+### 14.3 Janelamento Gaussiano via Decomposição Harmônica (Gaussian Fourier)
+
+Como o ressonador SDFT calcula janelas retangulares, decompomos a janela Gaussiana finita $g(u)$ em sua série de Fourier harmônica:
+$$
+g(u) \approx \sum_{\ell=-K}^{K} a_\ell \, e^{i \frac{2\pi \ell}{N} u}
+$$
+onde $K = 2$ ou $3$ termos proporcionam atenuação de lóbulos secundários superior a $-70\text{ dB}$.
+
+O jato da STFT Gaussiana suave $\mathcal{C}_j(\delta)$ no canal de frequência $j$ é simplesmente a combinação linear dos jatos $\mathcal{S}_{j,\ell}(\delta)$ dos ressonadores harmônicos:
+$$
+\boxed{
+\mathcal{C}_j(\delta) = \sum_{\ell=-K}^{K} a_\ell \, \mathcal{S}_{j,\ell}(\delta)
+}
+$$
+E as derivadas temporais analíticas surgem sem custo adicional:
+$$
+C_{p,q} = \sum_{\ell=-K}^{K} a_\ell \, \left(-i \frac{2\pi \ell}{N}\right)^p S_\ell^{(q)}
+$$
+
+---
+
+### 14.4 Cálculo do Logaritmo via Séries Formais ($\mathcal{L}' = \mathcal{C}' / \mathcal{C}$)
+
+Para obter as derivadas de $\log C$ sem a combinatória explosiva de Faà di Bruno, tratamos $\mathcal{C}(\delta)$ e $\mathcal{L}(\delta) = \log \mathcal{C}(\delta)$ como séries de potências formais:
+
+$$
+\mathcal{C}(\delta) = \sum_{k=0}^O c_k \, \delta^k, \qquad \mathcal{L}(\delta) = \sum_{k=0}^O \ell_k \, \delta^k
+$$
+
+Diferenciando ambos os lados:
+$$
+\mathcal{L}'(\delta) = \frac{\mathcal{C}'(\delta)}{\mathcal{C}(\delta)} \iff \mathcal{L}'(\delta) \cdot \mathcal{C}(\delta) = \mathcal{C}'(\delta)
+$$
+Igualando os coeficientes de $\delta^{k-1}$, derivamos a **recorrência linear exata de Newton-Euler**:
+
+$$
+\boxed{
+\ell_0 = \log c_0
+}
+$$
+$$
+\boxed{
+k \, \ell_k = \frac{k \, c_k}{c_0} - \sum_{j=1}^{k-1} j \, \ell_j \, \frac{c_{k-j}}{c_0}, \quad \text{para } k \ge 1
+}
+$$
+
+Explicitando para ordens 1 a 4:
+*   $\ell_1 = \frac{c_1}{c_0}$
+*   $\ell_2 = \frac{c_2}{c_0} - \ell_1 \frac{c_1}{c_0} = \frac{c_2}{c_0} - \left(\frac{c_1}{c_0}\right)^2$
+*   $\ell_3 = \frac{c_3}{c_0} - \frac{2}{3} \ell_2 \frac{c_1}{c_0} - \frac{1}{3} \ell_1 \frac{c_2}{c_0}$
+*   $\ell_4 = \frac{c_4}{c_0} - \frac{3}{4} \ell_3 \frac{c_1}{c_0} - \frac{2}{4} \ell_2 \frac{c_2}{c_0} - \frac{1}{4} \ell_1 \frac{c_3}{c_0}$
+
+Como $L_k^{(\omega)} = k! \, \ell_k$, as derivadas de $\log C$ em relação a $\omega$ são:
+$$
+L_0^{(\omega)} = \ell_0, \quad L_1^{(\omega)} = \ell_1, \quad L_2^{(\omega)} = 2\ell_2, \quad L_3^{(\omega)} = 6\ell_3, \quad L_4^{(\omega)} = 24\ell_4
+$$
+Essa relação é computada em **$O(O^2)$ operações aritméticas elementares**, sem alocações e sem tabelas de partições!
+
+---
+
+### 14.5 Estabilidade Numérica: rSDFT Amortecido e Re-ancoragem Periódica
+
+O Sliding DFT possui pólos exatamente em $z = e^{i\theta_0}$ ($|z| = 1$). Em aritmética de precisão simples (`f32`), os erros de arredondamento podem acumular-se ao longo de centenas de milhares de amostras, provocando desvio marginal (*drift*).
+
+Para garantir estabilidade incondicional:
+1.  **Ressonador Amortecido (rSDFT)**:
+    Introduz-se um raio de amortecimento infinitesimal $r = 1 - \epsilon$ com $\epsilon \approx 10^{-5}$ ($r \approx 0.99999$):
+    $$
+    \mathcal{S}_{m+1}(\delta) = r \, e^{i\theta_0} \, e^{i\delta} \left[ \mathcal{S}_m(\delta) - x[m] + r^N \, x[m+N] \, e^{-iN\theta_0} \, e^{-iN\delta} \right] \pmod{\delta^{O+1}}
+    $$
+    Como todos os pólos situam-se estritamente no interior do círculo unitário ($|z| = r < 1$), qualquer erro numérico decai exponencialmente para zero.
+2.  **Re-ancoragem Periódica em Blocos**:
+    A cada $B = 512$ ou $1024$ amostras, o estado $\mathcal{S}_m(\delta)$ é recalculado diretamente a partir de um bloco limpo, zerando qualquer acúmulo de erro de truncamento.
+
+---
+
+## 15. Síntese Arquitetural: Comparativo entre Motores
+
+| Critério | Motor por Janelas FFT (Seção 11) | Motor Sliding Jet DFT (Seção 14) |
+| :--- | :--- | :--- |
+| **FFTs por Frame** | $\frac{O+2}{2}$ FFTs ($3$ FFTs para $O=2$) | **0 FFTs** após inicialização |
+| **Custo Computacional** | $\mathcal{O}(K \cdot N \log N)$ | $\mathcal{O}(M \cdot (2K+1) \cdot O^2)$ independente de $N$ |
+| **Graus de Liberdade** | $\frac{(O+1)(O+2)}{2}$ variáveis bidimensionais | **$O+1$** variáveis holomorfas unidimensionais |
+| **Cálculo do Logaritmo** | Partições de Faà di Bruno | Série formal $\mathcal{L}' = \mathcal{C}'/\mathcal{C}$ |
+| **Caso de Uso Ideal** | Hops grandes ($\ge 256$), LOD rascunho de zoom | Streaming em tempo real com hop pequeno ($1$ a $16$ amostras) |
+
+Este conjunto de otimizações consolida a base teórica mais avançada para os módulos de análise espectral contínua, vetorização e renderização do projeto **Spectral**.
