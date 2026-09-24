@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { wasm_analyze_higher_order_point, type WasmHigherOrderPointResult } from '../wasm/core_wasm.js';
 
   // Svelte 5 strict typing: Receive all reactive props from App.svelte
   let { 
     rgbaGrid, 
+    originalBytes = null,
     width, 
     height, 
     
@@ -50,6 +52,7 @@
     onBackToConverter 
   }: { 
     rgbaGrid: Uint8Array | null, 
+    originalBytes?: Uint8Array | null,
     mirroredDensity?: Float32Array | null,
     width: number, 
     height: number,
@@ -98,7 +101,44 @@
   let isSelecting = false;
   let lastMouseX = 0;
 
-  let selectedTool = $state<'select' | 'region_select' | 'gaussian_brush' | 'low_pass' | 'high_pass'>('region_select');
+  let selectedTool = $state<'select' | 'region_select' | 'gaussian_brush' | 'low_pass' | 'high_pass' | 'differential_probe'>('region_select');
+  let probeResult = $state<WasmHigherOrderPointResult | null>(null);
+  let probePoint = $state<{ x: number, y: number, time_s: number, freq_hz: number } | null>(null);
+
+  function executeProbeAnalysis(clientX: number, clientY: number) {
+    if (!canvas || !originalBytes) return;
+    const rect = canvas.getBoundingClientRect();
+    const xRatio = Math.max(0.0, Math.min(1.0, (clientX - rect.left) / rect.width));
+    const yRatio = Math.max(0.0, Math.min(1.0, 1.0 - (clientY - rect.top) / rect.height));
+
+    const totalDuration = originalAudio?.duration && !isNaN(originalAudio.duration) ? originalAudio.duration : 1.0;
+    const normT = viewStart + xRatio * (viewEnd - viewStart);
+    const time_s = normT * totalDuration;
+
+    const logMin = Math.log2(Math.max(1, fmin));
+    const logMax = Math.log2(Math.max(fmin + 1, fmax));
+    const freq_hz = Math.pow(2, logMin + yRatio * (logMax - logMin));
+
+    try {
+      const res = wasm_analyze_higher_order_point(
+        originalBytes,
+        44100.0,
+        time_s,
+        freq_hz,
+        windowSize,
+        higherOrderO ?? 2
+      );
+      probeResult = res;
+      probePoint = {
+        x: clientX - rect.left,
+        y: clientY - rect.top,
+        time_s,
+        freq_hz
+      };
+    } catch (err) {
+      console.error("❌ Probe analysis error:", err);
+    }
+  }
   let brushSize = $state(50);
   let brushStrength = $state(0.5);
 
@@ -591,6 +631,10 @@
   }
 
   function handleMouseDown(e: MouseEvent) {
+    if (selectedTool === 'differential_probe') {
+      executeProbeAnalysis(e.clientX, e.clientY);
+      return;
+    }
     if (selectedTool === 'select') {
       isDragging = true;
       lastMouseX = e.clientX;
@@ -894,6 +938,84 @@
         <div class="playback-cursor-line" style="left: {playheadPct.toFixed(2)}%;"></div>
       {/if}
     {/if}
+
+    <!-- Floating Differential Tensor Inspector HUD -->
+    {#if probeResult && probePoint}
+      <div 
+        class="probe-hud-card" 
+        style="left: {Math.max(250, Math.min(window.innerWidth - 340, probePoint.x + 20))}px; top: {Math.max(80, Math.min(window.innerHeight - 420, probePoint.y + 20))}px;"
+      >
+        <div class="probe-header">
+          <span class="probe-title">🔬 Sonda Diferencial (Ordem {higherOrderO})</span>
+          <button class="probe-close-btn" onclick={() => { probeResult = null; probePoint = null; }}>✕</button>
+        </div>
+        
+        <div class="probe-body">
+          <div class="probe-row highlight">
+            <span>Coordenadas:</span>
+            <span class="val font-mono">{probePoint.time_s.toFixed(3)}s | {probePoint.freq_hz.toFixed(1)} Hz</span>
+          </div>
+
+          <div class="probe-row">
+            <span>Magnitude | Fase:</span>
+            <span class="val font-mono">{probeResult.magnitude.toFixed(2)} | {(probeResult.phase * 180 / Math.PI).toFixed(1)}°</span>
+          </div>
+
+          <div class="probe-row">
+            <span>Gradiente Amplitude:</span>
+            <span class="val font-mono">∇logA = ({probeResult.d_log_a_dt.toFixed(1)}, {probeResult.d_log_a_dw.toFixed(3)})</span>
+          </div>
+
+          <div class="probe-row">
+            <span>Gradiente Fase:</span>
+            <span class="val font-mono">∇ϕ = ({probeResult.d_phi_dt.toFixed(1)}, {probeResult.d_phi_dw.toFixed(3)})</span>
+          </div>
+
+          <div class="probe-row highlight">
+            <span>Foco Reatribuído:</span>
+            <span class="val font-mono">{probeResult.time_reassigned_s.toFixed(3)}s | {probeResult.freq_inst_hz.toFixed(1)} Hz</span>
+          </div>
+
+          {#if (higherOrderO ?? 2) >= 2}
+            <div class="probe-divider"></div>
+            <div class="probe-section-title">Matriz Hessiana & Curvatura (2ª Ordem)</div>
+
+            <div class="probe-row">
+              <span>Autovalores (λ₁, λ₂):</span>
+              <span class="val font-mono">{probeResult.lambda_1.toFixed(1)}, {probeResult.lambda_2.toFixed(1)}</span>
+            </div>
+
+            <div class="probe-row">
+              <span>Ângulo de Crista (θ):</span>
+              <span class="val font-mono">{(probeResult.ridge_angle_rad * 180 / Math.PI).toFixed(1)}°</span>
+            </div>
+
+            <div class="probe-row">
+              <span>Anisotropia (κ):</span>
+              <span class="val font-mono">{probeResult.anisotropy.toFixed(2)}</span>
+            </div>
+
+            <div class="probe-row">
+              <span>Taxa de Chirp (α):</span>
+              <span class="val font-mono">{probeResult.chirp_rate.toFixed(1)} Hz/s</span>
+            </div>
+
+            <div class="probe-row">
+              <span>Largura de Banda (-3dB):</span>
+              <span class="val font-mono">Δf = {probeResult.bandwidth_3db_hz.toFixed(1)} Hz</span>
+            </div>
+          {/if}
+
+          {#if (higherOrderO ?? 2) >= 3}
+            <div class="probe-divider"></div>
+            <div class="probe-row">
+              <span>Aceleração de Chirp (ϕ_ttt):</span>
+              <span class="val font-mono">{probeResult.d2_phi_dt2.toFixed(1)}</span>
+            </div>
+          {/if}
+        </div>
+      </div>
+    {/if}
   </div>
 
   <!-- Top Floating Toolbar -->
@@ -949,6 +1071,32 @@
       <button class:active={selectedTool === 'high_pass'} onclick={() => selectedTool = 'high_pass'}>
         🔪 Passa-Alta (Lasso)
       </button>
+
+      <div class="sidebar-divider"></div>
+
+      <button 
+        class:active={selectedTool === 'differential_probe'} 
+        onclick={() => selectedTool = 'differential_probe'}
+        title="Sonda Diferencial: Clique em qualquer ponto do espectrograma para inspecionar os tensores de 1ª a 4ª ordem"
+      >
+        🔬 Sonda Diferencial
+      </button>
+
+      <button 
+        class:active={algorithmType === 'higher_order'} 
+        onclick={() => {
+          if (algorithmType === 'higher_order') {
+            algorithmType = 'reassignment';
+          } else {
+            algorithmType = 'higher_order';
+            rightDockExpanded = true;
+          }
+          onAdaptiveInteract();
+        }}
+        title="Alternar para o Laboratório de Derivadas de Ordem Superior"
+      >
+        🧪 Lab Derivadas
+      </button>
     </div>
 
     <!-- Right Collapsible Advanced Settings Control Dock -->
@@ -963,29 +1111,39 @@
           
           <!-- Section A: Algorithm & Palette -->
           <div class="dock-section">
-            <h4>🎛️ Algoritmo & Cores</h4>
+            <h4>🎛️ Motor Espectral</h4>
             <div class="input-control">
               <label for="algorithm-select">Visualizador:</label>
-              <select id="algorithm-select" bind:value={algorithmType}>
-                <option value="reassignment">Auger-Flandrin Reassign</option>
+              <select id="algorithm-select" bind:value={algorithmType} onchange={() => onAdaptiveInteract()}>
+                <option value="reassignment">Auger-Flandrin Reassign (Canônico)</option>
+                <option value="higher_order">🧪 Derivadas de Ordem Superior (Hessiana / Cristas)</option>
                 <option value="cqt">Constant-Q (Projeção Esparsa)</option>
                 <option value="log">Smooth Log-Spectrogram</option>
-                <option value="higher_order">✨ Derivadas de Alta Ordem (Hessiana / Cristas)</option>
               </select>
             </div>
 
             {#if algorithmType === 'higher_order'}
-              <div class="higher-order-panel">
+              <div class="higher-order-panel experimental-section">
+                <div class="experimental-header">
+                  <h4>🧪 Laboratório de Derivadas de Ordem Superior</h4>
+                  <span class="badge-experimental">EXPERIMENTAL</span>
+                </div>
+                
+                <p class="experimental-desc">
+                  Cálculo analítico exato via fórmula de Faà di Bruno em espaço de Gabor:
+                  <code>D^(p,q) log C = D^(p,q) log A + i D^(p,q) ϕ</code>
+                </p>
+
                 <div class="input-control range-box">
                   <label>
                     Ordem Máxima (O): <span class="badge-order">O = {higherOrderO}</span>
-                    <input type="range" min="1" max="4" step="1" bind:value={higherOrderO} />
+                    <input type="range" min="1" max="4" step="1" bind:value={higherOrderO} oninput={() => onAdaptiveInteract()} />
                   </label>
                   <div class="order-description">
                     {#if higherOrderO === 1}
-                      <span>1ª Ordem: Gradientes Lineares (f_inst, t_reassign)</span>
+                      <span>1ª Ordem: Gradientes lineares analíticos (∇logA, ∇ϕ, f_inst, t_reass)</span>
                     {:else if higherOrderO === 2}
-                      <span>2ª Ordem: Hessiana, Curvatura, Autovalores (λ₁, λ₂), Cristas, Banda -3dB</span>
+                      <span>2ª Ordem: Tensor Hessiano H, Autovalores (λ₁, λ₂), Cristas e Anisotropia</span>
                     {:else if higherOrderO === 3}
                       <span>3ª Ordem: Aceleração de Chirp (ϕ_ttt) e Inflexões de Vibrato</span>
                     {:else}
@@ -995,20 +1153,31 @@
                 </div>
 
                 <div class="input-control">
-                  <label for="ho-mode-select">Modo Visual Analítico:</label>
-                  <select id="ho-mode-select" bind:value={higherOrderVisualMode}>
-                    <option value="ridge">Cristas & Orientação Direcional (Hessiana)</option>
-                    <option value="anisotropy">Anisotropia Espectral & Chirp Rate</option>
-                    <option value="curvature">Curvatura Principal λ₁ (Agudeza de Pico)</option>
-                    <option value="vector_reassign">Reatribuição Vetorial Curva (Splats)</option>
+                  <label for="ho-mode-select">Modo Visual Diferencial:</label>
+                  <select id="ho-mode-select" bind:value={higherOrderVisualMode} onchange={() => onAdaptiveInteract()}>
+                    <option value="ridge">🧭 Cristas & Orientação da Hessiana</option>
+                    <option value="anisotropy">🌀 Anisotropia Espectral & Chirp Rate</option>
+                    <option value="curvature">🏔️ Curvatura Principal λ₁ (Agudeza de Pico)</option>
+                    <option value="vector_reassign">🎯 Reatribuição Hiperbólica (Splats)</option>
                   </select>
+                </div>
+
+                <div class="probe-action-box">
+                  <button 
+                    class="probe-btn" 
+                    class:active={selectedTool === 'differential_probe'} 
+                    onclick={() => selectedTool = 'differential_probe'}
+                  >
+                    🔬 Ativar Sonda Diferencial de Ponto
+                  </button>
+                  <span class="probe-hint">Clique em qualquer ponto do espectrograma para inspecionar os tensores de 1ª a 4ª ordem.</span>
                 </div>
               </div>
             {/if}
             
             <div class="input-control">
               <label for="palette-select">Paleta:</label>
-              <select id="palette-select" bind:value={paletteType}>
+              <select id="palette-select" bind:value={paletteType} onchange={() => onAdaptiveInteract()}>
                 <option value="ycbcr">YCbCr Magnitude-Phase</option>
                 <option value="snake">Geodesic Snake (Térmica)</option>
               </select>
@@ -1016,7 +1185,7 @@
 
             <div class="input-control">
               <label for="scale-select">Escala Vertical:</label>
-              <select id="scale-select" bind:value={frequencyScale}>
+              <select id="scale-select" bind:value={frequencyScale} onchange={() => onAdaptiveInteract()}>
                 <option value="log">Logarítmica (CQT / Auditiva)</option>
                 <option value="linear">Linear (Física / STFT)</option>
               </select>
@@ -1024,7 +1193,7 @@
             
             <div class="input-control range-box">
               <label>Raio de Amostragem (CQT/Reassign): {pointRadius.toFixed(2)}
-                <input type="range" min="0.1" max="5.0" step="0.05" bind:value={pointRadius} />
+                <input type="range" min="0.1" max="5.0" step="0.05" bind:value={pointRadius} oninput={() => onAdaptiveInteract()} />
               </label>
             </div>
           </div>
@@ -2021,5 +2190,165 @@
     color: #93c5fd;
     margin-top: 0.25rem;
     line-height: 1.3;
+  }
+
+  /* Experimental Section Styling */
+  .experimental-section {
+    background: rgba(147, 51, 234, 0.08);
+    border: 1px solid rgba(168, 85, 247, 0.25);
+    border-radius: 8px;
+    padding: 0.75rem;
+    margin-top: 0.5rem;
+  }
+
+  .experimental-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.4rem;
+  }
+
+  .experimental-header h4 {
+    margin: 0;
+    color: #c084fc;
+    font-size: 0.8rem;
+    font-weight: 700;
+  }
+
+  .badge-experimental {
+    background: rgba(168, 85, 247, 0.2);
+    color: #e879f9;
+    border: 1px solid rgba(168, 85, 247, 0.4);
+    font-size: 0.6rem;
+    font-weight: 800;
+    padding: 0.15rem 0.35rem;
+    border-radius: 4px;
+    letter-spacing: 0.05em;
+  }
+
+  .experimental-desc {
+    font-size: 0.68rem;
+    color: #94a3b8;
+    line-height: 1.3;
+    margin-bottom: 0.6rem;
+  }
+
+  .experimental-desc code {
+    display: block;
+    margin-top: 0.25rem;
+    color: #38bdf8;
+    background: rgba(0, 0, 0, 0.3);
+    padding: 0.2rem 0.4rem;
+    border-radius: 3px;
+    font-family: monospace;
+    font-size: 0.65rem;
+  }
+
+  .probe-action-box {
+    margin-top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .probe-btn {
+    background: rgba(168, 85, 247, 0.15);
+    color: #e879f9;
+    border: 1px solid rgba(168, 85, 247, 0.35);
+    padding: 0.45rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .probe-btn:hover, .probe-btn.active {
+    background: rgba(168, 85, 247, 0.35);
+    border-color: #e879f9;
+    box-shadow: 0 0 8px rgba(168, 85, 247, 0.3);
+  }
+
+  .probe-hint {
+    font-size: 0.65rem;
+    color: #64748b;
+    line-height: 1.2;
+  }
+
+  /* Floating Probe Result HUD Card */
+  .probe-hud-card {
+    position: absolute;
+    width: 290px;
+    background: rgba(15, 23, 42, 0.95);
+    border: 1px solid rgba(168, 85, 247, 0.4);
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6), 0 0 12px rgba(168, 85, 247, 0.2);
+    border-radius: 8px;
+    z-index: 50;
+    user-select: none;
+    overflow: hidden;
+  }
+
+  .probe-header {
+    background: rgba(147, 51, 234, 0.2);
+    border-bottom: 1px solid rgba(168, 85, 247, 0.25);
+    padding: 0.4rem 0.6rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .probe-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #e879f9;
+  }
+
+  .probe-close-btn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+
+  .probe-close-btn:hover {
+    color: #fff;
+  }
+
+  .probe-body {
+    padding: 0.6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    font-size: 0.72rem;
+  }
+
+  .probe-row {
+    display: flex;
+    justify-content: space-between;
+    color: #94a3b8;
+  }
+
+  .probe-row.highlight {
+    color: #f8fafc;
+    font-weight: 600;
+  }
+
+  .probe-row .val {
+    color: #38bdf8;
+  }
+
+  .probe-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.08);
+    margin: 0.2rem 0;
+  }
+
+  .probe-section-title {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: #c084fc;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
 </style>

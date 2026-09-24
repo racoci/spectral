@@ -4842,6 +4842,13 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
 
 #[wasm_bindgen]
 pub struct WasmHigherOrderPointResult {
+    pub magnitude: f32,
+    pub phase: f32,
+    pub d_log_a_dt: f32,
+    pub d_log_a_dw: f32,
+    pub d_phi_dt: f32,
+    pub d_phi_dw: f32,
+    pub d2_phi_dt2: f32,
     pub freq_inst_hz: f32,
     pub time_reassigned_s: f32,
     pub hessian_det: f32,
@@ -4959,6 +4966,13 @@ pub fn wasm_analyze_higher_order_point(
     );
 
     WasmHigherOrderPointResult {
+        magnitude: d.magnitude,
+        phase: d.phase,
+        d_log_a_dt: d.d_log_a_dt,
+        d_log_a_dw: d.d_log_a_dw,
+        d_phi_dt: d.d_phi_dt,
+        d_phi_dw: d.d_phi_dw,
+        d2_phi_dt2: d.d2_phi_dt2,
         freq_inst_hz: d.freq_inst_hz,
         time_reassigned_s: d.time_reassigned_s,
         hessian_det: d.hessian_det,

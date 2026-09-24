@@ -14,7 +14,11 @@
     wasm_get_last_mirrored_density_histogram
   } from './wasm/core_wasm.js';
 
-  let currentHash = $state<string>(typeof window !== 'undefined' && window.location.hash ? window.location.hash : '#/converter');
+  let currentHash = $state<string>(
+    typeof window !== 'undefined' && window.location.hash && window.location.hash !== '#' && window.location.hash !== '#/'
+      ? window.location.hash
+      : '#/editor'
+  );
   let wasmLoaded = $state(false);
   
   // Globally preserved state
@@ -27,7 +31,7 @@
   let progressiveSessionId = 0;
   let refinementProgress = $state<number | null>(null);
   let mirroredDensity = $state<Float32Array | null>(null);
-  let currentView = $derived<'converter' | 'editor'>((currentHash === '#/editor' && (rgbaGrid || originalBytes)) ? 'editor' : 'converter');
+  let currentView = $derived<'converter' | 'editor'>(currentHash === '#/converter' ? 'converter' : 'editor');
 
   // Advanced DSP Configurations
   let windowType = $state<'hann' | 'hamming' | 'gaussian' | 'blackman-harris'>('hann');
@@ -68,7 +72,13 @@
   // Hash-based client router synchronized with Svelte 5 state
   function updateRoute() {
     if (typeof window !== 'undefined') {
-      currentHash = window.location.hash || '#/converter';
+      const hash = window.location.hash;
+      if (!hash || hash === '#' || hash === '#/') {
+        currentHash = '#/editor';
+        window.location.hash = '#/editor';
+      } else {
+        currentHash = hash;
+      }
     }
   }
 
@@ -561,6 +571,7 @@
     <!-- In editor view, the WebGlEditor fills 100% of the screen as a transparent overlay background -->
     <WebGlEditor 
       rgbaGrid={rgbaGrid} 
+      originalBytes={originalBytes}
       mirroredDensity={mirroredDensity}
       width={gridW} 
       height={gridH} 
