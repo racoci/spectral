@@ -566,6 +566,51 @@
   let minimapLastMouseY = 0;
   let lastMinimapThumbnailTime = 0;
 
+  // Fully reactive Svelte 5 derived style for the 2D Viewport Bounding Frustum Box
+  let frustumStyle = $derived.by(() => {
+    const logMin = Math.log2(20);
+    const logMax = Math.log2(20000);
+    const logSpan = logMax - logMin;
+
+    const left = Math.max(0, Math.min(98, viewStart * 100));
+    const right = Math.max(left + 2, Math.min(100, viewEnd * 100));
+    const width = Math.max(2, right - left);
+
+    const yBottomNorm = (Math.log2(Math.max(20, fmin)) - logMin) / logSpan;
+    const yTopNorm = (Math.log2(Math.min(20000, fmax)) - logMin) / logSpan;
+
+    const bottom = Math.max(0, Math.min(96, yBottomNorm * 100));
+    const top = Math.max(bottom + 4, Math.min(100, yTopNorm * 100));
+    const height = Math.max(4, top - bottom);
+
+    return `left: ${left.toFixed(1)}%; width: ${width.toFixed(1)}%; bottom: ${bottom.toFixed(1)}%; height: ${height.toFixed(1)}%;`;
+  });
+
+  function drawFallbackThumbnailFromGrid() {
+    if (!minimapCanvas || !rgbaGrid || width <= 0 || height <= 0) return;
+    const ctx = minimapCanvas.getContext('2d');
+    if (!ctx) return;
+    
+    const MW = 220;
+    const MH = 100;
+    const imgData = ctx.createImageData(MW, MH);
+    const data = imgData.data;
+    
+    for (let y = 0; y < MH; y++) {
+      const srcY = Math.floor((1.0 - y / MH) * height);
+      for (let x = 0; x < MW; x++) {
+        const srcX = Math.floor((x / MW) * width);
+        const srcIdx = (srcY * width + srcX) * 4;
+        const dstIdx = (y * MW + x) * 4;
+        data[dstIdx] = rgbaGrid[srcIdx];
+        data[dstIdx + 1] = rgbaGrid[srcIdx + 1];
+        data[dstIdx + 2] = rgbaGrid[srcIdx + 2];
+        data[dstIdx + 3] = 180;
+      }
+    }
+    ctx.putImageData(imgData, 0, 0);
+  }
+
   function updateMinimapThumbnail() {
     if (!minimapCanvas) return;
     const now = performance.now();
@@ -594,11 +639,14 @@
           const imgData = ctx.createImageData(MW, MH);
           imgData.data.set(thumbBytes);
           ctx.putImageData(imgData, 0, 0);
+          return;
         }
       }
     } catch (err) {
       console.warn("Minimap thumbnail generation fallback:", err);
     }
+
+    drawFallbackThumbnailFromGrid();
   }
 
   function handleMinimapMouseDown(e: MouseEvent) {
@@ -1209,26 +1257,16 @@
       ></canvas>
 
       <!-- Current Viewport Bounding Frustum Rect -->
-      {#if true}
-        {@const logMin = Math.log2(20)}
-        {@const logMax = Math.log2(20000)}
-        {@const logSpan = logMax - logMin}
-        {@const leftPct = Math.max(0, Math.min(100, viewStart * 100))}
-        {@const widthPct = Math.max(2, Math.min(100, (viewEnd - viewStart) * 100))}
-        {@const bottomPct = Math.max(0, Math.min(100, ((Math.log2(Math.max(20, fmin)) - logMin) / logSpan) * 100))}
-        {@const topPct = Math.max(0, Math.min(100, ((Math.log2(Math.min(20000, fmax)) - logMin) / logSpan) * 100))}
-        {@const heightPct = Math.max(4, Math.min(100, topPct - bottomPct))}
-
-        <div 
-          class="minimap-frustum"
-          style="left: {leftPct.toFixed(1)}%; width: {widthPct.toFixed(1)}%; bottom: {bottomPct.toFixed(1)}%; height: {heightPct.toFixed(1)}%;"
-        >
-          <div class="frustum-handle top-left"></div>
-          <div class="frustum-handle top-right"></div>
-          <div class="frustum-handle bottom-left"></div>
-          <div class="frustum-handle bottom-right"></div>
-        </div>
-      {/if}
+      <div 
+        class="minimap-frustum"
+        style={frustumStyle}
+      >
+        <div class="frustum-handle top-left"></div>
+        <div class="frustum-handle top-right"></div>
+        <div class="frustum-handle bottom-left"></div>
+        <div class="frustum-handle bottom-right"></div>
+        <div class="frustum-center-cross"></div>
+      </div>
 
       <!-- Minimap Playhead Indicator -->
       <div 
@@ -2649,27 +2687,43 @@
 
   .minimap-frustum {
     position: absolute;
-    border: 2px solid #38bdf8;
-    background: rgba(56, 189, 248, 0.18);
-    box-shadow: 0 0 8px rgba(56, 189, 248, 0.4), inset 0 0 8px rgba(56, 189, 248, 0.2);
+    border: 2px solid #38bdf8 !important;
+    background: rgba(56, 189, 248, 0.25) !important;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.7), inset 0 0 10px rgba(56, 189, 248, 0.3) !important;
     border-radius: 2px;
     cursor: move;
     pointer-events: none;
     box-sizing: border-box;
+    z-index: 20 !important;
+  }
+
+  .frustum-center-cross {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 8px;
+    height: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.8);
+    border-left: 1px solid rgba(255, 255, 255, 0.8);
+    pointer-events: none;
   }
 
   .frustum-handle {
     position: absolute;
-    width: 4px;
-    height: 4px;
-    background-color: #38bdf8;
+    width: 6px;
+    height: 6px;
+    background-color: #ffffff;
+    border: 1px solid #38bdf8;
     box-shadow: 0 0 4px #38bdf8;
+    border-radius: 1px;
+    z-index: 25;
   }
 
-  .frustum-handle.top-left { top: -2px; left: -2px; }
-  .frustum-handle.top-right { top: -2px; right: -2px; }
-  .frustum-handle.bottom-left { bottom: -2px; left: -2px; }
-  .frustum-handle.bottom-right { bottom: -2px; right: -2px; }
+  .frustum-handle.top-left { top: -3px; left: -3px; }
+  .frustum-handle.top-right { top: -3px; right: -3px; }
+  .frustum-handle.bottom-left { bottom: -3px; left: -3px; }
+  .frustum-handle.bottom-right { bottom: -3px; right: -3px; }
 
   .minimap-playhead {
     position: absolute;
