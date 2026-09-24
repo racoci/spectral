@@ -1,6 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { wasm_analyze_higher_order_point, type WasmHigherOrderPointResult } from '../wasm/core_wasm.js';
+  import { 
+    wasm_analyze_higher_order_point, 
+    type WasmHigherOrderPointResult,
+    wasm_render_from_cached_quadruplets,
+    wasm_has_cached_quadruplets
+  } from '../wasm/core_wasm.js';
 
   // Svelte 5 strict typing: Receive all reactive props from App.svelte
   let { 
@@ -555,6 +560,162 @@
   let texEnd = $state(1.0);
   let selScanDebounce: any = null;
 
+  let minimapCanvas: HTMLCanvasElement;
+  let isMinimapDragging = false;
+  let minimapLastMouseX = 0;
+  let minimapLastMouseY = 0;
+  let lastMinimapThumbnailTime = 0;
+
+  function updateMinimapThumbnail() {
+    if (!minimapCanvas) return;
+    const now = performance.now();
+    if (now - lastMinimapThumbnailTime < 80) return;
+    lastMinimapThumbnailTime = now;
+
+    const ctx = minimapCanvas.getContext('2d');
+    if (!ctx) return;
+
+    const MW = 220;
+    const MH = 100;
+
+    try {
+      if (wasm_has_cached_quadruplets()) {
+        const thumbBytes = wasm_render_from_cached_quadruplets(
+          MW,
+          MH,
+          0.0,
+          1.0,
+          20.0,
+          20000.0,
+          1.0,
+          paletteType
+        );
+        if (thumbBytes && thumbBytes.length === MW * MH * 4) {
+          const imgData = ctx.createImageData(MW, MH);
+          imgData.data.set(thumbBytes);
+          ctx.putImageData(imgData, 0, 0);
+        }
+      }
+    } catch (err) {
+      console.warn("Minimap thumbnail generation fallback:", err);
+    }
+  }
+
+  function handleMinimapMouseDown(e: MouseEvent) {
+    e.stopPropagation();
+    isMinimapDragging = true;
+    minimapLastMouseX = e.clientX;
+    minimapLastMouseY = e.clientY;
+
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const clickXRatio = (e.clientX - rect.left) / rect.width;
+    const clickYRatio = 1.0 - (e.clientY - rect.top) / rect.height;
+
+    const currentTSpan = viewEnd - viewStart;
+    const logMin = Math.log2(20);
+    const logMax = Math.log2(20000);
+    const logTotalSpan = logMax - logMin;
+    const currentLogSpan = Math.log2(fmax / Math.max(1, fmin));
+
+    const currentYMin = (Math.log2(Math.max(20, fmin)) - logMin) / logTotalSpan;
+    const currentYMax = (Math.log2(Math.min(20000, fmax)) - logMin) / logTotalSpan;
+
+    const isInsideX = clickXRatio >= viewStart && clickXRatio <= viewEnd;
+    const isInsideY = clickYRatio >= currentYMin && clickYRatio <= currentYMax;
+
+    if (!isInsideX || !isInsideY) {
+      let newStart = clickXRatio - currentTSpan / 2;
+      let newEnd = clickXRatio + currentTSpan / 2;
+      if (newStart < 0.0) {
+        newEnd = Math.min(1.0, newEnd - newStart);
+        newStart = 0.0;
+      }
+      if (newEnd > 1.0) {
+        newStart = Math.max(0.0, newStart - (newEnd - 1.0));
+        newEnd = 1.0;
+      }
+      viewStart = newStart;
+      viewEnd = newEnd;
+
+      const targetCenterLogF = logMin + clickYRatio * logTotalSpan;
+      let newLogMin = targetCenterLogF - currentLogSpan / 2;
+      let newLogMax = targetCenterLogF + currentLogSpan / 2;
+      if (newLogMin < logMin) {
+        newLogMin = logMin;
+        newLogMax = newLogMin + currentLogSpan;
+      }
+      if (newLogMax > logMax) {
+        newLogMax = logMax;
+        newLogMin = Math.max(logMin, newLogMax - currentLogSpan);
+      }
+      fmin = Math.round(Math.pow(2, newLogMin));
+      fmax = Math.round(Math.pow(2, newLogMax));
+
+      onAdaptiveInteract();
+    }
+  }
+
+  function handleMinimapMouseMove(e: MouseEvent) {
+    if (!isMinimapDragging) return;
+    const deltaX = e.clientX - minimapLastMouseX;
+    const deltaY = e.clientY - minimapLastMouseY;
+    minimapLastMouseX = e.clientX;
+    minimapLastMouseY = e.clientY;
+
+    const MINIMAP_WIDTH = 220;
+    const MINIMAP_HEIGHT = 100;
+
+    const tDelta = (deltaX / MINIMAP_WIDTH);
+    const currentSpan = viewEnd - viewStart;
+    let newStart = viewStart + tDelta;
+    let newEnd = viewEnd + tDelta;
+    if (newStart < 0.0) {
+      newStart = 0.0;
+      newEnd = currentSpan;
+    }
+    if (newEnd > 1.0) {
+      newEnd = 1.0;
+      newStart = 1.0 - currentSpan;
+    }
+    viewStart = newStart;
+    viewEnd = newEnd;
+
+    const logMin = Math.log2(20);
+    const logMax = Math.log2(20000);
+    const logTotalSpan = logMax - logMin;
+    const currentLogSpan = Math.log2(fmax / Math.max(1, fmin));
+    const logDelta = (-deltaY / MINIMAP_HEIGHT) * logTotalSpan;
+
+    let newLogMin = Math.log2(Math.max(20, fmin)) + logDelta;
+    let newLogMax = newLogMin + currentLogSpan;
+
+    if (newLogMin < logMin) {
+      newLogMin = logMin;
+      newLogMax = newLogMin + currentLogSpan;
+    }
+    if (newLogMax > logMax) {
+      newLogMax = logMax;
+      newLogMin = Math.max(logMin, newLogMax - currentLogSpan);
+    }
+
+    fmin = Math.round(Math.pow(2, newLogMin));
+    fmax = Math.round(Math.pow(2, newLogMax));
+
+    onAdaptiveInteract();
+  }
+
+  function handleMinimapMouseUp() {
+    isMinimapDragging = false;
+  }
+
+  function resetFullOverview() {
+    viewStart = 0.0;
+    viewEnd = 1.0;
+    fmin = 20;
+    fmax = 20000;
+    onAdaptiveInteract();
+  }
+
   // Whenever a newly generated texture is passed from WASM, record its exact window
   $effect(() => {
     const _grid = rgbaGrid;
@@ -562,6 +723,7 @@
       texStart = viewStart;
       texEnd = viewEnd;
       render();
+      updateMinimapThumbnail();
     }
   });
 
@@ -703,11 +865,15 @@
     handleMouseUp();
     handleTimelineMouseUp();
     handleFreqMouseUp();
+    handleMinimapMouseUp();
   }
 
   function handleGlobalMouseMove(e: MouseEvent) {
     if (isFreqDragging) {
       handleFreqMouseMove(e);
+    }
+    if (isMinimapDragging) {
+      handleMinimapMouseMove(e);
     }
   }
 
@@ -1016,6 +1182,69 @@
         </div>
       </div>
     {/if}
+  </div>
+
+  <!-- 2D Spectrogram Minimap & Frustum Overview -->
+  <div 
+    class="minimap-container" 
+    style="right: {rightDockExpanded ? '19.25rem' : '1.25rem'};"
+    title="Mini-Mapa 2D: Mostra o espectrograma completo, o nível de zoom atual e o corte de frequências. Arraste para mover o visor ou duplo-clique para resetar."
+  >
+    <div class="minimap-header">
+      <span class="minimap-title">🗺️ Visão Global (20Hz - 20kHz)</span>
+      <span class="minimap-zoom-badge font-mono">{(1.0 / Math.max(0.001, viewEnd - viewStart)).toFixed(1)}x</span>
+    </div>
+
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div 
+      class="minimap-viewport-box"
+      onmousedown={handleMinimapMouseDown}
+      ondblclick={resetFullOverview}
+    >
+      <canvas 
+        bind:this={minimapCanvas} 
+        width="220" 
+        height="100" 
+        class="minimap-canvas"
+      ></canvas>
+
+      <!-- Current Viewport Bounding Frustum Rect -->
+      {#if true}
+        {@const logMin = Math.log2(20)}
+        {@const logMax = Math.log2(20000)}
+        {@const logSpan = logMax - logMin}
+        {@const leftPct = Math.max(0, Math.min(100, viewStart * 100))}
+        {@const widthPct = Math.max(2, Math.min(100, (viewEnd - viewStart) * 100))}
+        {@const bottomPct = Math.max(0, Math.min(100, ((Math.log2(Math.max(20, fmin)) - logMin) / logSpan) * 100))}
+        {@const topPct = Math.max(0, Math.min(100, ((Math.log2(Math.min(20000, fmax)) - logMin) / logSpan) * 100))}
+        {@const heightPct = Math.max(4, Math.min(100, topPct - bottomPct))}
+
+        <div 
+          class="minimap-frustum"
+          style="left: {leftPct.toFixed(1)}%; width: {widthPct.toFixed(1)}%; bottom: {bottomPct.toFixed(1)}%; height: {heightPct.toFixed(1)}%;"
+        >
+          <div class="frustum-handle top-left"></div>
+          <div class="frustum-handle top-right"></div>
+          <div class="frustum-handle bottom-left"></div>
+          <div class="frustum-handle bottom-right"></div>
+        </div>
+      {/if}
+
+      <!-- Minimap Playhead Indicator -->
+      <div 
+        class="minimap-playhead" 
+        style="left: {(playbackProgress * 100).toFixed(2)}%;"
+      ></div>
+    </div>
+
+    <div class="minimap-footer">
+      <span class="freq-cutoff font-mono">
+        Y: {fmin >= 1000 ? (fmin/1000).toFixed(1)+'k' : fmin} — {fmax >= 1000 ? (fmax/1000).toFixed(1)+'k' : fmax} Hz
+      </span>
+      <button class="minimap-reset-btn" onclick={resetFullOverview} title="Resetar para visão global">
+        ↺ Reset
+      </button>
+    </div>
   </div>
 
   <!-- Top Floating Toolbar -->
@@ -2350,5 +2579,137 @@
     color: #c084fc;
     letter-spacing: 0.04em;
     text-transform: uppercase;
+  }
+
+  /* 2D Spectrogram Minimap & Frustum Overview */
+  .minimap-container {
+    position: absolute !important;
+    bottom: 8.5rem;
+    width: 236px;
+    background: rgba(15, 23, 42, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    z-index: 28;
+    user-select: none;
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    transition: right 0.3s ease-in-out;
+  }
+
+  .minimap-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 0.2rem;
+  }
+
+  .minimap-title {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: #94a3b8;
+    letter-spacing: 0.04em;
+  }
+
+  .minimap-zoom-badge {
+    background: rgba(56, 189, 248, 0.18);
+    color: #38bdf8;
+    border: 1px solid rgba(56, 189, 248, 0.35);
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+    font-size: 0.65rem;
+    font-weight: 800;
+  }
+
+  .minimap-viewport-box {
+    position: relative;
+    width: 220px;
+    height: 100px;
+    background: rgba(0, 0, 0, 0.6);
+    border-radius: 4px;
+    overflow: hidden;
+    cursor: crosshair;
+    margin: 0 auto;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .minimap-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    opacity: 0.75;
+    transition: opacity 0.2s ease;
+  }
+
+  .minimap-viewport-box:hover .minimap-canvas {
+    opacity: 0.95;
+  }
+
+  .minimap-frustum {
+    position: absolute;
+    border: 2px solid #38bdf8;
+    background: rgba(56, 189, 248, 0.18);
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.4), inset 0 0 8px rgba(56, 189, 248, 0.2);
+    border-radius: 2px;
+    cursor: move;
+    pointer-events: none;
+    box-sizing: border-box;
+  }
+
+  .frustum-handle {
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    background-color: #38bdf8;
+    box-shadow: 0 0 4px #38bdf8;
+  }
+
+  .frustum-handle.top-left { top: -2px; left: -2px; }
+  .frustum-handle.top-right { top: -2px; right: -2px; }
+  .frustum-handle.bottom-left { bottom: -2px; left: -2px; }
+  .frustum-handle.bottom-right { bottom: -2px; right: -2px; }
+
+  .minimap-playhead {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #10b981;
+    box-shadow: 0 0 6px #10b981;
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  .minimap-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 0.2rem;
+  }
+
+  .freq-cutoff {
+    font-size: 0.65rem;
+    color: #38bdf8;
+    font-weight: 600;
+  }
+
+  .minimap-reset-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #94a3b8;
+    font-size: 0.65rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s;
+  }
+
+  .minimap-reset-btn:hover {
+    background: rgba(56, 189, 248, 0.2);
+    color: #38bdf8;
+    border-color: #38bdf8;
   }
 </style>
