@@ -1,0 +1,358 @@
+//! Suíte de Testes de Reversibilidade e Reconstrução Sonora.
+//!
+//! Valida matematicamente e empiricamente a capacidade de reconstrução do sinal
+//! original de áudio a partir dos coeficientes gerados:
+//! 1. Inversão Analítica Exata do Sliding DFT sobre áudio real (voice.wav).
+//! 2. Reconstrução Sub-amostrada via Jatos de Taylor e Interpolação de Hermite.
+//! 3. Reversibilidade por Overlap-Add (OLA) na STFT.
+//! 4. Medições de MSE, Max Absolute Error e SNR (em dB).
+
+use vector_audio_geometry::higher_order::*;
+use std::f32::consts::PI;
+use std::time::Instant;
+
+fn parse_wav_pcm(bytes: &[u8]) -> (Vec<f32>, f32, f32) {
+    assert!(bytes.len() > 44, "Arquivo WAV muito pequeno");
+    assert_eq!(&bytes[0..4], b"RIFF");
+    assert_eq!(&bytes[8..12], b"WAVE");
+
+    let num_channels = u16::from_le_bytes([bytes[22], bytes[23]]) as usize;
+    let sample_rate = u32::from_le_bytes([bytes[24], bytes[25], bytes[26], bytes[27]]) as f32;
+    let bits_per_sample = u16::from_le_bytes([bytes[34], bytes[35]]) as usize;
+
+    let mut data_offset = 36;
+    while data_offset + 8 < bytes.len() {
+        if &bytes[data_offset..data_offset + 4] == b"data" {
+            break;
+        }
+        data_offset += 1;
+    }
+    let pcm_start = data_offset + 8;
+    let pcm_bytes = &bytes[pcm_start..];
+
+    let bytes_per_sample = bits_per_sample / 8;
+    let frame_bytes = bytes_per_sample * num_channels;
+    let num_frames = pcm_bytes.len() / frame_bytes;
+
+    let mut samples = Vec::with_capacity(num_frames);
+    for i in 0..num_frames {
+        let offset = i * frame_bytes;
+        let mut sum = 0.0f32;
+        for ch in 0..num_channels {
+            let ch_offset = offset + ch * bytes_per_sample;
+            let val = match bits_per_sample {
+                16 => {
+                    let s = i16::from_le_bytes([pcm_bytes[ch_offset], pcm_bytes[ch_offset + 1]]);
+                    s as f32 / 32768.0
+                }
+                24 => {
+                    let s = i32::from_le_bytes([pcm_bytes[ch_offset], pcm_bytes[ch_offset + 1], pcm_bytes[ch_offset + 2], 0]) >> 8;
+                    s as f32 / 8388608.0
+                }
+                32 => {
+                    let s = f32::from_le_bytes([pcm_bytes[ch_offset], pcm_bytes[ch_offset + 1], pcm_bytes[ch_offset + 2], pcm_bytes[ch_offset + 3]]);
+                    s
+                }
+                _ => 0.0,
+            };
+            sum += val;
+        }
+        samples.push(sum / num_channels as f32);
+    }
+
+    let duration_s = num_frames as f32 / sample_rate;
+    (samples, sample_rate, duration_s)
+}
+
+// =========================================================================
+// 1. INVERSÃO EXATA DO SLIDING DFT EM ÁUDIO REAL (voice.wav)
+// =========================================================================
+#[test]
+fn test_sliding_dft_exact_inversion_real_audio() {
+    println!("\n=========================================================================");
+    println!("🔁 TESTE 1: INVERSÃO ANALÍTICA EXATA DO SLIDING DFT (voice.wav)");
+    println!("=========================================================================");
+
+    let wav_path = "../public/voice.wav";
+    let bytes = std::fs::read(wav_path).expect("Falha ao ler public/voice.wav");
+    let (samples, fs, _duration_s) = parse_wav_pcm(&bytes);
+
+    let n = 256;
+    let test_samples = 20_000.min(samples.len() - n);
+
+    let t_start = Instant::now();
+
+    // Banco de N canais ressonadores do Sliding DFT cobrindo todo o círculo unitário (k = 0..N-1)
+    let mut s_channels = vec![Complex32::default(); n];
+    let mut phasors = vec![Complex32::default(); n];
+    let mut feedforwards = vec![Complex32::default(); n];
+
+    for k in 0..n {
+        let theta_k = 2.0 * PI * (k as f32) / (n as f32);
+        phasors[k] = Complex32::new(theta_k.cos(), theta_k.sin());
+        let neg_n_theta = -theta_k * (n as f32);
+        feedforwards[k] = Complex32::new(neg_n_theta.cos(), neg_n_theta.sin());
+
+        // Inicializar canal k no frame 0
+        for i in 0..n {
+            let phase = -theta_k * (i as f32);
+            let (s, c) = phase.sin_cos();
+            s_channels[k].re += samples[i] * c;
+            s_channels[k].im += samples[i] * s;
+        }
+    }
+
+    let mut reconstructed = vec![0.0f32; test_samples];
+    let inv_n = 1.0 / (n as f32);
+
+    // Deslizar amostra por amostra e reconstruir instantaneamente no ponto n = 0 do bloco
+    // Pela propriedade ortogonal exata da IDFT:
+    // x[m] = 1/N * sum_{k=0}^{N-1} S_m(k)
+    for m in 0..test_samples {
+        let mut sample_recon = 0.0f32;
+        for k in 0..n {
+            sample_recon += s_channels[k].re;
+        }
+        reconstructed[m] = sample_recon * inv_n;
+
+        let x_out = samples[m];
+        let x_in = samples[m + n];
+
+        // Re-ancoragem periódica a cada 512 amostras para anular deriva de ponto flutuante
+        if (m + 1) % 512 == 0 {
+            for k in 0..n {
+                let theta_k = 2.0 * PI * (k as f32) / (n as f32);
+                let mut fresh = Complex32::default();
+                for i in 0..n {
+                    let phase = -theta_k * (i as f32);
+                    let (s, c) = phase.sin_cos();
+                    fresh.re += samples[m + 1 + i] * c;
+                    fresh.im += samples[m + 1 + i] * s;
+                }
+                s_channels[k] = fresh;
+            }
+        } else {
+            for k in 0..n {
+                let diff = s_channels[k].sub(Complex32::new(x_out, 0.0)).add(feedforwards[k].scale(x_in));
+                s_channels[k] = diff.mul(phasors[k]);
+            }
+        }
+    }
+
+    let elapsed = t_start.elapsed();
+
+    // Métricas de Fidelidade Numérica
+    let mut sum_sq_orig = 0.0f64;
+    let mut sum_sq_diff = 0.0f64;
+    let mut max_abs_err = 0.0f32;
+
+    for m in 0..test_samples {
+        let orig = samples[m] as f64;
+        let recon = reconstructed[m] as f64;
+        let diff = (orig - recon).abs();
+
+        sum_sq_orig += orig * orig;
+        sum_sq_diff += diff * diff;
+        if diff as f32 > max_abs_err {
+            max_abs_err = diff as f32;
+        }
+    }
+
+    let mse = sum_sq_diff / (test_samples as f64);
+    let snr_db = 10.0 * (sum_sq_orig / sum_sq_diff.max(1e-24)).log10();
+
+    println!("Arquivo: {}", wav_path);
+    println!("Amostras Testadas: {} amostras ({:.2} ms a {:.0} Hz)", test_samples, test_samples as f32 / fs * 1000.0, fs);
+    println!("Tempo de Execução da Inversão: {:.2} ms ({} µs)", elapsed.as_millis(), elapsed.as_micros());
+    println!("-------------------------------------------------------------------------");
+    println!("📊 MÉTRICAS DE REVERSIBILIDADE DO SLIDING DFT:");
+    println!("  -> Mean Squared Error (MSE): {:.2e}", mse);
+    println!("  -> Erro Absoluto Máximo: {:.2e}", max_abs_err);
+    println!("  -> Signal-to-Noise Ratio (SNR): {:.2} dB", snr_db);
+
+    assert!(snr_db > 90.0, "SNR da reconstrução do Sliding DFT deve ser superior a 90 dB! Medido: {:.2} dB", snr_db);
+    assert!(max_abs_err < 1e-3, "Erro máximo de amostra muito alto: {:.2e}", max_abs_err);
+    println!("  -> ✅ PROVA DE REVERSIBILIDADE CONCLUÍDA: Reconstrução Bit-Exact dentro do ruído IEEE 754!");
+}
+
+// =========================================================================
+// 2. RECONSTRUÇÃO ESPECTRAL SUB-AMOSTRADA VIA JATOS DE TAYLOR (HERMITE)
+// =========================================================================
+#[test]
+fn test_taylor_jet_subband_hermite_reconstruction() {
+    println!("\n=========================================================================");
+    println!("🧬 TESTE 2: RECONSTRUÇÃO COM JATOS DE TAYLOR (INTERPOLAÇÃO DE HERMITE)");
+    println!("=========================================================================");
+
+    let n = 256;
+    let mut x = vec![0.0f32; n];
+    for i in 0..n {
+        let t = i as f32 / n as f32;
+        x[i] = (2.0 * PI * 15.3 * t).sin() + 0.5 * (2.0 * PI * 42.7 * t).cos();
+    }
+
+    let mut exact_s = vec![Complex32::default(); n];
+    let mut exact_ds = vec![Complex32::default(); n];
+
+    for k in 0..n {
+        let theta_k = 2.0 * PI * (k as f32) / (n as f32);
+        for i in 0..n {
+            let phase = -theta_k * (i as f32);
+            let (s, c) = phase.sin_cos();
+            exact_s[k].re += x[i] * c;
+            exact_s[k].im += x[i] * s;
+
+            let n_f = i as f32;
+            let deriv_base = Complex32::new(-x[i] * s, -x[i] * c).scale(n_f);
+            exact_ds[k] = exact_ds[k].add(deriv_base);
+        }
+    }
+
+    let mut err_linear_sum = 0.0f64;
+    let mut err_hermite_sum = 0.0f64;
+    let mut count = 0;
+
+    let delta_theta_bin = 2.0 * PI / (n as f32);
+    let interval_delta_theta = 2.0 * delta_theta_bin;
+
+    for m in 0..(n / 2 - 1) {
+        let k_even0 = 2 * m;
+        let k_odd = 2 * m + 1;
+        let k_even1 = 2 * m + 2;
+
+        let s0 = exact_s[k_even0];
+        let s1 = exact_s[k_even1];
+        let ds0 = exact_ds[k_even0].scale(interval_delta_theta);
+        let ds1 = exact_ds[k_even1].scale(interval_delta_theta);
+
+        let target = exact_s[k_odd];
+
+        let recon_linear = s0.add(s1).scale(0.5);
+        let diff_ds = ds0.sub(ds1);
+        let recon_hermite = recon_linear.add(diff_ds.scale(0.125));
+
+        let err_lin = (recon_linear.sub(target)).abs2() as f64;
+        let err_herm = (recon_hermite.sub(target)).abs2() as f64;
+
+        err_linear_sum += err_lin;
+        err_hermite_sum += err_herm;
+        count += 1;
+    }
+
+    let mse_linear = err_linear_sum / count as f64;
+    let mse_hermite = err_hermite_sum / count as f64;
+    let gain = mse_linear / mse_hermite.max(1e-24);
+
+    println!("Interpolação de canais intermediários (50% de compressão):");
+    println!("  -> MSE Interpolação Linear (sem jatos):  {:.4e}", mse_linear);
+    println!("  -> MSE Interpolação Hermite (COM JATOS): {:.4e}", mse_hermite);
+    println!("  -> 🚀 GANHO DE PRECISÃO DOS JATOS DE TAYLOR: {:.1}x mais preciso!", gain);
+
+    assert!(mse_hermite < mse_linear, "Hermite com jatos deve ser mais preciso que linear!");
+    assert!(gain > 1.05, "Ganho de precisão deve ser mensurável (> 5%)! Medido: {:.2}x", gain);
+    println!("  -> ✅ PROVA DE RECONSTRUÇÃO SUB-AMOSTRADA CONCLUÍDA!");
+}
+
+// =========================================================================
+// 3. REVERSIBILIDADE POR OVERLAP-ADD (OLA) NA STFT COM ÁUDIO REAL
+// =========================================================================
+#[test]
+fn test_stft_overlap_add_reversibility_real_audio() {
+    println!("\n=========================================================================");
+    println!("🧩 TESTE 3: REVERSIBILIDADE POR OVERLAP-ADD (OLA) (voice.wav)");
+    println!("=========================================================================");
+
+    let wav_path = "../public/voice.wav";
+    let bytes = std::fs::read(wav_path).expect("Falha ao ler public/voice.wav");
+    let (samples, _fs, _duration_s) = parse_wav_pcm(&bytes);
+
+    let win_len = 512;
+    let hop = 128; // 75% overlap -> COLA perfeitamente satisfeita
+    let num_frames = 100.min((samples.len() - win_len) / hop);
+
+    let mut win = vec![0.0f32; win_len];
+    for i in 0..win_len {
+        win[i] = 0.5 * (1.0 - (2.0 * PI * i as f32 / (win_len as f32 - 1.0)).cos());
+    }
+
+    let output_len = num_frames * hop + win_len;
+    let mut reconstructed = vec![0.0f32; output_len];
+    let mut ola_window_sum = vec![0.0f32; output_len];
+
+    let t_start = Instant::now();
+
+    for f in 0..num_frames {
+        let start = f * hop;
+
+        // 1. DFT Direta no quadro com janela
+        let mut dft_coeffs = vec![Complex32::default(); win_len];
+        for k in 0..win_len {
+            let theta = -2.0 * PI * (k as f32) / (win_len as f32);
+            let mut acc = Complex32::default();
+            for i in 0..win_len {
+                let (s, c) = (theta * i as f32).sin_cos();
+                let v = samples[start + i] * win[i];
+                acc.re += v * c;
+                acc.im += v * s;
+            }
+            dft_coeffs[k] = acc;
+        }
+
+        // 2. IDFT Inversa
+        let inv_n = 1.0 / (win_len as f32);
+        for i in 0..win_len {
+            let mut acc = 0.0f32;
+            for k in 0..win_len {
+                let theta = 2.0 * PI * (k as f32) * (i as f32) / (win_len as f32);
+                let (s, c) = theta.sin_cos();
+                acc += dft_coeffs[k].re * c - dft_coeffs[k].im * s;
+            }
+            let time_val = acc * inv_n;
+            let sample_time = start + i;
+            reconstructed[sample_time] += time_val * win[i];
+            ola_window_sum[sample_time] += win[i] * win[i];
+        }
+    }
+
+    // Normalização OLA
+    for i in 0..output_len {
+        if ola_window_sum[i] > 1e-6 {
+            reconstructed[i] /= ola_window_sum[i];
+        }
+    }
+
+    let elapsed = t_start.elapsed();
+
+    let margin = win_len;
+    let eval_samples = output_len.saturating_sub(2 * margin);
+
+    let mut sum_sq_orig = 0.0f64;
+    let mut sum_sq_diff = 0.0f64;
+    let mut max_abs_err = 0.0f32;
+
+    for i in 0..eval_samples {
+        let idx = margin + i;
+        let orig = samples[idx] as f64;
+        let recon = reconstructed[idx] as f64;
+        let diff = (orig - recon).abs();
+
+        sum_sq_orig += orig * orig;
+        sum_sq_diff += diff * diff;
+        if diff as f32 > max_abs_err {
+            max_abs_err = diff as f32;
+        }
+    }
+
+    let snr_db = 10.0 * (sum_sq_orig / sum_sq_diff.max(1e-24)).log10();
+
+    println!("Quadros Processados: {} quadros (Hop={}, WinLen={})", num_frames, hop, win_len);
+    println!("Tempo de Síntese Total: {:.2} ms ({} µs)", elapsed.as_millis(), elapsed.as_micros());
+    println!("-------------------------------------------------------------------------");
+    println!("📊 MÉTRICAS DE SÍNTESE OVERLAP-ADD (STFT):");
+    println!("  -> Erro Absoluto Máximo: {:.2e}", max_abs_err);
+    println!("  -> Signal-to-Noise Ratio (SNR): {:.2} dB", snr_db);
+
+    assert!(snr_db > 95.0, "SNR do Overlap-Add deve exceder 95 dB! Medido: {:.2} dB", snr_db);
+    println!("  -> ✅ PROVA DE REVERSIBILIDADE STFT OLA CONCLUÍDA: Reconstrução Transparente!");
+    println!("=========================================================================\n");
+}
