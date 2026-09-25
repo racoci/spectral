@@ -10,7 +10,6 @@
 use crate::geometry::Spline2;
 use crate::phasegrad::Grad;
 use crate::spline_fit::{fit_c2, sample_uniform};
-use crate::geometry::Point2;
 
 #[derive(Clone, Copy, Debug)]
 pub struct TrackingConfig {
