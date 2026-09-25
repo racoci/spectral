@@ -39,7 +39,7 @@
   let zeroPadding = $state<number>(2);
   let fmin = $state<number>(20);
   let fmax = $state<number>(20000);
-  let algorithmType = $state<'reassignment' | 'log' | 'cqt' | 'higher_order'>('reassignment');
+  let algorithmType = $state<'reassignment' | 'log' | 'cqt' | 'higher_order' | 'sliding_jet'>('reassignment');
   let higherOrderO = $state<number>(2);
   let higherOrderVisualMode = $state<'ridge' | 'anisotropy' | 'curvature' | 'vector_reassign'>('ridge');
   let paletteType = $state<'ycbcr' | 'snake'>('ycbcr');
@@ -211,8 +211,8 @@
       const t0 = performance.now();
       currentQualityLod = lod;
       
-      const effectiveAlgo = algorithmType === 'higher_order'
-        ? `higher_order:${higherOrderO}:${higherOrderVisualMode}`
+      const effectiveAlgo = (algorithmType === 'higher_order' || algorithmType === 'sliding_jet')
+        ? `${algorithmType}:${higherOrderO}:${higherOrderVisualMode}`
         : algorithmType;
 
       // If LOD 1 (Draft Mode): instant single-shot 1.5ms computation!

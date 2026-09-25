@@ -3369,6 +3369,8 @@ pub struct WasmSpectrogramStreamer {
     higher_order_labels: Vec<(usize, usize)>,
     higher_order_buffers: Vec<Vec<rustfft::num_complex::Complex<f32>>>,
     higher_order_rgb_grid: Vec<u8>,
+    is_sliding_jet: bool,
+    sliding_jet_channels: Vec<crate::analysis::higher_order::SlidingJetDftChannel>,
 }
 
 #[wasm_bindgen]
@@ -3497,8 +3499,9 @@ impl WasmSpectrogramStreamer {
         let buffer_h_th = vec![rustfft::num_complex::Complex::<f32>::new(0.0, 0.0); n_stft];
         let buffer_dh = vec![rustfft::num_complex::Complex::<f32>::new(0.0, 0.0); n_stft];
 
+        let is_sliding_jet = algorithm_type.starts_with("sliding_jet");
         let (is_higher_order, higher_order_o, higher_order_mode) = {
-            if algorithm_type.starts_with("higher_order") {
+            if algorithm_type.starts_with("higher_order") || algorithm_type.starts_with("sliding_jet") {
                 let parts: Vec<&str> = algorithm_type.split(':').collect();
                 let o = if parts.len() > 1 { parts[1].parse::<usize>().unwrap_or(2).clamp(1, 4) } else { 2 };
                 let m = if parts.len() > 2 {
@@ -3520,7 +3523,7 @@ impl WasmSpectrogramStreamer {
 
         let mut higher_order_windows = Vec::new();
         let mut higher_order_labels = Vec::new();
-        if is_higher_order {
+        if is_higher_order && !is_sliding_jet {
             let sigma_ho = 0.4 * half_win / fs;
             for p in 0..=higher_order_o {
                 for q in 0..=(higher_order_o - p) {
@@ -3535,11 +3538,25 @@ impl WasmSpectrogramStreamer {
         for _ in 0..num_ho_pairs {
             higher_order_buffers.push(vec![rustfft::num_complex::Complex::new(0.0, 0.0); n_stft]);
         }
-        let higher_order_rgb_grid = if is_higher_order {
+        let higher_order_rgb_grid = if is_higher_order || is_sliding_jet {
             vec![0u8; grid_size * 4]
         } else {
             Vec::new()
         };
+
+        let mut sliding_jet_channels = Vec::new();
+        if is_sliding_jet {
+            let sj_n = win_len.min(512);
+            for j in 0..h {
+                let fc = fc_lut[j];
+                let theta_0 = 2.0 * std::f32::consts::PI * fc / fs;
+                let mut ch = crate::analysis::higher_order::SlidingJetDftChannel::new(sj_n, theta_0, higher_order_o, 0.99999);
+                if mid_channel.len() >= sj_n {
+                    ch.init(&mid_channel[0..sj_n]);
+                }
+                sliding_jet_channels.push(ch);
+            }
+        }
 
         WasmSpectrogramStreamer {
             w,
@@ -3581,6 +3598,8 @@ impl WasmSpectrogramStreamer {
             higher_order_labels,
             higher_order_buffers,
             higher_order_rgb_grid,
+            is_sliding_jet,
+            sliding_jet_channels,
         }
     }
 
@@ -3616,7 +3635,62 @@ impl WasmSpectrogramStreamer {
             return Vec::new();
         }
 
-        if self.is_higher_order {
+        if self.is_sliding_jet {
+            let sj_n = self.win_len.min(512);
+            let sigma_s = 0.4 * (sj_n as f32 * 0.5) / self.fs;
+
+            let mut current_m = if c_start == 0 {
+                if sj_n <= self.sliced_samples {
+                    for j in 0..self.h {
+                        self.sliding_jet_channels[j].init(&self.mid_channel[0..sj_n]);
+                    }
+                }
+                0
+            } else {
+                c_start * self.hop
+            };
+
+            for c in c_start..c_end {
+                let target_m = c * self.hop;
+                let t_c = target_m as f32 / self.fs;
+
+                if target_m > current_m && target_m + sj_n <= self.sliced_samples {
+                    if target_m - current_m <= self.hop * 2 && target_m - current_m < sj_n {
+                        for m in current_m..target_m {
+                            let x_out = self.mid_channel[m];
+                            let x_in = self.mid_channel[m + sj_n];
+                            for j in 0..self.h {
+                                self.sliding_jet_channels[j].update(x_out, x_in);
+                            }
+                        }
+                    } else {
+                        for j in 0..self.h {
+                            self.sliding_jet_channels[j].init(&self.mid_channel[target_m..target_m + sj_n]);
+                        }
+                    }
+                    current_m = target_m;
+                }
+
+                for j in 0..self.h {
+                    let fc = self.fc_lut[j];
+                    let ch = &self.sliding_jet_channels[j];
+                    let derivs = ch.extract_derivatives(sigma_s, fc, t_c, self.fs);
+
+                    let (r, g, b) = colorize_higher_order_point(
+                        &derivs,
+                        self.higher_order_mode,
+                        &self.palette_type,
+                        &self.snake_palette,
+                    );
+
+                    let grid_idx = j * self.w + c;
+                    self.higher_order_rgb_grid[grid_idx * 4] = r;
+                    self.higher_order_rgb_grid[grid_idx * 4 + 1] = g;
+                    self.higher_order_rgb_grid[grid_idx * 4 + 2] = b;
+                    self.higher_order_rgb_grid[grid_idx * 4 + 3] = 255;
+                }
+            }
+        } else if self.is_higher_order {
             let num_pairs = (self.higher_order_windows.len() + 1) / 2;
             for c in c_start..c_end {
                 let start = c * self.hop;
@@ -4243,7 +4317,7 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
     let w = (sliced_samples / hop).max(2);
     let grid_size = w * h;
 
-    if algorithm_type.starts_with("higher_order") {
+    if algorithm_type.starts_with("higher_order") || algorithm_type.starts_with("sliding_jet") {
         let mut streamer = WasmSpectrogramStreamer::new(
             data,
             h,

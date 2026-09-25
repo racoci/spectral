@@ -84,4 +84,50 @@ for (const order of [1, 2, 3, 4]) {
   console.log(`  - 🚀 VELOCIDADE: ${speedup.toFixed(1)}x MAIS RÁPIDO QUE TEMPO REAL`);
 }
 
+console.log('-------------------------------------------------------------------------');
+console.log('⚡ BENCHMARK DO MOTOR SLIDING JET DFT (ZERO-FFTS / SÉRIES FORMAIS):');
+
+for (const order of [1, 2, 3, 4]) {
+  const algo = `sliding_jet:${order}:0`;
+
+  const streamer = new wasmModule.WasmSpectrogramStreamer(
+    pcmBytes,
+    height,
+    'hann',
+    windowSize,
+    zeroPadding,
+    20,
+    20000,
+    algo,
+    'ycbcr',
+    0.0,
+    1.0,
+    1.0,
+    'log',
+    0
+  );
+
+  const targetW = streamer.get_width();
+  const targetH = streamer.get_height();
+
+  const tProcessStart = performance.now();
+  while (!streamer.is_complete()) {
+    streamer.process_chunk(64);
+  }
+  const tProcessEnd = performance.now();
+
+  const totalTimeMs = tProcessEnd - tProcessStart;
+  const totalTimeUs = totalTimeMs * 1000;
+  const usPerCol = totalTimeUs / targetW;
+  const rtf = (totalTimeMs / 1000) / durationSec;
+  const speedup = 1 / rtf;
+
+  console.log(`[WASM Sliding Jet O = ${order}]:`);
+  console.log(`  - Resolução da Textura: ${targetW} x ${targetH} (${(targetW * targetH).toLocaleString()} pixels RGBA)`);
+  console.log(`  - Tempo Total de Renderização: ${totalTimeMs.toFixed(2)} ms (${totalTimeUs.toFixed(0)} µs)`);
+  console.log(`  - Tempo por Coluna: ${usPerCol.toFixed(2)} µs/coluna`);
+  console.log(`  - Real-Time Factor (RTF): ${rtf.toFixed(5)}`);
+  console.log(`  - ⚡ VELOCIDADE: ${speedup.toFixed(1)}x MAIS RÁPIDO QUE TEMPO REAL`);
+}
+
 console.log('=========================================================================\n');
