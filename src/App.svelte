@@ -495,10 +495,18 @@
         const startCol = Math.floor(colStartRatio * gridW);
         const endCol = Math.ceil(colEndRatio * gridW);
 
-        const numSamples = originalBytes.length / 4;
-        const calculatedHop = Math.max(1, Math.round(numSamples / gridW));
+        const dims = wasm_get_spectrogram_dimensions(
+          originalBytes,
+          selectedHeight,
+          horizontalResolutionK,
+          currentQualityLod,
+          viewStart,
+          viewEnd
+        );
+        const calculatedHop = Number(dims[2]);
+        const sampleRate = Number(dims[3]);
 
-        console.log(`🔊 Resynthesizing audio from spectrogram cols [${startCol}..${endCol}] with hop ${calculatedHop}...`);
+        console.log(`🔊 Resynthesizing audio from spectrogram cols [${startCol}..${endCol}] with hop ${calculatedHop} at ${sampleRate} Hz...`);
         const t0 = performance.now();
 
         const wavBytes = wasm_synthesize_spectrogram_to_wav(
@@ -512,7 +520,8 @@
           zeroPadding,
           startCol,
           endCol,
-          calculatedHop
+          calculatedHop,
+          sampleRate
         );
         console.log(`🔊 Resynthesized ${wavBytes.length} bytes in ${(performance.now() - t0).toFixed(2)}ms!`);
 

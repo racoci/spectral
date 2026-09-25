@@ -2,7 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import init, { 
   wasm_generate_complex_reassigned_ycbcr_spectrogram,
-  wasm_synthesize_spectrogram_to_wav
+  wasm_synthesize_spectrogram_to_wav,
+  wasm_get_spectrogram_dimensions
 } from '../src/wasm/core_wasm.js';
 
 (async () => {
@@ -41,7 +42,11 @@ import init, {
   const width = (rgbaGrid.length / 4) / height;
   console.log(`✅ Spectrogram generated: ${width} x ${height} (${rgbaGrid.length} bytes) in ${genTime.toFixed(2)} ms.`);
 
-  console.log('🔍 [TEST 1] Reconstructing full audio from spectrogram pixels...');
+  const dims = wasm_get_spectrogram_dimensions(originalBytes, height, 1, 0, 0.0, 1.0);
+  const hop = Number(dims[2]);
+  const sampleRate = Number(dims[3]);
+
+  console.log(`🔍 [TEST 1] Reconstructing full audio from spectrogram pixels (hop=${hop}, sampleRate=${sampleRate})...`);
   const t1 = performance.now();
   const fullWavBytes = wasm_synthesize_spectrogram_to_wav(
     rgbaGrid,
@@ -54,7 +59,8 @@ import init, {
     4,
     0,
     width,
-    0
+    hop,
+    sampleRate
   );
   const synthTime = performance.now() - t1;
   console.log(`✅ Synthesized Full WAV: ${fullWavBytes.length} bytes in ${synthTime.toFixed(2)} ms.`);
@@ -98,7 +104,8 @@ import init, {
     4,
     100,
     200,
-    0
+    hop,
+    sampleRate
   );
   console.log(`✅ Synthesized Slice WAV: ${sliceWavBytes.length} bytes (Duration matches sub-slice!)`);
   if (sliceWavBytes.length >= fullWavBytes.length) {

@@ -2393,6 +2393,77 @@ pub fn wasm_generate_v8_spectrogram(rgba_data: &[u8]) -> Result<Vec<f32>, JsValu
     Ok(spec)
 }
 
+#[derive(Clone)]
+pub struct ParsedWavInfo {
+    pub channels: u16,
+    pub sample_rate: u32,
+    pub bits_per_sample: u16,
+    pub samples: Vec<f32>,
+}
+
+pub fn parse_wav_samples(data: &[u8]) -> ParsedWavInfo {
+    if data.len() >= 44 && &data[0..4] == b"RIFF" && &data[8..12] == b"WAVE" {
+        let channels = u16::from_le_bytes([data[22], data[23]]);
+        let sample_rate = u32::from_le_bytes([data[24], data[25], data[26], data[27]]);
+        let bits_per_sample = u16::from_le_bytes([data[34], data[35]]);
+        let pcm_data = &data[44..];
+
+        let mut samples = Vec::new();
+        if bits_per_sample == 16 {
+            let bytes_per_frame = (channels as usize) * 2;
+            if bytes_per_frame > 0 {
+                let num_frames = pcm_data.len() / bytes_per_frame;
+                samples.reserve(num_frames);
+
+                for f in 0..num_frames {
+                    let offset = f * bytes_per_frame;
+                    if channels == 1 {
+                        let s = i16::from_le_bytes([pcm_data[offset], pcm_data[offset + 1]]) as f32;
+                        samples.push(s);
+                    } else if channels >= 2 {
+                        let l = i16::from_le_bytes([pcm_data[offset], pcm_data[offset + 1]]) as f32;
+                        let r = i16::from_le_bytes([pcm_data[offset + 2], pcm_data[offset + 3]]) as f32;
+                        samples.push((l + r) * 0.5);
+                    }
+                }
+            }
+        } else {
+            let num_samples = pcm_data.len() / 2;
+            samples.reserve(num_samples);
+            for i in 0..num_samples {
+                let offset = i * 2;
+                if offset + 1 < pcm_data.len() {
+                    let s = i16::from_le_bytes([pcm_data[offset], pcm_data[offset + 1]]) as f32;
+                    samples.push(s);
+                }
+            }
+        }
+
+        ParsedWavInfo {
+            channels,
+            sample_rate: if sample_rate > 0 { sample_rate } else { 44100 },
+            bits_per_sample,
+            samples,
+        }
+    } else {
+        let num_samples = data.len() / 2;
+        let mut samples = Vec::with_capacity(num_samples);
+        for i in 0..num_samples {
+            let offset = i * 2;
+            if offset + 1 < data.len() {
+                let s = i16::from_le_bytes([data[offset], data[offset + 1]]) as f32;
+                samples.push(s);
+            }
+        }
+        ParsedWavInfo {
+            channels: 1,
+            sample_rate: 44100,
+            bits_per_sample: 16,
+            samples,
+        }
+    }
+}
+
 #[wasm_bindgen]
 pub fn wasm_calculate_reassigned_spectrogram(data: &[u8], h_custom: usize, window_type: &str) -> Vec<u8> {
     let mut h = h_custom;
@@ -2909,12 +2980,9 @@ pub fn wasm_cache_base_quadruplets(
     let mut h = h_custom;
     if !h.is_power_of_two() || h < 4 { h = 512; }
     
-    let pcm_data = if data.len() >= 44 && &data[0..4] == b"RIFF" {
-        &data[44..]
-    } else {
-        data
-    };
-    let num_samples = pcm_data.len() / 4;
+    let wav_info = parse_wav_samples(data);
+    let fs = wav_info.sample_rate as f32;
+    let num_samples = wav_info.samples.len();
     let win_len = if window_size > 0 { window_size } else { 1024 };
     let pad_factor = if zero_padding > 0 { zero_padding } else { 2 };
     let n_stft = win_len * pad_factor;
@@ -2924,17 +2992,7 @@ pub fn wasm_cache_base_quadruplets(
     let hop = (num_samples / target_cols).max(1);
     let w = (num_samples / hop).max(2);
     
-    let mut mid_channel = vec![0.0f32; num_samples];
-    for i in 0..num_samples {
-        let offset = i * 4;
-        let b0 = if offset < pcm_data.len() { pcm_data[offset] } else { 0 };
-        let b1 = if offset + 1 < pcm_data.len() { pcm_data[offset + 1] } else { 0 };
-        let b2 = if offset + 2 < pcm_data.len() { pcm_data[offset + 2] } else { 0 };
-        let b3 = if offset + 3 < pcm_data.len() { pcm_data[offset + 3] } else { 0 };
-        let l = (((b1 as u16) << 8) | (b0 as u16)) as i16 as f32;
-        let r = (((b3 as u16) << 8) | (b2 as u16)) as i16 as f32;
-        mid_channel[i] = (l + r) * 0.5;
-    }
+    let mid_channel = wav_info.samples;
 
     let mut win_h = vec![0.0f32; win_len];
     let mut win_th = vec![0.0f32; win_len];
@@ -2969,7 +3027,6 @@ pub fn wasm_cache_base_quadruplets(
         };
     }
 
-    let fs = 44100.0f32;
     let is_linear = scale_type == "linear";
     let fmin = if is_linear { fmin_custom.max(0.0) } else { fmin_custom.max(10.0) };
     let fmax = fmax_custom.clamp(fmin + 1.0, fs * 0.5);
@@ -3395,13 +3452,10 @@ impl WasmSpectrogramStreamer {
         let mut h = h_custom;
         if !h.is_power_of_two() || h < 4 { h = 512; }
         
-        let pcm_data = if data.len() >= 44 && &data[0..4] == b"RIFF" {
-            &data[44..]
-        } else {
-            data
-        };
-        let num_samples = pcm_data.len() / 4;
-        let start_sample = ((t_start.clamp(0.0, 1.0) * num_samples as f32) as usize).min(num_samples - 2);
+        let wav_info = parse_wav_samples(data);
+        let fs = wav_info.sample_rate as f32;
+        let num_samples = wav_info.samples.len();
+        let start_sample = ((t_start.clamp(0.0, 1.0) * num_samples as f32) as usize).min(num_samples.saturating_sub(2));
         let end_sample = ((t_end.clamp(0.0, 1.0) * num_samples as f32) as usize).clamp(start_sample + 2, num_samples);
         let sliced_samples = end_sample - start_sample;
         
@@ -3415,17 +3469,11 @@ impl WasmSpectrogramStreamer {
         let w = (sliced_samples / hop).max(2);
         let grid_size = w * h;
         
-        let mut mid_channel = vec![0.0f32; sliced_samples];
-        for i in 0..sliced_samples {
-            let offset = (start_sample + i) * 4;
-            let b0 = if offset < pcm_data.len() { pcm_data[offset] } else { 0 };
-            let b1 = if offset + 1 < pcm_data.len() { pcm_data[offset + 1] } else { 0 };
-            let b2 = if offset + 2 < pcm_data.len() { pcm_data[offset + 2] } else { 0 };
-            let b3 = if offset + 3 < pcm_data.len() { pcm_data[offset + 3] } else { 0 };
-            let l = (((b1 as u16) << 8) | (b0 as u16)) as i16 as f32;
-            let r = (((b3 as u16) << 8) | (b2 as u16)) as i16 as f32;
-            mid_channel[i] = (l + r) * 0.5;
-        }
+        let mid_channel = if start_sample < num_samples && end_sample <= num_samples {
+            wav_info.samples[start_sample..end_sample].to_vec()
+        } else {
+            wav_info.samples
+        };
 
         let mut win_h = vec![0.0f32; win_len];
         let mut win_th = vec![0.0f32; win_len];
@@ -3460,7 +3508,6 @@ impl WasmSpectrogramStreamer {
             };
         }
 
-        let fs = 44100.0f32;
         let is_linear = scale_type == "linear";
         let fmin = if is_linear { fmin_custom.max(0.0) } else { fmin_custom.max(10.0) };
         let fmax = fmax_custom.clamp(fmin + 1.0, fs * 0.5);
@@ -3625,6 +3672,12 @@ impl WasmSpectrogramStreamer {
 
     #[wasm_bindgen]
     pub fn get_higher_order_mode(&self) -> usize { self.higher_order_mode }
+
+    #[wasm_bindgen]
+    pub fn get_hop(&self) -> usize { self.hop }
+
+    #[wasm_bindgen]
+    pub fn get_sample_rate(&self) -> u32 { self.fs as u32 }
 
     #[wasm_bindgen]
     pub fn process_chunk(&mut self, chunk_cols: usize) -> Vec<u8> {
@@ -4238,13 +4291,9 @@ pub fn wasm_get_spectrogram_dimensions(
     let mut h = if is_draft { 256 } else { h_custom };
     if !h.is_power_of_two() || h < 4 { h = 512; }
     
-    let pcm_data = if data.len() >= 44 && &data[0..4] == b"RIFF" {
-        &data[44..]
-    } else {
-        data
-    };
-    let num_samples = pcm_data.len() / 4;
-    let start_sample = ((t_start.clamp(0.0, 1.0) * num_samples as f32) as usize).min(num_samples - 2);
+    let wav_info = parse_wav_samples(data);
+    let num_samples = wav_info.samples.len();
+    let start_sample = ((t_start.clamp(0.0, 1.0) * num_samples as f32) as usize).min(num_samples.saturating_sub(2));
     let end_sample = ((t_end.clamp(0.0, 1.0) * num_samples as f32) as usize).clamp(start_sample + 2, num_samples);
     let sliced_samples = end_sample - start_sample;
     
@@ -4257,7 +4306,7 @@ pub fn wasm_get_spectrogram_dimensions(
     let hop = (sliced_samples / target_cols).max(1);
     let w = (sliced_samples / hop).max(2);
     
-    vec![w, h]
+    vec![w, h, hop, wav_info.sample_rate as usize, num_samples]
 }
 
 #[wasm_bindgen]
@@ -4288,16 +4337,12 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
     let mut h = if is_draft { 256 } else { h_custom };
     if !h.is_power_of_two() || h < 4 { h = 512; }
     
-    let pcm_data = if data.len() >= 44 && &data[0..4] == b"RIFF" {
-        &data[44..]
-    } else {
-        data
-    };
-    
-    let num_samples = pcm_data.len() / 4;
+    let wav_info = parse_wav_samples(data);
+    let fs = wav_info.sample_rate as f32;
+    let num_samples = wav_info.samples.len();
     
     // Compute visible sample bounds dynamically based on normalized start/end times
-    let start_sample = ((t_start.clamp(0.0, 1.0) * num_samples as f32) as usize).min(num_samples - 2);
+    let start_sample = ((t_start.clamp(0.0, 1.0) * num_samples as f32) as usize).min(num_samples.saturating_sub(2));
     let end_sample = ((t_end.clamp(0.0, 1.0) * num_samples as f32) as usize).clamp(start_sample + 2, num_samples);
     let sliced_samples = end_sample - start_sample;
     
@@ -4346,20 +4391,13 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
         (0, w)
     };
     
-    let mut mid_channel = vec![0.0f32; sliced_samples];
-    for i in 0..sliced_samples {
-        let offset = (start_sample + i) * 4;
-        let b0 = if offset < pcm_data.len() { pcm_data[offset] } else { 0 };
-        let b1 = if offset + 1 < pcm_data.len() { pcm_data[offset + 1] } else { 0 };
-        let b2 = if offset + 2 < pcm_data.len() { pcm_data[offset + 2] } else { 0 };
-        let b3 = if offset + 3 < pcm_data.len() { pcm_data[offset + 3] } else { 0 };
-        
-        let l = (((b1 as u16) << 8) | (b0 as u16)) as i16 as f32;
-        let r = (((b3 as u16) << 8) | (b2 as u16)) as i16 as f32;
-        mid_channel[i] = (l + r) * 0.5;
-    }
+    let mid_channel = if start_sample < num_samples && end_sample <= num_samples {
+        wav_info.samples[start_sample..end_sample].to_vec()
+    } else {
+        wav_info.samples
+    };
     
-    let fs_f32 = 44100.0f32;
+    let fs_f32 = fs;
     
     use rustfft::{FftPlanner, num_complex::Complex};
     let mut planner = FftPlanner::new();
@@ -5092,12 +5130,14 @@ pub fn wasm_synthesize_spectrogram_to_wav(
     start_col: usize,
     end_col: usize,
     hop_custom: usize,
+    sample_rate_custom: u32,
 ) -> Vec<u8> {
     if width == 0 || height == 0 || rgba_grid.len() < width * height * 4 {
         return create_empty_wav();
     }
 
-    let fs = 44100.0f32;
+    let sample_rate = if sample_rate_custom > 0 { sample_rate_custom } else { 44100 };
+    let fs = sample_rate as f32;
     let win_len = if window_size > 0 { window_size } else { 1024 };
     let pad_factor = if zero_padding > 0 { zero_padding } else { 4 };
     let n_stft = win_len * pad_factor;
@@ -5214,7 +5254,7 @@ pub fn wasm_synthesize_spectrogram_to_wav(
 
     // Encode to 16-bit Mono WAV
     let num_pcm = output_len;
-    let byte_rate = 44100 * 2;
+    let byte_rate = sample_rate * 2;
     let block_align = 2u16;
     let bits_per_sample = 16u16;
     let data_chunk_size = (num_pcm * 2) as u32;
@@ -5228,8 +5268,8 @@ pub fn wasm_synthesize_spectrogram_to_wav(
     wav.extend_from_slice(&16u32.to_le_bytes());
     wav.extend_from_slice(&1u16.to_le_bytes()); // PCM
     wav.extend_from_slice(&1u16.to_le_bytes()); // Mono
-    wav.extend_from_slice(&44100u32.to_le_bytes());
-    wav.extend_from_slice(&(byte_rate as u32).to_le_bytes());
+    wav.extend_from_slice(&sample_rate.to_le_bytes());
+    wav.extend_from_slice(&byte_rate.to_le_bytes());
     wav.extend_from_slice(&block_align.to_le_bytes());
     wav.extend_from_slice(&bits_per_sample.to_le_bytes());
     wav.extend_from_slice(b"data");
