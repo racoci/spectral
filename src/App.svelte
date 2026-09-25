@@ -63,11 +63,27 @@
 
   // Global Audio Transport & Selection Looping State
   let originalAudio = $state<HTMLAudioElement | null>(null);
+  let synthAudio = $state<HTMLAudioElement | null>(null);
+  let activeAudio = $state<HTMLAudioElement | null>(null);
   let isPlaying = $state(false);
   let selectionStart = $state<number | null>(null); // normalized [0, 1]
   let selectionEnd = $state<number | null>(null);   // normalized [0, 1]
   let loopMode = $state<'normal' | 'mirrored' | 'none'>('normal');
   let playbackTimer: any = null;
+
+  function setupOriginalAudio(bytes: Uint8Array) {
+    if (originalAudio) {
+      originalAudio.pause();
+    }
+    const blob = new Blob([bytes as any], { type: 'audio/wav' });
+    const url = URL.createObjectURL(blob);
+    originalAudio = new Audio(url);
+    activeAudio = originalAudio;
+    originalAudio.onended = () => {
+      isPlaying = false;
+      if (playbackTimer) clearInterval(playbackTimer);
+    };
+  }
 
   // Hash-based client router synchronized with Svelte 5 state
   function updateRoute() {
@@ -117,6 +133,7 @@
         const arrayBuffer = await response.arrayBuffer();
         const bytes = new Uint8Array(arrayBuffer);
         originalBytes = bytes;
+        setupOriginalAudio(bytes);
         wasm_cache_base_quadruplets(
           bytes,
           selectedHeight,
@@ -424,12 +441,7 @@
     console.log('📢 App.svelte handleAudioLoaded callback received data with length:', data?.length, 'height:', h);
     originalBytes = data;
     selectedHeight = h;
-    
-    // Reset global Audio element and selection bounds
-    if (originalAudio) {
-      originalAudio.pause();
-    }
-    originalAudio = null;
+    setupOriginalAudio(data);
     selectionStart = null;
     selectionEnd = null;
     
@@ -450,29 +462,45 @@
     regenerateSpectrogram();
   }
 
-  // High-Resolution DAW Controller synthesizing audio directly from the on-screen spectrogram pixels!
-  function triggerAudioPlayback() {
-    if (!rgbaGrid || gridW === 0 || gridH === 0) return;
+  // Master DAW Audio Controller: Plays authentic original audio OR resynthesized spectrogram audio
+  function triggerAudioPlayback(mode: 'original' | 'resynthesized' = 'original') {
+    if (!originalBytes) return;
     
     if (isPlaying) {
-      if (originalAudio) originalAudio.pause();
+      if (activeAudio) activeAudio.pause();
       isPlaying = false;
       if (playbackTimer) clearInterval(playbackTimer);
+      return;
+    }
+
+    if (playbackTimer) clearInterval(playbackTimer);
+
+    if (!originalAudio) {
+      setupOriginalAudio(originalBytes);
+    }
+
+    if (mode === 'original' || !rgbaGrid || gridW === 0 || gridH === 0) {
+      activeAudio = originalAudio;
+      playAudioRange(originalAudio!, false);
     } else {
-      isPlaying = true;
-      if (playbackTimer) clearInterval(playbackTimer);
-      
-      // Map normalized selection bounds [0.0, 1.0] to spectrogram texture columns
-      const sStart = selectionStart !== null ? Math.min(selectionStart, selectionEnd ?? selectionStart) : 0.0;
-      const sEnd = selectionEnd !== null ? Math.max(selectionStart ?? selectionEnd, selectionEnd) : 1.0;
-      
-      const startCol = Math.floor(sStart * gridW);
-      const endCol = Math.ceil(sEnd * gridW);
-      
-      console.log(`🔊 Resynthesizing audio from spectrogram cols [${startCol}..${endCol}]...`);
-      const t0 = performance.now();
-      
+      // High-Resolution DAW Controller synthesizing audio directly from on-screen spectrogram pixels!
       try {
+        const sStart = selectionStart !== null ? Math.min(selectionStart, selectionEnd ?? selectionStart) : 0.0;
+        const sEnd = selectionEnd !== null ? Math.max(selectionStart ?? selectionEnd, selectionEnd) : 1.0;
+        
+        const tSpan = Math.max(0.0001, viewEnd - viewStart);
+        const colStartRatio = Math.max(0.0, Math.min(1.0, (sStart - viewStart) / tSpan));
+        const colEndRatio = Math.max(0.0, Math.min(1.0, (sEnd - viewStart) / tSpan));
+
+        const startCol = Math.floor(colStartRatio * gridW);
+        const endCol = Math.ceil(colEndRatio * gridW);
+
+        const numSamples = originalBytes.length / 4;
+        const calculatedHop = Math.max(1, Math.round(numSamples / gridW));
+
+        console.log(`🔊 Resynthesizing audio from spectrogram cols [${startCol}..${endCol}] with hop ${calculatedHop}...`);
+        const t0 = performance.now();
+
         const wavBytes = wasm_synthesize_spectrogram_to_wav(
           rgbaGrid,
           gridW,
@@ -483,43 +511,68 @@
           windowSize,
           zeroPadding,
           startCol,
-          endCol
+          endCol,
+          calculatedHop
         );
         console.log(`🔊 Resynthesized ${wavBytes.length} bytes in ${(performance.now() - t0).toFixed(2)}ms!`);
-        
+
         const blob = new Blob([wavBytes as any], { type: 'audio/wav' });
         const url = URL.createObjectURL(blob);
-        
-        if (originalAudio) {
-          originalAudio.pause();
+        if (synthAudio) {
+          synthAudio.pause();
         }
-        originalAudio = new Audio(url);
-        
-        const duration = originalAudio.duration || ((endCol - startCol) * 64 / 44100.0);
-        
-        originalAudio.play();
-        
-        playbackTimer = setInterval(() => {
-          if (!originalAudio) return;
-          
-          const current = originalAudio.currentTime;
-          
-          if (current >= duration || originalAudio.ended) {
-            if (loopMode === 'normal') {
-              originalAudio.currentTime = 0;
-              originalAudio.play();
-            } else {
-              originalAudio.pause();
-              isPlaying = false;
-              if (playbackTimer) clearInterval(playbackTimer);
-            }
-          }
-        }, 15);
+        synthAudio = new Audio(url);
+        activeAudio = synthAudio;
+        playAudioRange(synthAudio, true);
       } catch (err) {
-        console.error("Failed to synthesize audio from spectrogram:", err);
-        isPlaying = false;
+        console.error("Failed to synthesize audio from spectrogram, falling back to original:", err);
+        activeAudio = originalAudio;
+        playAudioRange(originalAudio!, false);
       }
     }
+  }
+
+  function playAudioRange(audioEl: HTMLAudioElement, isSynthesizedSlice: boolean) {
+    if (playbackTimer) clearInterval(playbackTimer);
+    isPlaying = true;
+
+    const totalDuration = audioEl.duration && !isNaN(audioEl.duration) && audioEl.duration > 0
+      ? audioEl.duration
+      : (originalAudio?.duration || 1.0);
+
+    let startTime = 0.0;
+    let endTime = totalDuration;
+
+    if (!isSynthesizedSlice && selectionStart !== null && selectionEnd !== null) {
+      const sStart = Math.min(selectionStart, selectionEnd);
+      const sEnd = Math.max(selectionStart, selectionEnd);
+      startTime = sStart * totalDuration;
+      endTime = sEnd * totalDuration;
+    }
+
+    audioEl.currentTime = startTime;
+    audioEl.play().catch(err => {
+      console.warn("Audio play prevented:", err);
+      isPlaying = false;
+    });
+
+    playbackTimer = setInterval(() => {
+      if (!audioEl || !isPlaying) {
+        clearInterval(playbackTimer);
+        return;
+      }
+
+      if (audioEl.currentTime >= endTime || audioEl.ended) {
+        if (loopMode === 'normal' || loopMode === 'mirrored') {
+          audioEl.currentTime = startTime;
+          audioEl.play().catch(() => {});
+        } else {
+          audioEl.pause();
+          isPlaying = false;
+          clearInterval(playbackTimer);
+        }
+      }
+    }, 15);
   }
 
   // Handle direct file uploads inside the WebGL Editor itself
@@ -599,7 +652,7 @@
       bind:zoomMode={zoomMode}
       bind:horizontalResolutionK={horizontalResolutionK}
       
-      originalAudio={originalAudio}
+      originalAudio={activeAudio ?? originalAudio}
       isPlaying={isPlaying}
       currentQualityLod={currentQualityLod}
       refinementProgress={refinementProgress}

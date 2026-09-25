@@ -53,7 +53,8 @@ import init, {
     1024,
     4,
     0,
-    width
+    width,
+    0
   );
   const synthTime = performance.now() - t1;
   console.log(`✅ Synthesized Full WAV: ${fullWavBytes.length} bytes in ${synthTime.toFixed(2)} ms.`);
@@ -96,7 +97,8 @@ import init, {
     1024,
     4,
     100,
-    200
+    200,
+    0
   );
   console.log(`✅ Synthesized Slice WAV: ${sliceWavBytes.length} bytes (Duration matches sub-slice!)`);
   if (sliceWavBytes.length >= fullWavBytes.length) {

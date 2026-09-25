@@ -5091,6 +5091,7 @@ pub fn wasm_synthesize_spectrogram_to_wav(
     zero_padding: usize,
     start_col: usize,
     end_col: usize,
+    hop_custom: usize,
 ) -> Vec<u8> {
     if width == 0 || height == 0 || rgba_grid.len() < width * height * 4 {
         return create_empty_wav();
@@ -5100,7 +5101,7 @@ pub fn wasm_synthesize_spectrogram_to_wav(
     let win_len = if window_size > 0 { window_size } else { 1024 };
     let pad_factor = if zero_padding > 0 { zero_padding } else { 4 };
     let n_stft = win_len * pad_factor;
-    let hop = 64;
+    let hop = if hop_custom > 0 { hop_custom } else { 64 };
 
     let c_start = start_col.min(width - 1);
     let c_end = end_col.clamp(c_start + 1, width);

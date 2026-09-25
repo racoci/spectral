@@ -89,7 +89,7 @@
     
     originalAudio: HTMLAudioElement | null,
     isPlaying: boolean,
-    onPlayToggle: () => void,
+    onPlayToggle: (mode?: 'original' | 'resynthesized') => void,
     onAudioUploaded: (bytes: Uint8Array) => void,
     onBackToConverter: () => void
   } = $props();
@@ -1674,8 +1674,16 @@
       <div class="bottom-row-controls">
         <!-- Audio Transport Controls Group -->
         <div class="transport-group">
-          <button class="play-btn" class:playing={isPlaying} onclick={onPlayToggle}>
-            {isPlaying ? '⏸️ PAUSAR' : '▶️ PLAY'}
+          <button class="play-btn" class:playing={isPlaying} onclick={() => onPlayToggle('original')}>
+            {isPlaying ? '⏸️ PAUSAR' : '▶️ PLAY (ORIGINAL)'}
+          </button>
+
+          <button 
+            class="synth-play-btn" 
+            onclick={() => onPlayToggle('resynthesized')}
+            title="Ressintetizar o áudio diretamente a partir dos pixels do espectrograma visível"
+          >
+            🔊 RESSINTETIZAR
           </button>
           
           <div class="vertical-divider"></div>
@@ -2430,6 +2438,24 @@
   .play-btn.playing {
     background-color: #f59e0b;
     border-color: #f59e0b;
+  }
+
+  .synth-play-btn {
+    background-color: rgba(56, 189, 248, 0.15);
+    color: #38bdf8;
+    border: 1px solid rgba(56, 189, 248, 0.35);
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 800;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .synth-play-btn:hover {
+    background-color: rgba(56, 189, 248, 0.3);
+    border-color: #38bdf8;
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
   }
 
   .loop-mode-selector {
