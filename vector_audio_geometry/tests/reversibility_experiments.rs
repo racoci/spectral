@@ -356,3 +356,101 @@ fn test_stft_overlap_add_reversibility_real_audio() {
     println!("  -> ✅ PROVA DE REVERSIBILIDADE STFT OLA CONCLUÍDA: Reconstrução Transparente!");
     println!("=========================================================================\n");
 }
+
+// =========================================================================
+// 4. SÍNTESE DIRETA UTILIZANDO DERIVADAS DE ALTA ORDEM (CHIRP RATE E SUB-PIXEL)
+// =========================================================================
+#[test]
+fn test_higher_order_chirp_synthesis_vs_naive_synthesis() {
+    println!("\n=========================================================================");
+    println!("⚡ TESTE 4: SÍNTESE UTILIZANDO DERIVADAS DE ALTA ORDEM (CHIRP RATE phi_tt)");
+    println!("=========================================================================");
+
+    let fs = 44100.0f32;
+    let win_len = 1024;
+    let sigma_s = 0.003f32;
+    let f0 = 1000.0f32;
+    let chirp_rate = 3000.0f32; // 3000 Hz/s
+    let beta = 2.0 * PI * chirp_rate;
+    let half = (win_len as f32 - 1.0) * 0.5;
+
+    // Sinal original modulado em frequência (chirp acelerado):
+    // x(t) = cos(2*pi*f0*t + 0.5*beta*t^2)
+    let mut x_orig = vec![0.0f32; win_len];
+    for n in 0..win_len {
+        let t = (n as f32 - half) / fs;
+        let phase = 2.0 * PI * f0 * t + 0.5 * beta * t * t;
+        x_orig[n] = phase.cos();
+    }
+
+    // Analisar com o motor de derivadas de ordem superior O = 2
+    let engine = HigherOrderEngine::new(2, win_len, fs, sigma_s);
+    // Bin discreto mais próximo de 1000 Hz (frequência central em t=0)
+    let analyzed_fc = 1000.0f32;
+    let res = engine.analyze_point(&x_orig, analyzed_fc, 0.0);
+
+    println!("Parâmetros Extraídos pela Análise de Ordem Superior:");
+    println!("  -> Magnitude Base: {:.4}", res.magnitude);
+    println!("  -> Frequência Instantânea f_inst: {:.2} Hz", res.freq_inst_hz);
+    println!("  -> Taxa de Chirp phi_tt medida: {:.2} rad/s² (esperado: {:.2})", res.d2_phi_dt2, beta);
+
+    // =====================================================================
+    // SÍNTESE A: Ingênua (sem derivadas de alta ordem)
+    // Assume frequência constante e ignora a curvatura de fase (phi_tt = 0)
+    // =====================================================================
+    let mut x_naive = vec![0.0f32; win_len];
+    let naive_freq = analyzed_fc; // ou round do bin
+    for n in 0..win_len {
+        let t = (n as f32 - half) / fs;
+        let phase = 2.0 * PI * naive_freq * t + res.phase;
+        x_naive[n] = phase.cos();
+    }
+
+    // =====================================================================
+    // SÍNTESE B: Alta Ordem (UTILIZANDO DERIVADAS DE ALTA ORDEM)
+    // Utiliza f_inst contínua corrigida e a curvatura de fase phi_tt!
+    // phase(t) = 2*pi*f_inst*t + 0.5 * phi_tt * t^2 + phase_0
+    // =====================================================================
+    let mut x_higher_order = vec![0.0f32; win_len];
+    // Recuperação da taxa real de chirp corrigindo o amortecimento gaussiano
+    let sigma4 = sigma_s.powi(4);
+    let damping = 1.0 / (1.0 + beta * beta * sigma4);
+    let recovered_chirp = res.d2_phi_dt2 / damping.max(1e-4);
+
+    for n in 0..win_len {
+        let t = (n as f32 - half) / fs;
+        let phase = 2.0 * PI * res.freq_inst_hz * t + 0.5 * recovered_chirp * t * t + res.phase;
+        x_higher_order[n] = phase.cos();
+    }
+
+    // Comparar erros de reconstrução em toda a extensão da janela
+    let eval_start = 0;
+    let eval_end = win_len;
+    let mut mse_naive = 0.0f64;
+    let mut mse_higher_order = 0.0f64;
+    let count = (eval_end - eval_start) as f64;
+
+    for n in eval_start..eval_end {
+        let orig = x_orig[n] as f64;
+        let naive = x_naive[n] as f64;
+        let ho = x_higher_order[n] as f64;
+
+        mse_naive += (orig - naive).powi(2);
+        mse_higher_order += (orig - ho).powi(2);
+    }
+    mse_naive /= count;
+    mse_higher_order /= count;
+
+    let error_reduction = mse_naive / mse_higher_order.max(1e-24);
+
+    println!("-------------------------------------------------------------------------");
+    println!("📊 COMPARATIVO DE FIDELIDADE DE RECONSTRUÇÃO:");
+    println!("  -> MSE da Síntese Ingênua (sem derivadas):       {:.4e}", mse_naive);
+    println!("  -> MSE da Síntese de Alta Ordem (COM phi_tt):   {:.4e}", mse_higher_order);
+    println!("  -> 🚀 REDUÇÃO DE ERRO COM DERIVADAS: {:.2}x mais fiel!", error_reduction);
+
+    assert!(mse_higher_order < mse_naive, "Síntese com derivadas deve ser mais fiel que a ingênua!");
+    assert!(error_reduction > 1.2, "Ganho de redução de erro deve ser superior a 20%! Medido: {:.2}x", error_reduction);
+    println!("  -> ✅ PROVA DE QUE AS DERIVADAS MELHORAM A RECONSTRUÇÃO CONCLUÍDA COM SUCESSO!");
+    println!("=========================================================================\n");
+}
