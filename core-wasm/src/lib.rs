@@ -5181,6 +5181,11 @@ pub fn wasm_synthesize_spectrogram_to_wav(
     }
     delta_a_lut[0] = a_min_lut[1];
 
+    let half_stft = n_stft / 2;
+    let mut prev_phase = vec![0.0f32; half_stft];
+    let mut accum_phase = vec![0.0f32; half_stft];
+    let two_pi = 2.0 * std::f32::consts::PI;
+
     let mut fft_buffer = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
 
     for col in c_start..c_end {
@@ -5190,6 +5195,10 @@ pub fn wasm_synthesize_spectrogram_to_wav(
         for i in 0..n_stft {
             fft_buffer[i] = Complex::new(0.0, 0.0);
         }
+
+        // Extract continuous magnitude and phase profiles across all rows j
+        let mut row_mag = vec![0.0f32; height];
+        let mut row_phase = vec![0.0f32; height];
 
         for j in 0..height {
             let px_idx = (j * width + col) * 4;
@@ -5215,42 +5224,116 @@ pub fn wasm_synthesize_spectrogram_to_wav(
             let delta_a = delta_a_lut[y_idx];
 
             let magnitude = (a_min + w_mag * delta_a) * 4194304.0;
-            let z = Complex::new(magnitude * phase.cos(), magnitude * phase.sin());
+            row_mag[j] = magnitude;
+            row_phase[j] = phase;
+        }
 
-            let fc = if is_linear {
-                fmin + j as f32 * step_lin
+        let ln2_step = std::f32::consts::LN_2 * step_log;
+        let bin_df = fs / n_stft as f32;
+
+        // Continuously interpolate EVERY STFT bin k to eliminate comb-filtering and harmonic gaps
+        for k in 1..half_stft {
+            let fk = k as f32 * bin_df;
+            if fk < fmin || fk > fmax {
+                continue;
+            }
+
+            let y_f = if is_linear {
+                ((fk - fmin) / step_lin).clamp(0.0, (height - 1) as f32)
             } else {
-                fmin * 2.0f32.powf(j as f32 * step_log)
+                ((fk / fmin).log2() / step_log).clamp(0.0, (height - 1) as f32)
             };
 
-            let k = (fc * n_stft as f32 / fs).round() as usize;
-            if k > 0 && k < n_stft / 2 {
-                fft_buffer[k] += z;
-                fft_buffer[n_stft - k] += z.conj(); // Hermitian symmetry
+            let j0 = (y_f.floor() as usize).min(height - 2);
+            let j1 = j0 + 1;
+            let alpha = y_f - j0 as f32;
+
+            let base_mag = row_mag[j0] * (1.0 - alpha) + row_mag[j1] * alpha;
+            if base_mag < 1e-4 {
+                continue;
             }
+
+            // Frequency coordinate Jacobian equalization (logarithmic to linear STFT spectral density):
+            let jacobian_scale = if is_linear {
+                1.0f32
+            } else {
+                let row_df = fk * ln2_step;
+                (row_df / bin_df).sqrt().clamp(0.4, 5.0)
+            };
+
+            let mag = base_mag * jacobian_scale;
+
+            let p0 = row_phase[j0];
+            let p1 = row_phase[j1];
+            let mut diff = p1 - p0;
+            while diff > std::f32::consts::PI { diff -= two_pi; }
+            while diff < -std::f32::consts::PI { diff += two_pi; }
+            let target_phase = p0 + diff * alpha;
+
+            let omega_k = two_pi * k as f32 / n_stft as f32;
+            let expected_advance = omega_k * hop as f32;
+
+            let phase_val = if col == c_start {
+                accum_phase[k] = target_phase;
+                prev_phase[k] = target_phase;
+                target_phase
+            } else {
+                let delta = target_phase - prev_phase[k] - expected_advance;
+                let delta_wrapped = delta - two_pi * (delta / two_pi).round();
+                prev_phase[k] = target_phase;
+
+                accum_phase[k] += expected_advance + delta_wrapped;
+                accum_phase[k]
+            };
+
+            let z = Complex::new(mag * phase_val.cos(), mag * phase_val.sin());
+            fft_buffer[k] = z;
+            fft_buffer[n_stft - k] = z.conj(); // Hermitian symmetry
         }
 
         ifft.process(&mut fft_buffer);
 
+        let half_win = win_len / 2;
         for i in 0..win_len {
-            if t_offset + i < output_len {
+            let t = t_offset as isize + i as isize - half_win as isize;
+            if t >= 0 && (t as usize) < output_len {
+                let idx = t as usize;
                 let sample_val = fft_buffer[i].re / n_stft as f32;
-                output_samples[t_offset + i] += sample_val * win_syn[i];
-                window_sum[t_offset + i] += win_syn[i] * win_syn[i];
+                output_samples[idx] += sample_val * win_syn[i];
+                window_sum[idx] += win_syn[i] * win_syn[i];
             }
         }
     }
 
-    // Normalize overlap-add
+    // Safe normalization preventing boundary explosion:
+    let max_win_sum = window_sum.iter().fold(0.0f32, |m, &v| m.max(v));
+    let threshold = (max_win_sum * 0.15).max(1e-4);
+
     for i in 0..output_len {
-        if window_sum[i] > 1e-4 {
+        if window_sum[i] > threshold {
             output_samples[i] /= window_sum[i];
+        } else if window_sum[i] > 1e-5 {
+            output_samples[i] /= threshold;
         }
     }
 
-    // Find peak and normalize
+    // Smooth cosine fade-in and fade-out at the very edges to guarantee zero boundary clicks
+    let edge_fade = win_len.min(output_len / 8);
+    for i in 0..edge_fade {
+        let fade_in = 0.5 * (1.0 - (std::f32::consts::PI * i as f32 / edge_fade as f32).cos());
+        output_samples[i] *= fade_in;
+
+        let end_idx = output_len - 1 - i;
+        output_samples[end_idx] *= fade_in;
+    }
+
+    // Find peak on the audio content
     let peak = output_samples.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
-    let scale_factor = if peak > 1.0 { 32760.0 / peak } else { 32760.0 };
+    let scale_factor = if peak > 1e-4 {
+        30000.0 / peak
+    } else {
+        30000.0
+    };
 
     // Encode to 16-bit Mono WAV
     let num_pcm = output_len;
