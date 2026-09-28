@@ -3854,6 +3854,9 @@ impl WasmSpectrogramStreamer {
                         get_s(1, 2),
                         get_s(0, 3),
                         get_s(4, 0),
+                        get_s(3, 1),
+                        get_s(2, 2),
+                        get_s(1, 3),
                         get_s(0, 4),
                         fc,
                         t_c,
@@ -5072,6 +5075,9 @@ pub fn wasm_analyze_higher_order_point(
         get_s(1, 2),
         get_s(0, 3),
         get_s(4, 0),
+        get_s(3, 1),
+        get_s(2, 2),
+        get_s(1, 3),
         get_s(0, 4),
         target_freq_hz,
         target_time_s,
@@ -5155,11 +5161,13 @@ pub fn wasm_synthesize_spectrogram_to_wav(
     let mut planner = FftPlanner::new();
     let ifft = planner.plan_fft_inverse(n_stft);
 
-    // Synthesis Hann window
+    // Strict Gaussian synthesis window with empirically optimized dispersion sigma = 0.25 * R
     let mut win_syn = vec![0.0f32; win_len];
+    let half_win_f = (win_len as f32 - 1.0) * 0.5;
+    let sigma_syn = 0.25 * half_win_f;
     for i in 0..win_len {
-        let angle = 2.0 * std::f32::consts::PI * i as f32 / (win_len - 1) as f32;
-        win_syn[i] = 0.5 * (1.0 - angle.cos());
+        let u = i as f32 - half_win_f;
+        win_syn[i] = (-0.5 * (u / sigma_syn).powi(2)).exp();
     }
 
     let fmin = if fmin_custom >= 5.0 { fmin_custom } else { 20.0f32 };

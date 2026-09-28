@@ -152,12 +152,30 @@ pub struct HigherOrderDerivatives {
     pub bandwidth_3db_hz: f32,
     pub duration_3db_s: f32,
 
-    // Third order (Order >= 3)
+    // Third order (Order >= 3): Complete set of 4 mixed partial derivatives
+    pub d3_log_a_dt3: f32,
+    pub d3_log_a_dt2w: f32,
+    pub d3_log_a_dtw2: f32,
+    pub d3_log_a_dw3: f32,
+
     pub d3_phi_dt3: f32,
+    pub d3_phi_dt2w: f32,
+    pub d3_phi_dtw2: f32,
+    pub d3_phi_dw3: f32,
     pub delta_t_inflex: f32,
 
-    // Fourth order (Order >= 4)
+    // Fourth order (Order >= 4): Complete set of 5 mixed partial derivatives
+    pub d4_log_a_dt4: f32,
+    pub d4_log_a_dt3w: f32,
+    pub d4_log_a_dt2w2: f32,
+    pub d4_log_a_dtw3: f32,
+    pub d4_log_a_dw4: f32,
+
     pub d4_phi_dt4: f32,
+    pub d4_phi_dt3w: f32,
+    pub d4_phi_dt2w2: f32,
+    pub d4_phi_dtw3: f32,
+    pub d4_phi_dw4: f32,
 }
 
 /// Computes Faà di Bruno derivatives of log S from discrete STFT coefficients S_{p,q}.
@@ -170,11 +188,14 @@ pub fn compute_faa_di_bruno_derivatives(
     s_11: Complex32,
     s_02: Complex32,
     s_30: Complex32,
-    _s_21: Complex32,
-    _s_12: Complex32,
-    _s_03: Complex32,
+    s_21: Complex32,
+    s_12: Complex32,
+    s_03: Complex32,
     s_40: Complex32,
-    _s_04: Complex32,
+    s_31: Complex32,
+    s_22: Complex32,
+    s_13: Complex32,
+    s_04: Complex32,
     fc_hz: f32,
     t_center_s: f32,
 ) -> HigherOrderDerivatives {
@@ -192,6 +213,7 @@ pub fn compute_faa_di_bruno_derivatives(
     let inv_s = Complex32::new(1.0, 0.0).div(s_00);
     let inv_s2 = inv_s.mul(inv_s);
     let inv_s3 = inv_s2.mul(inv_s);
+    let inv_s4 = inv_s3.mul(inv_s);
 
     // ==========================================
     // 1st ORDER DERIVATIVES (Order >= 1)
@@ -286,12 +308,33 @@ pub fn compute_faa_di_bruno_derivatives(
     // ==========================================
     // 3rd ORDER DERIVATIVES (Order >= 3)
     // ==========================================
-    let term1_30 = s_30.mul(inv_s);
-    let term2_30 = s_20.mul(s_10).mul(inv_s2).scale(3.0);
-    let term3_30 = d_log_s_t.mul(d_log_s_t).mul(d_log_s_t).scale(2.0);
-    let d3_log_s_ttt = term1_30.sub(term2_30).add(term3_30);
+    let d3_log_s_ttt = s_30.mul(inv_s)
+        .sub(s_20.mul(s_10).mul(inv_s2).scale(3.0))
+        .add(d_log_s_t.mul(d_log_s_t).mul(d_log_s_t).scale(2.0));
 
-    out.d3_phi_dt3 = d3_log_s_ttt.im;
+    let d3_log_s_ttw = s_21.mul(inv_s)
+        .sub(s_20.mul(s_01).mul(inv_s2))
+        .sub(s_11.mul(s_10).mul(inv_s2).scale(2.0))
+        .add(s_10.mul(s_10).mul(s_01).mul(inv_s3).scale(2.0));
+
+    let d3_log_s_tww = s_12.mul(inv_s)
+        .sub(s_02.mul(s_10).mul(inv_s2))
+        .sub(s_11.mul(s_01).mul(inv_s2).scale(2.0))
+        .add(s_01.mul(s_01).mul(s_10).mul(inv_s3).scale(2.0));
+
+    let d3_log_s_www = s_03.mul(inv_s)
+        .sub(s_02.mul(s_01).mul(inv_s2).scale(3.0))
+        .add(d_log_s_w.mul(d_log_s_w).mul(d_log_s_w).scale(2.0));
+
+    out.d3_log_a_dt3  = d3_log_s_ttt.re;
+    out.d3_log_a_dt2w = d3_log_s_ttw.re;
+    out.d3_log_a_dtw2 = d3_log_s_tww.re;
+    out.d3_log_a_dw3  = d3_log_s_www.re;
+
+    out.d3_phi_dt3  = d3_log_s_ttt.im;
+    out.d3_phi_dt2w = d3_log_s_ttw.im;
+    out.d3_phi_dtw2 = d3_log_s_tww.im;
+    out.d3_phi_dw3  = d3_log_s_www.im;
 
     if out.d3_phi_dt3.abs() > 1e-12 {
         out.delta_t_inflex = -out.d2_phi_dt2 / out.d3_phi_dt3;
@@ -304,14 +347,55 @@ pub fn compute_faa_di_bruno_derivatives(
     // ==========================================
     // 4th ORDER DERIVATIVES (Order >= 4)
     // ==========================================
-    let t1_40 = s_40.mul(inv_s);
-    let t2_40 = s_30.mul(s_10).mul(inv_s2).scale(4.0);
-    let t3_40 = s_20.mul(inv_s).mul(s_20.mul(inv_s)).scale(3.0);
-    let t4_40 = s_20.mul(s_10).mul(s_10).mul(inv_s3).scale(12.0);
-    let t5_40 = d_log_s_t.mul(d_log_s_t).mul(d_log_s_t).mul(d_log_s_t).scale(6.0);
+    let d4_log_s_tttt = s_40.mul(inv_s)
+        .sub(s_30.mul(s_10).mul(inv_s2).scale(4.0))
+        .sub(s_20.mul(inv_s).mul(s_20.mul(inv_s)).scale(3.0))
+        .add(s_20.mul(s_10).mul(s_10).mul(inv_s3).scale(12.0))
+        .sub(d_log_s_t.mul(d_log_s_t).mul(d_log_s_t).mul(d_log_s_t).scale(6.0));
 
-    let d4_log_s_tttt = t1_40.sub(t2_40).sub(t3_40).add(t4_40).sub(t5_40);
-    out.d4_phi_dt4 = d4_log_s_tttt.im;
+    let d4_log_s_tttw = s_31.mul(inv_s)
+        .sub(s_30.mul(s_01).mul(inv_s2))
+        .sub(s_21.mul(s_10).mul(inv_s2).scale(3.0))
+        .sub(s_20.mul(s_11).mul(inv_s2).scale(3.0))
+        .add(s_20.mul(s_10).mul(s_01).mul(inv_s3).scale(6.0))
+        .add(s_11.mul(s_10).mul(s_10).mul(inv_s3).scale(6.0))
+        .sub(s_10.mul(s_10).mul(s_10).mul(s_01).mul(inv_s4).scale(6.0));
+
+    let d4_log_s_ttww = s_22.mul(inv_s)
+        .sub(s_21.mul(s_01).mul(inv_s2).scale(2.0))
+        .sub(s_12.mul(s_10).mul(inv_s2).scale(2.0))
+        .sub(s_20.mul(s_02).mul(inv_s2))
+        .sub(s_11.mul(s_11).mul(inv_s2).scale(2.0))
+        .add(s_20.mul(s_01).mul(s_01).mul(inv_s3).scale(2.0))
+        .add(s_02.mul(s_10).mul(s_10).mul(inv_s3).scale(2.0))
+        .add(s_11.mul(s_10).mul(s_01).mul(inv_s3).scale(8.0))
+        .sub(s_10.mul(s_10).mul(s_01).mul(s_01).mul(inv_s4).scale(6.0));
+
+    let d4_log_s_twww = s_13.mul(inv_s)
+        .sub(s_03.mul(s_10).mul(inv_s2))
+        .sub(s_12.mul(s_01).mul(inv_s2).scale(3.0))
+        .sub(s_02.mul(s_11).mul(inv_s2).scale(3.0))
+        .add(s_02.mul(s_01).mul(s_10).mul(inv_s3).scale(6.0))
+        .add(s_11.mul(s_01).mul(s_01).mul(inv_s3).scale(6.0))
+        .sub(s_01.mul(s_01).mul(s_01).mul(s_10).mul(inv_s4).scale(6.0));
+
+    let d4_log_s_wwww = s_04.mul(inv_s)
+        .sub(s_03.mul(s_01).mul(inv_s2).scale(4.0))
+        .sub(s_02.mul(inv_s).mul(s_02.mul(inv_s)).scale(3.0))
+        .add(s_02.mul(s_01).mul(s_01).mul(inv_s3).scale(12.0))
+        .sub(d_log_s_w.mul(d_log_s_w).mul(d_log_s_w).mul(d_log_s_w).scale(6.0));
+
+    out.d4_log_a_dt4   = d4_log_s_tttt.re;
+    out.d4_log_a_dt3w  = d4_log_s_tttw.re;
+    out.d4_log_a_dt2w2 = d4_log_s_ttww.re;
+    out.d4_log_a_dtw3  = d4_log_s_twww.re;
+    out.d4_log_a_dw4   = d4_log_s_wwww.re;
+
+    out.d4_phi_dt4   = d4_log_s_tttt.im;
+    out.d4_phi_dt3w  = d4_log_s_tttw.im;
+    out.d4_phi_dt2w2 = d4_log_s_ttww.im;
+    out.d4_phi_dtw3  = d4_log_s_twww.im;
+    out.d4_phi_dw4   = d4_log_s_wwww.im;
 
     out
 }
