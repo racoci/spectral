@@ -34,6 +34,8 @@
     // Bindable adaptive zoom bounds
     viewStart = $bindable(0.0),
     viewEnd = $bindable(1.0),
+    texStart = 0.0,
+    texEnd = 1.0,
     
     // Bindable point size customization
     pointRadius = $bindable(1.0),
@@ -79,6 +81,8 @@
     
     viewStart: number,
     viewEnd: number,
+    texStart?: number,
+    texEnd?: number,
     pointRadius: number,
     frequencyScale: 'log' | 'linear',
     zoomMode: 'gpu_debounced' | 'continuous_resample',
@@ -282,6 +286,8 @@
     const grid = rgbaGrid;
     const w = width;
     const h = height;
+    const _t0 = texStart;
+    const _t1 = texEnd;
 
     if (!gl || !texture || !grid || w <= 0 || h <= 0) return;
 
@@ -292,6 +298,7 @@
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, grid);
     
     render();
+    updateMinimapThumbnail();
   });
 
   // Precompute 256-entry Look-Up Table mapping YCbCr Luminance Y to dB bin index [0..127]
@@ -556,8 +563,6 @@
     onAdaptiveInteract();
   }
 
-  let texStart = $state(0.0);
-  let texEnd = $state(1.0);
   let selScanDebounce: any = null;
 
   let minimapCanvas: HTMLCanvasElement;
@@ -763,17 +768,6 @@
     fmax = 20000;
     onAdaptiveInteract();
   }
-
-  // Whenever a newly generated texture is passed from WASM, record its exact window
-  $effect(() => {
-    const _grid = rgbaGrid;
-    if (_grid) {
-      texStart = viewStart;
-      texEnd = viewEnd;
-      render();
-      updateMinimapThumbnail();
-    }
-  });
 
   // Re-scan density progressively whenever either the texture OR the selection region updates
   $effect(() => {

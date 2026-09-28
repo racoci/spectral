@@ -5188,6 +5188,8 @@ pub fn wasm_synthesize_spectrogram_to_wav(
 
     let mut fft_buffer = vec![Complex::<f32>::new(0.0, 0.0); n_stft];
 
+    let mut target_mags = vec![vec![0.0f32; half_stft]; num_cols];
+
     for col in c_start..c_end {
         let col_offset = col - c_start;
         let t_offset = col_offset * hop;
@@ -5262,6 +5264,7 @@ pub fn wasm_synthesize_spectrogram_to_wav(
             };
 
             let mag = base_mag * jacobian_scale;
+            target_mags[col_offset][k] = mag;
 
             let p0 = row_phase[j0];
             let p1 = row_phase[j1];
@@ -5315,6 +5318,71 @@ pub fn wasm_synthesize_spectrogram_to_wav(
         } else if window_sum[i] > 1e-5 {
             output_samples[i] /= threshold;
         }
+    }
+
+    // 2 Iterations of Fast Griffin-Lim / Consistency Projection for Pristine Phase Alignment
+    let forward_fft = planner.plan_fft_forward(n_stft);
+    let mut scratch = vec![Complex::<f32>::new(0.0, 0.0); forward_fft.get_inplace_scratch_len()];
+    let half_win = win_len / 2;
+
+    for _iter in 0..2 {
+        let mut next_output = vec![0.0f32; output_len];
+        let mut next_win_sum = vec![0.0f32; output_len];
+
+        for col in c_start..c_end {
+            let col_offset = col - c_start;
+            let t_offset = col_offset * hop;
+
+            for i in 0..n_stft {
+                fft_buffer[i] = Complex::new(0.0, 0.0);
+            }
+            for i in 0..win_len {
+                let t = t_offset as isize + i as isize - half_win as isize;
+                if t >= 0 && (t as usize) < output_len {
+                    fft_buffer[i] = Complex::new(output_samples[t as usize] * win_syn[i], 0.0);
+                }
+            }
+
+            forward_fft.process_with_scratch(&mut fft_buffer, &mut scratch);
+
+            for k in 1..half_stft {
+                let target = target_mags[col_offset][k];
+                if target > 1e-4 {
+                    let cur = fft_buffer[k];
+                    let cur_mag = (cur.re * cur.re + cur.im * cur.im).sqrt();
+                    let factor = if cur_mag > 1e-9 { target / cur_mag } else { target };
+                    fft_buffer[k] = Complex::new(cur.re * factor, cur.im * factor);
+                    fft_buffer[n_stft - k] = fft_buffer[k].conj();
+                } else {
+                    fft_buffer[k] = Complex::new(0.0, 0.0);
+                    fft_buffer[n_stft - k] = Complex::new(0.0, 0.0);
+                }
+            }
+            fft_buffer[0] = Complex::new(0.0, 0.0);
+            fft_buffer[half_stft] = Complex::new(0.0, 0.0);
+
+            ifft.process(&mut fft_buffer);
+
+            for i in 0..win_len {
+                let t = t_offset as isize + i as isize - half_win as isize;
+                if t >= 0 && (t as usize) < output_len {
+                    let idx = t as usize;
+                    let sample_val = fft_buffer[i].re / n_stft as f32;
+                    next_output[idx] += sample_val * win_syn[i];
+                    next_win_sum[idx] += win_syn[i] * win_syn[i];
+                }
+            }
+        }
+
+        for i in 0..output_len {
+            if next_win_sum[i] > threshold {
+                next_output[i] /= next_win_sum[i];
+            } else if next_win_sum[i] > 1e-5 {
+                next_output[i] /= threshold;
+            }
+        }
+
+        output_samples = next_output;
     }
 
     // Smooth cosine fade-in and fade-out at the very edges to guarantee zero boundary clicks

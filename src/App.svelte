@@ -159,6 +159,8 @@
   let currentQualityLod = $state<number>(0); // 0 = Refined High-Res, 1 = Fast Draft Preview
   let adaptiveRefineTimer: any = null;
   let isInteracting = $state<boolean>(false);
+  let texStart = $state<number>(0.0);
+  let texEnd = $state<number>(1.0);
 
   // Progressive Two-Stage LOD Trigger:
   // 1. Immediately renders Fast Draft LOD 1 (<5ms) while the user is actively sliding or zooming
@@ -232,37 +234,14 @@
         ? `${algorithmType}:${higherOrderO}:${higherOrderVisualMode}`
         : algorithmType;
 
-      // If LOD 1 (Draft Mode): instant single-shot 1.5ms computation!
-      if (lod === 1) {
-        progressiveSessionId++; // cancel any running progressive sweep
-        refinementProgress = null;
-        rgbaGrid = wasm_generate_complex_reassigned_ycbcr_spectrogram(
-          originalBytes,
-          selectedHeight,
-          windowType,
-          windowSize,
-          zeroPadding,
-          fmin,
-          fmax,
-          effectiveAlgo,
-          paletteType,
-          wasmViewStart,
-          wasmViewEnd,
-          pointRadius,
-          frequencyScale,
-          horizontalResolutionK,
-          1,
-          0,
-          0
-        ) as Uint8Array;
-        gridH = 256;
-        gridW = (rgbaGrid.length / 4) / gridH;
-        return;
-      }
+      progressiveSessionId++; // cancel any running progressive sweep
+      refinementProgress = null;
 
-      // If LOD 0 (Refined Ultra-Foco):
-      // 1. Initialize persistent state streamer in WebAssembly
-      const streamer = new WasmSpectrogramStreamer(
+      const targetViewStart = wasmViewStart;
+      const targetViewEnd = wasmViewEnd;
+
+      // Render the complete, razor-sharp spectrogram for the target view directly!
+      const rawGrid = wasm_generate_complex_reassigned_ycbcr_spectrogram(
         originalBytes,
         selectedHeight,
         windowType,
@@ -272,108 +251,31 @@
         fmax,
         effectiveAlgo,
         paletteType,
-        wasmViewStart,
-        wasmViewEnd,
+        targetViewStart,
+        targetViewEnd,
         pointRadius,
         frequencyScale,
-        horizontalResolutionK
+        horizontalResolutionK,
+        lod,
+        0,
+        0
       );
-      const targetW = streamer.get_width();
-      const targetH = streamer.get_height();
-      const currentSession = ++progressiveSessionId;
 
-      // 2. VECTOR-AUDIO CONTINUOUS PROJECTION: Render instant continuous zoom from cached quadruplets (t, f, log(A), phi)!
-      let fullGrid = new Uint8Array(targetW * targetH * 4);
-      if (wasm_has_cached_quadruplets()) {
-        const vectorBg = wasm_render_from_cached_quadruplets(
-          targetW,
-          targetH,
-          wasmViewStart,
-          wasmViewEnd,
-          fmin,
-          fmax,
-          pointRadius,
-          paletteType
-        );
-        if (vectorBg && vectorBg.length === targetW * targetH * 4) {
-          fullGrid.set(vectorBg);
-        }
-      } else if (lastTextureGrid && lastTextureW > 0 && lastTextureH > 0) {
-        // Fallback to high-speed WebAssembly bicubic resampling
-        const bicubicBg = wasm_bicubic_resample_spectrogram(
-          lastTextureGrid,
-          lastTextureW,
-          lastTextureH,
-          lastTextureViewStart,
-          lastTextureViewEnd,
-          lastTextureFmin,
-          lastTextureFmax,
-          targetW,
-          targetH,
-          wasmViewStart,
-          wasmViewEnd,
-          fmin,
-          fmax
-        );
-        if (bicubicBg && bicubicBg.length === targetW * targetH * 4) {
-          fullGrid.set(bicubicBg);
-        }
+      const h = lod === 1 ? 256 : selectedHeight;
+      const w = (rawGrid.length / 4) / h;
+
+      // Assign a fresh Uint8Array so Svelte 5 reactivity immediately triggers WebGL texture upload!
+      rgbaGrid = new Uint8Array(rawGrid);
+      gridW = w;
+      gridH = h;
+      texStart = targetViewStart;
+      texEnd = targetViewEnd;
+
+      const rawDensity = wasm_get_last_mirrored_density_histogram();
+      if (rawDensity && rawDensity.length === 256) {
+        mirroredDensity = new Float32Array(rawDensity);
       }
-
-      // Display the vector-projected zoom image immediately in <1.5ms!
-      rgbaGrid = fullGrid;
-      gridW = targetW;
-      gridH = targetH;
-
-      // 3. Ultra-light gradual streaming: 24 columns per chunk (~0.6 ms per chunk!)
-      const CHUNK_SIZE = 24;
-
-      function streamNextChunk() {
-        if (currentSession !== progressiveSessionId) {
-          streamer.free();
-          return;
-        }
-
-        const startCol = streamer.get_current_col();
-        const chunkBytes = streamer.process_chunk(CHUNK_SIZE);
-        const chunkW = streamer.get_current_col() - startCol;
-
-        if (chunkW > 0) {
-          // Overwrite the resampled coarse pixels with razor-sharp Auger-Flandrin lines!
-          for (let r = 0; r < targetH; r++) {
-            const srcOffset = r * chunkW * 4;
-            const dstOffset = (r * targetW + startCol) * 4;
-            fullGrid.set(chunkBytes.subarray(srcOffset, srcOffset + chunkW * 4), dstOffset);
-          }
-
-          rgbaGrid = fullGrid;
-          refinementProgress = Math.round(streamer.get_progress_pct());
-        }
-
-        if (!streamer.is_complete()) {
-          requestAnimationFrame(streamNextChunk);
-        } else {
-          // Completed full sweep!
-          refinementProgress = null;
-          lastTextureGrid = new Uint8Array(fullGrid);
-          lastTextureW = targetW;
-          lastTextureH = targetH;
-          lastTextureViewStart = wasmViewStart;
-          lastTextureViewEnd = wasmViewEnd;
-          lastTextureFmin = fmin;
-          lastTextureFmax = fmax;
-
-          streamer.free();
-
-          const rawDensity = wasm_get_last_mirrored_density_histogram();
-          if (rawDensity && rawDensity.length === 256) {
-            mirroredDensity = new Float32Array(rawDensity);
-          }
-          console.log(`✅ [LOD 0 - REFINED COMPLETED] (${targetW}x${targetH}) in ${(performance.now() - t0).toFixed(2)} ms.`);
-        }
-      }
-
-      requestAnimationFrame(streamNextChunk);
+      console.log(`✅ [LOD ${lod} COMPLETED] (${w}x${h}) in ${(performance.now() - t0).toFixed(2)} ms.`);
 
       // Rebuild global audio playback if not already created
       if (!originalAudio) {
@@ -637,6 +539,8 @@
       mirroredDensity={mirroredDensity}
       width={gridW} 
       height={gridH} 
+      texStart={texStart}
+      texEnd={texEnd} 
       
       bind:windowType={windowType}
       bind:windowSize={windowSize}
