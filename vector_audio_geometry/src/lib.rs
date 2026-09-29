@@ -6,8 +6,10 @@ pub mod reassignment;
 pub mod spline_fit;
 pub mod multi_track;
 pub mod higher_order;
+pub mod synthetic_scene;
 
 pub use geometry::*;
 pub use model::*;
 pub use spline_fit::*;
 pub use higher_order::*;
+pub use synthetic_scene::*;
