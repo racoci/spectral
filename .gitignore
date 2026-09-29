@@ -37,4 +37,8 @@ tests/temp-samples/
 # Dedicated test generated outputs inside tests/
 tests/test-outputs/
 
+# Python cache
+__pycache__/
+*.pyc
+
 
