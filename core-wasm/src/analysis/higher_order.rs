@@ -657,3 +657,122 @@ impl SlidingJetDftChannel {
         out
     }
 }
+
+/// Ultra-Fast Hermite Engine that calculates all mixed derivatives up to order O
+/// using STRICTLY O + 1 Gaussian derivative projections:
+/// g^(0), g^(1), g^(2), g^(3), g^(4)
+///
+/// Exploits the exact Hermite algebraic commutation relation:
+/// u * g^(p)(u) = -sigma^2 * g^(p+1)(u) - p * g^(p-1)(u)
+pub struct HermiteFastEngine {
+    pub max_order: usize,
+    pub win_len: usize,
+    pub fs: f32,
+    pub sigma_s: f32,
+    /// Strictly O + 1 derivative windows: g^(0) through g^(O)
+    derivative_windows: Vec<Vec<f32>>,
+}
+
+impl HermiteFastEngine {
+    /// Precomputes strictly O + 1 Gaussian derivative windows (5 for order 4).
+    pub fn new(max_order: usize, win_len: usize, fs: f32, sigma_s: f32) -> Self {
+        let order = max_order.clamp(1, 4);
+        let mut derivative_windows = Vec::with_capacity(order + 1);
+
+        for p in 0..=order {
+            let win = generate_window_samples(p, 0, win_len, fs, sigma_s);
+            derivative_windows.push(win);
+        }
+
+        Self {
+            max_order: order,
+            win_len,
+            fs,
+            sigma_s,
+            derivative_windows,
+        }
+    }
+
+    /// Number of precomputed windows: strictly O + 1 (5 windows for order 4).
+    pub fn num_windows(&self) -> usize {
+        self.derivative_windows.len()
+    }
+
+    /// Evaluates the complete set of 14 mixed partial derivatives using ONLY O + 1 window projections!
+    pub fn analyze_point(&self, x: &[f32], fc_hz: f32, t_center_s: f32) -> HigherOrderDerivatives {
+        assert_eq!(x.len(), self.win_len);
+        let half = (self.win_len as f32 - 1.0) * 0.5;
+
+        let mut w_proj = vec![Complex32::default(); self.max_order + 1];
+        for (p, win) in self.derivative_windows.iter().enumerate() {
+            let mut acc = Complex32::default();
+            for n in 0..self.win_len {
+                let u = (n as f32 - half) / self.fs;
+                let phase = -2.0 * PI * fc_hz * u;
+                let (s, c) = phase.sin_cos();
+                let val = x[n] * win[n];
+                acc.re += val * c;
+                acc.im += val * s;
+            }
+            let sign_p = if p % 2 == 1 { -1.0 } else { 1.0 };
+            w_proj[p] = acc.scale(sign_p);
+        }
+
+        let s0 = w_proj[0];
+        let s1 = w_proj[1];
+        let s2 = w_proj[2];
+        let s3 = if self.max_order >= 3 { w_proj[3] } else { Complex32::default() };
+        let s4 = if self.max_order >= 4 { w_proj[4] } else { Complex32::default() };
+
+        let s2_scale = self.sigma_s * self.sigma_s;
+        let s4_scale = s2_scale * s2_scale;
+        let s6_scale = s4_scale * s2_scale;
+        let s8_scale = s4_scale * s4_scale;
+
+        let s_00 = s0;
+        let s_10 = s1;
+        let s_01 = Complex32::new(s1.im * s2_scale, -s1.re * s2_scale);
+
+        let s_20 = s2;
+        let s_11 = Complex32::new(s2.im * s2_scale + s0.im, -s2.re * s2_scale - s0.re);
+        let s_02 = s2.scale(s4_scale).add(s0.scale(s2_scale));
+
+        let s_30 = s3;
+        let s_21 = Complex32::new(s3.im * s2_scale + 2.0 * s1.im, -s3.re * s2_scale - 2.0 * s1.re);
+        let s_12 = s3.scale(s4_scale).add(s1.scale(3.0 * s2_scale));
+        let s_03 = Complex32::new(
+            -(s3.im * s6_scale + 3.0 * s1.im * s4_scale),
+            s3.re * s6_scale + 3.0 * s1.re * s4_scale
+        );
+
+        let s_40 = s4;
+        let s_31 = Complex32::new(s4.im * s2_scale + 3.0 * s2.im, -s4.re * s2_scale - 3.0 * s2.re);
+        let s_22 = s4.scale(s4_scale).add(s2.scale(5.0 * s2_scale)).add(s0.scale(2.0));
+        let s_13 = Complex32::new(
+            -(s4.im * s6_scale + 6.0 * s2.im * s4_scale + 3.0 * s0.im * s2_scale),
+            s4.re * s6_scale + 6.0 * s2.re * s4_scale + 3.0 * s0.re * s2_scale
+        );
+        let s_04 = s4.scale(s8_scale).add(s2.scale(6.0 * s6_scale)).add(s0.scale(3.0 * s4_scale));
+
+        compute_faa_di_bruno_derivatives(
+            self.max_order,
+            s_00,
+            s_10,
+            s_01,
+            s_20,
+            s_11,
+            s_02,
+            s_30,
+            s_21,
+            s_12,
+            s_03,
+            s_40,
+            s_31,
+            s_22,
+            s_13,
+            s_04,
+            fc_hz,
+            t_center_s,
+        )
+    }
+}
