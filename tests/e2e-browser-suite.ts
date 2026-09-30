@@ -149,6 +149,80 @@ async function runE2EBrowserSuite() {
     console.log(`  Seleção Visual na Linha do Tempo: ${hasSelection ? 'PRESENTE ✅' : 'AUSENTE ❌'}`);
     if (!hasSelection) throw new Error('O elemento .scrub-selection não foi renderizado!');
 
+    // 4.5. FASE 2.5: Teste da Ferramenta de Cristas Vetoriais (TreeNN) e Handles Interativos
+    console.log('\n--------------------------------------------------------------------------------');
+    console.log('📸 STAGE 2.5: Teste da Ferramenta de Cristas Vetoriais da TreeNN...');
+    console.log('--------------------------------------------------------------------------------');
+    
+    // Procura e aciona o botão de Cristas TreeNN na barra de ferramentas esquerda
+    const activated = await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll('.left-sidebar button')) as HTMLButtonElement[];
+      const btn = buttons.find(b => b.textContent && b.textContent.includes('Cristas TreeNN'));
+      if (btn) {
+        btn.click();
+        return true;
+      }
+      return false;
+    });
+
+    if (!activated) {
+      throw new Error('Botão Cristas TreeNN não encontrado na barra de ferramentas!');
+    }
+    
+    console.log('  Ativando ferramenta [🌳 Cristas TreeNN]...');
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    // Captura de Tela 2.5: Overlay Vetorial da TreeNN com Curvas, Handles e HUD Flutuante
+    const screen2bPath = path.join(SCREENSHOT_DIR, '02b_editor_tree_nn_vector_overlay.png');
+    await page.screenshot({ path: screen2bPath, fullPage: true });
+    console.log(`  ✅ Screenshot 2.5 salva em: ${screen2bPath}`);
+
+    // Verifica que o SVG de cristas vetoriais e o HUD da TreeNN foram renderizados
+    const overlayAudit = await page.evaluate(() => {
+      const svg = document.querySelector('svg.tree-nn-vector-overlay');
+      const hud = document.querySelector('.tree-nn-hud-card');
+      const paths = document.querySelectorAll('.ridge-vector-path');
+      const handles = document.querySelectorAll('.ridge-handle');
+      return {
+        hasSvg: svg !== null,
+        hasHud: hud !== null,
+        pathCount: paths.length,
+        handleCount: handles.length
+      };
+    });
+
+    console.log(`  SVG Overlay da TreeNN: ${overlayAudit.hasSvg ? 'PRESENTE ✅' : 'AUSENTE ❌'}`);
+    console.log(`  Card Flutuante TreeNN HUD: ${overlayAudit.hasHud ? 'PRESENTE ✅' : 'AUSENTE ❌'}`);
+    console.log(`  Cristas Vetoriais Renderizadas: ${overlayAudit.pathCount}`);
+    console.log(`  Handles de Controle Interativo: ${overlayAudit.handleCount}`);
+
+    if (!overlayAudit.hasSvg || !overlayAudit.hasHud || overlayAudit.pathCount === 0) {
+      throw new Error('O overlay vetorial da TreeNN ou seus handles não foram renderizados!');
+    }
+
+    // Interação com o HUD: Adiciona novo harmônico
+    console.log('  Adicionando novo harmônico via [➕ Harmônico]...');
+    await page.evaluate(() => {
+      const addBtn = document.querySelector('.add-ridge-btn') as HTMLButtonElement;
+      if (addBtn) addBtn.click();
+    });
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Dispara a otimização L-BFGS
+    console.log('  Disparando ajuste fino [⚡ Otimização L-BFGS]...');
+    await page.evaluate(() => {
+      const lbfgsBtn = document.querySelector('.lbfgs-btn') as HTMLButtonElement;
+      if (lbfgsBtn) lbfgsBtn.click();
+    });
+    await new Promise(resolve => setTimeout(resolve, 600));
+
+    // Retorna para o modo seleção para os testes de ressíntese subsequentes
+    await page.evaluate(() => {
+      const closeBtn = document.querySelector('.close-hud-btn') as HTMLButtonElement;
+      if (closeBtn) closeBtn.click();
+    });
+    await new Promise(resolve => setTimeout(resolve, 400));
+
     // 5. FASE 3: Teste do Botão de Ressíntese
     console.log('\n--------------------------------------------------------------------------------');
     console.log('📸 STAGE 3: Teste de Disparo de Ressíntese por WebAssembly...');
@@ -207,7 +281,7 @@ async function runE2EBrowserSuite() {
     console.log('\n--------------------------------------------------------------------------------');
     console.log('🖼️ AUDITORIA DE ARQUIVOS DE SCREENSHOT:');
     console.log('--------------------------------------------------------------------------------');
-    const files = [screen1Path, screen2Path, screen3Path, screen4Path];
+    const files = [screen1Path, screen2Path, screen2bPath, screen3Path, screen4Path];
     for (const f of files) {
       const stat = fs.statSync(f);
       console.log(`  ${path.basename(f)}: ${stat.size} bytes (Arquivo PNG válido) ✅`);
