@@ -44,6 +44,11 @@
   let higherOrderVisualMode = $state<'ridge' | 'anisotropy' | 'curvature' | 'vector_reassign'>('ridge');
   let paletteType = $state<'ycbcr' | 'snake'>('ycbcr');
 
+  // Hermite-Gaussian STFT Jet & Independent Reassignment Controls
+  let enableTimeReassignment = $state(true);
+  let enableFreqReassignment = $state(true);
+  let maxDerivativeOrder = $state<number>(2);
+
   // Adaptive Zoom View Bounds (Immediate UI bounds vs Background WASM bounds)
   let viewStart = $state<number>(0.0);
   let viewEnd = $state<number>(1.0);
@@ -258,7 +263,10 @@
         horizontalResolutionK,
         lod,
         0,
-        0
+        0,
+        enableTimeReassignment,
+        enableFreqReassignment,
+        maxDerivativeOrder
       );
 
       const h = lod === 1 ? 256 : selectedHeight;
@@ -552,6 +560,9 @@
       bind:higherOrderVisualMode={higherOrderVisualMode}
       bind:paletteType={paletteType}
       bind:selectedHeight={selectedHeight}
+      bind:enableTimeReassignment={enableTimeReassignment}
+      bind:enableFreqReassignment={enableFreqReassignment}
+      bind:maxDerivativeOrder={maxDerivativeOrder}
       
       bind:selectionStart={selectionStart}
       bind:selectionEnd={selectionEnd}

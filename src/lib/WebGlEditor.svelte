@@ -25,6 +25,9 @@
     higherOrderVisualMode = $bindable<'ridge' | 'anisotropy' | 'curvature' | 'vector_reassign'>('ridge'),
     paletteType = $bindable('ycbcr'),
     selectedHeight = $bindable(1024),
+    enableTimeReassignment = $bindable(true),
+    enableFreqReassignment = $bindable(true),
+    maxDerivativeOrder = $bindable(2),
     
     // Bindable looping states
     selectionStart = $bindable(null), 
@@ -74,6 +77,9 @@
     higherOrderVisualMode?: 'ridge' | 'anisotropy' | 'curvature' | 'vector_reassign',
     paletteType: 'ycbcr' | 'snake',
     selectedHeight: number,
+    enableTimeReassignment?: boolean,
+    enableFreqReassignment?: boolean,
+    maxDerivativeOrder?: number,
     
     selectionStart: number | null,
     selectionEnd: number | null,
@@ -1798,6 +1804,33 @@
               </div>
             {/if}
             
+            <!-- Independent Reassignment Toggles & Hermite-Gaussian STFT Jet Order -->
+            <div class="reassign-direction-box">
+              <label class="checkbox-control">
+                <input type="checkbox" bind:checked={enableTimeReassignment} onchange={() => onAdaptiveInteract()} />
+                <span>⏱️ Reatribuição no Tempo</span>
+              </label>
+              <label class="checkbox-control">
+                <input type="checkbox" bind:checked={enableFreqReassignment} onchange={() => onAdaptiveInteract()} />
+                <span>📡 Reatribuição na Freq.</span>
+              </label>
+            </div>
+
+            <div class="input-control">
+              <label for="jet-order-select">
+                Hermite-Gaussian STFT Jet:
+                <span class="badge-jet-order">O={maxDerivativeOrder} ({maxDerivativeOrder + 1} FFTs)</span>
+              </label>
+              <select id="jet-order-select" bind:value={maxDerivativeOrder} onchange={() => onAdaptiveInteract()}>
+                <option value={0}>O=0: STFT Pura (1 FFT - Base)</option>
+                <option value={1}>O=1: Reatribuição 2D R=V1/V0 (2 FFTs)</option>
+                <option value={2}>O=2: Hessiana & Cristas (3 FFTs)</option>
+                <option value={3}>O=3: Aceleração & Inflexão (4 FFTs)</option>
+                <option value={4}>O=4: Jato Quártico Completo (5 FFTs)</option>
+              </select>
+              <span class="jet-order-hint">Derivadas complexas holomorfas com base Gaussiana estrita.</span>
+            </div>
+            
             <div class="input-control">
               <label for="palette-select">Paleta:</label>
               <select id="palette-select" bind:value={paletteType} onchange={() => onAdaptiveInteract()}>
@@ -3418,5 +3451,47 @@
   .lbfgs-status {
     font-size: 0.65rem;
     color: #4ade80;
+  }
+
+  /* Reassignment & Hermite-Gaussian STFT Jet Styles */
+  .reassign-direction-box {
+    display: flex;
+    gap: 0.5rem;
+    background: rgba(15, 23, 42, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    padding: 0.45rem;
+    margin-bottom: 0.4rem;
+  }
+
+  .checkbox-control {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.7rem;
+    color: #94a3b8;
+    cursor: pointer;
+  }
+
+  .checkbox-control input[type="checkbox"] {
+    accent-color: #00f2fe;
+    cursor: pointer;
+  }
+
+  .badge-jet-order {
+    background: linear-gradient(135deg, #0ea5e9, #6366f1);
+    color: #ffffff;
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    margin-left: 0.3rem;
+  }
+
+  .jet-order-hint {
+    font-size: 0.62rem;
+    color: #64748b;
+    margin-top: 0.2rem;
+    line-height: 1.2;
   }
   </style>

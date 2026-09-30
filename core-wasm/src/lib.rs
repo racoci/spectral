@@ -4331,8 +4331,14 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
     quality_lod: usize,
     chunk_start: usize,
     chunk_count: usize,
+    enable_time_reassign: Option<bool>,
+    enable_freq_reassign: Option<bool>,
+    max_derivative_order: Option<usize>,
 ) -> Vec<u8> {
     let is_draft = quality_lod >= 1;
+    let reassign_time = enable_time_reassign.unwrap_or(true);
+    let reassign_freq = enable_freq_reassign.unwrap_or(true);
+    let max_order = max_derivative_order.unwrap_or(2).clamp(0, 4);
     
     // Adaptive LOD:
     // If draft mode (user actively sliding/zooming): use lightweight 256 rows and 512 cols for instant 3ms rendering!
@@ -4640,14 +4646,28 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
             let target_idx = j * w + c;
             
             if algorithm_type == "reassignment" {
-                // Time shift calculation: shift_t = Re{X_th / X_h}
-                let s_th_conj = s_th * s_h.conj();
-                let t_shift = s_th_conj.re / mag_sq;
-                let c_reassigned_f = c as f32 + t_shift / hop as f32;
+                // Hermite-Gaussian 2D Reassignment via Single Complex Quotient R = V1 / V0:
+                // V0 = s_h (Janela Gaussiana g0), V1 = s_dh (Primeira Hermite-Gaussiana g1 = g')
+                let s_v1_v0_conj = s_dh * s_h.conj();
+                let re_r = s_v1_v0_conj.re / mag_sq;
+                let im_r = s_v1_v0_conj.im / mag_sq;
+
+                // Deslocamento temporal: t_hat = t - sigma^2 * Re{R}
+                let half_win = win_len as f32 * 0.5;
+                let sigma_samples = 0.25 * half_win;
+                let t_shift_samples = if reassign_time && max_order >= 1 {
+                    -(sigma_samples * sigma_samples) * re_r
+                } else {
+                    0.0
+                };
+                let c_reassigned_f = c as f32 + t_shift_samples / hop as f32;
                 
-                // Frequency shift calculation: shift_w = Im{X_dh / X_h}
-                let s_dh_conj = s_dh * s_h.conj();
-                let omega_shift = s_dh_conj.im / mag_sq; // shift in rad/sample
+                // Deslocamento em frequência: omega_hat = omega - Im{R}
+                let omega_shift = if reassign_freq && max_order >= 1 {
+                    -im_r
+                } else {
+                    0.0
+                };
                 let f_reassigned = fc - (omega_shift * fs_f32 / (2.0 * std::f32::consts::PI));
                 
                 let j_reassigned_f = if is_linear {
@@ -4674,11 +4694,11 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
                     continue;
                 }
 
-                // 1st order derivative of log amplitude with respect to time (Re{X_dh / X_h})
-                let d_log_A_dt = s_dh_conj.re / mag_sq;
+                // 1st order derivative of log amplitude with respect to time: Re{d_t V0 / V0} = -Re{R}
+                let d_log_A_dt = -re_r;
                 
-                // 1st order derivative of log amplitude with respect to frequency (Im{X_th / X_h})
-                let d_log_A_dw = s_th_conj.im / mag_sq;
+                // 1st order derivative of log amplitude with respect to frequency: Re{d_w V0 / V0} = sigma^2 * Im{R}
+                let d_log_A_dw = (sigma_samples * sigma_samples) * im_r;
                 
                 let sig_t = (point_radius * 0.5 / (1.0 + d_log_A_dt.abs())).clamp(0.1, 4.0);
                 let sig_f = (point_radius * 0.5 / (1.0 + d_log_A_dw.abs())).clamp(0.1, 4.0);
