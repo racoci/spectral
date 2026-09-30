@@ -719,8 +719,8 @@ impl HermiteFastEngine {
         }
 
         let s0 = w_proj[0];
-        let s1 = w_proj[1];
-        let s2 = w_proj[2];
+        let s1 = if self.max_order >= 1 { w_proj[1] } else { Complex32::default() };
+        let s2 = if self.max_order >= 2 { w_proj[2] } else { Complex32::default() };
         let s3 = if self.max_order >= 3 { w_proj[3] } else { Complex32::default() };
         let s4 = if self.max_order >= 4 { w_proj[4] } else { Complex32::default() };
 

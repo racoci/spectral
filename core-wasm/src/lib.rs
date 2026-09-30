@@ -5019,69 +5019,8 @@ pub fn wasm_analyze_higher_order_point(
 
     let sigma_s = 0.4 * (win_len as f32 * 0.5) / fs;
     let order = max_order.clamp(1, 4);
-    let mut higher_order_windows = Vec::new();
-    let mut higher_order_labels = Vec::new();
-    for p in 0..=order {
-        for q in 0..=(order - p) {
-            let win = crate::analysis::higher_order::generate_window_samples(p, q, win_len, fs, sigma_s);
-            higher_order_windows.push(win);
-            higher_order_labels.push((p, q));
-        }
-    }
-
-    let mut coeffs = vec![crate::analysis::higher_order::Complex32::default(); higher_order_windows.len()];
-    let half = (win_len as f32 - 1.0) * 0.5;
-    for (idx, win) in higher_order_windows.iter().enumerate() {
-        let mut acc = crate::analysis::higher_order::Complex32::default();
-        for n in 0..win_len {
-            let u = (n as f32 - half) / fs;
-            let phase = -2.0 * std::f32::consts::PI * target_freq_hz * u;
-            let (s, c) = phase.sin_cos();
-            let val = frame[n] * win[n];
-            acc.re += val * c;
-            acc.im += val * s;
-        }
-        let (p, q) = higher_order_labels[idx];
-        let sign_p = if p % 2 == 1 { -1.0 } else { 1.0 };
-        let mod_q = q % 4;
-        let factor_q = match mod_q {
-            0 => crate::analysis::higher_order::Complex32::new(1.0, 0.0),
-            1 => crate::analysis::higher_order::Complex32::new(0.0, -1.0),
-            2 => crate::analysis::higher_order::Complex32::new(-1.0, 0.0),
-            _ => crate::analysis::higher_order::Complex32::new(0.0, 1.0),
-        };
-        coeffs[idx] = acc.scale(sign_p).mul(factor_q);
-    }
-
-    let get_s = |req_p: usize, req_q: usize| -> crate::analysis::higher_order::Complex32 {
-        for (idx, &(p, q)) in higher_order_labels.iter().enumerate() {
-            if p == req_p && q == req_q {
-                return coeffs[idx];
-            }
-        }
-        crate::analysis::higher_order::Complex32::default()
-    };
-
-    let d = crate::analysis::higher_order::compute_faa_di_bruno_derivatives(
-        order,
-        get_s(0, 0),
-        get_s(1, 0),
-        get_s(0, 1),
-        get_s(2, 0),
-        get_s(1, 1),
-        get_s(0, 2),
-        get_s(3, 0),
-        get_s(2, 1),
-        get_s(1, 2),
-        get_s(0, 3),
-        get_s(4, 0),
-        get_s(3, 1),
-        get_s(2, 2),
-        get_s(1, 3),
-        get_s(0, 4),
-        target_freq_hz,
-        target_time_s,
-    );
+    let engine = crate::analysis::higher_order::HermiteFastEngine::new(order, win_len, fs, sigma_s);
+    let d = engine.analyze_point(&frame, target_freq_hz, target_time_s);
 
     WasmHigherOrderPointResult {
         magnitude: d.magnitude,
