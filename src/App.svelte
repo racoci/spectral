@@ -33,8 +33,8 @@
   let mirroredDensity = $state<Float32Array | null>(null);
   let currentView = $derived<'converter' | 'editor'>(currentHash === '#/converter' ? 'converter' : 'editor');
 
-  // Advanced DSP Configurations
-  let windowType = $state<'hann' | 'hamming' | 'gaussian' | 'blackman-harris'>('gaussian');
+  // Advanced DSP Configurations (Pure Gaussian-Hermite Pipeline)
+  const windowType = 'gaussian';
   let windowSize = $state<number>(256);
   let zeroPadding = $state<number>(2);
   let fmin = $state<number>(20);
@@ -550,7 +550,6 @@
       texStart={texStart}
       texEnd={texEnd} 
       
-      bind:windowType={windowType}
       bind:windowSize={windowSize}
       bind:zeroPadding={zeroPadding}
       bind:fmin={fmin}

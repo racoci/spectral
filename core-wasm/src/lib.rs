@@ -2508,45 +2508,15 @@ pub fn wasm_calculate_reassigned_spectrogram(data: &[u8], h_custom: usize, windo
     
     let half_n = (n_stft - 1) as f32 / 2.0;
     
-    match window_type {
-        "hamming" => {
-            for i in 0..n_stft {
-                let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
-                win_h[i] = 0.54 - 0.46 * angle.cos();
-                win_th[i] = (i as f32 - half_n) * win_h[i];
-                win_dh[i] = (0.46 * 2.0 * std::f32::consts::PI / (n_stft - 1) as f32) * angle.sin();
-            }
-        },
-        "gaussian" => {
-            let sigma = (n_stft - 1) as f32 / 6.0; // alpha = 3.0
-            for i in 0..n_stft {
-                let diff = i as f32 - half_n;
-                win_h[i] = (-0.5 * (diff / sigma).powi(2)).exp();
-                win_th[i] = diff * win_h[i];
-                win_dh[i] = -(diff / sigma.powi(2)) * win_h[i];
-            }
-        },
-        "blackman-harris" => {
-            let a0 = 0.35875f32;
-            let a1 = 0.48829f32;
-            let a2 = 0.14128f32;
-            let a3 = 0.01168f32;
-            for i in 0..n_stft {
-                let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
-                win_h[i] = a0 - a1 * angle.cos() + a2 * (2.0 * angle).cos() - a3 * (3.0 * angle).cos();
-                win_th[i] = (i as f32 - half_n) * win_h[i];
-                win_dh[i] = (2.0 * std::f32::consts::PI / (n_stft - 1) as f32) * 
-                           (a1 * angle.sin() - 2.0 * a2 * (2.0 * angle).sin() + 3.0 * a3 * (3.0 * angle).sin());
-            }
-        },
-        _ => { // "hann" as default
-            for i in 0..n_stft {
-                let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
-                win_h[i] = 0.5 * (1.0 - angle.cos());
-                win_th[i] = (i as f32 - half_n) * win_h[i];
-                win_dh[i] = (std::f32::consts::PI / (n_stft - 1) as f32) * angle.sin();
-            }
-        }
+    // Strictly Gaussian window g0 and its exact derivative g1 = g'
+    let sigma = 0.25 * half_n;
+    let inv_sigma_sq = 1.0 / (sigma * sigma);
+    for i in 0..n_stft {
+        let diff = i as f32 - half_n;
+        let g = (-0.5 * (diff / sigma).powi(2)).exp();
+        win_h[i] = g;
+        win_dh[i] = -(diff * inv_sigma_sq) * g;
+        win_th[i] = diff * g;
     }
     
     let fmin = 20.0f32;
@@ -2679,45 +2649,15 @@ pub fn wasm_calculate_complex_reassigned_spectrogram(data: &[u8], h_custom: usiz
     
     let half_n = (n_stft - 1) as f32 / 2.0;
     
-    match window_type {
-        "hamming" => {
-            for i in 0..n_stft {
-                let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
-                win_h[i] = 0.54 - 0.46 * angle.cos();
-                win_th[i] = (i as f32 - half_n) * win_h[i];
-                win_dh[i] = (0.46 * 2.0 * std::f32::consts::PI / (n_stft - 1) as f32) * angle.sin();
-            }
-        },
-        "gaussian" => {
-            let sigma = (n_stft - 1) as f32 / 6.0; // alpha = 3.0
-            for i in 0..n_stft {
-                let diff = i as f32 - half_n;
-                win_h[i] = (-0.5 * (diff / sigma).powi(2)).exp();
-                win_th[i] = diff * win_h[i];
-                win_dh[i] = -(diff / sigma.powi(2)) * win_h[i];
-            }
-        },
-        "blackman-harris" => {
-            let a0 = 0.35875f32;
-            let a1 = 0.48829f32;
-            let a2 = 0.14128f32;
-            let a3 = 0.01168f32;
-            for i in 0..n_stft {
-                let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
-                win_h[i] = a0 - a1 * angle.cos() + a2 * (2.0 * angle).cos() - a3 * (3.0 * angle).cos();
-                win_th[i] = (i as f32 - half_n) * win_h[i];
-                win_dh[i] = (2.0 * std::f32::consts::PI / (n_stft - 1) as f32) * 
-                           (a1 * angle.sin() - 2.0 * a2 * (2.0 * angle).sin() + 3.0 * a3 * (3.0 * angle).sin());
-            }
-        },
-        _ => { // "hann" as default
-            for i in 0..n_stft {
-                let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
-                win_h[i] = 0.5 * (1.0 - angle.cos());
-                win_th[i] = (i as f32 - half_n) * win_h[i];
-                win_dh[i] = (std::f32::consts::PI / (n_stft - 1) as f32) * angle.sin();
-            }
-        }
+    // Strictly Gaussian window g0 and its exact derivative g1 = g'
+    let sigma = 0.25 * half_n;
+    let inv_sigma_sq = 1.0 / (sigma * sigma);
+    for i in 0..n_stft {
+        let diff = i as f32 - half_n;
+        let g = (-0.5 * (diff / sigma).powi(2)).exp();
+        win_h[i] = g;
+        win_dh[i] = -(diff * inv_sigma_sq) * g;
+        win_th[i] = diff * g;
     }
     
     let fmin = 20.0f32;
@@ -2998,33 +2938,14 @@ pub fn wasm_cache_base_quadruplets(
     let mut win_th = vec![0.0f32; win_len];
     let mut win_dh = vec![0.0f32; win_len];
     let half_win = (win_len as f32 - 1.0) * 0.5;
+    let sigma = 0.25 * half_win;
+    let inv_sigma_sq = 1.0 / (sigma * sigma);
     for i in 0..win_len {
         let t = i as f32 - half_win;
-        let val = match window_type {
-            "hamming" => 0.54 - 0.46 * (2.0 * std::f32::consts::PI * i as f32 / (win_len as f32 - 1.0)).cos(),
-            "gaussian" => {
-                let sigma = 0.4 * half_win;
-                (-0.5 * (t / sigma).powi(2)).exp()
-            },
-            "blackman-harris" => {
-                let a0 = 0.35875;
-                let a1 = 0.48829;
-                let a2 = 0.14128;
-                let a3 = 0.01168;
-                let z = 2.0 * std::f32::consts::PI * i as f32 / (win_len as f32 - 1.0);
-                a0 - a1 * z.cos() + a2 * (2.0 * z).cos() - a3 * (3.0 * z).cos()
-            },
-            _ => 0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (win_len as f32 - 1.0)).cos()),
-        };
-        win_h[i] = val;
-        win_th[i] = t * val;
-        win_dh[i] = if i == 0 {
-            win_h[1] - win_h[0]
-        } else if i == win_len - 1 {
-            win_h[win_len - 1] - win_h[win_len - 2]
-        } else {
-            0.5 * (win_h[i + 1] - win_h[i - 1])
-        };
+        let g = (-0.5 * (t / sigma).powi(2)).exp();
+        win_h[i] = g;
+        win_th[i] = t * g;
+        win_dh[i] = -(t * inv_sigma_sq) * g;
     }
 
     let is_linear = scale_type == "linear";
@@ -3479,33 +3400,14 @@ impl WasmSpectrogramStreamer {
         let mut win_th = vec![0.0f32; win_len];
         let mut win_dh = vec![0.0f32; win_len];
         let half_win = (win_len as f32 - 1.0) * 0.5;
+        let sigma = 0.25 * half_win;
+        let inv_sigma_sq = 1.0 / (sigma * sigma);
         for i in 0..win_len {
             let t = i as f32 - half_win;
-            let val = match window_type {
-                "hamming" => 0.54 - 0.46 * (2.0 * std::f32::consts::PI * i as f32 / (win_len as f32 - 1.0)).cos(),
-                "gaussian" => {
-                    let sigma = 0.4 * half_win;
-                    (-0.5 * (t / sigma).powi(2)).exp()
-                },
-                "blackman-harris" => {
-                    let a0 = 0.35875;
-                    let a1 = 0.48829;
-                    let a2 = 0.14128;
-                    let a3 = 0.01168;
-                    let z = 2.0 * std::f32::consts::PI * i as f32 / (win_len as f32 - 1.0);
-                    a0 - a1 * z.cos() + a2 * (2.0 * z).cos() - a3 * (3.0 * z).cos()
-                },
-                _ => 0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (win_len as f32 - 1.0)).cos()),
-            };
-            win_h[i] = val;
-            win_th[i] = t * val;
-            win_dh[i] = if i == 0 {
-                win_h[1] - win_h[0]
-            } else if i == win_len - 1 {
-                win_h[win_len - 1] - win_h[win_len - 2]
-            } else {
-                0.5 * (win_h[i + 1] - win_h[i - 1])
-            };
+            let g = (-0.5 * (t / sigma).powi(2)).exp();
+            win_h[i] = g;
+            win_th[i] = t * g;
+            win_dh[i] = -(t * inv_sigma_sq) * g;
         }
 
         let is_linear = scale_type == "linear";
@@ -4418,46 +4320,15 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
     
     let half_win = (win_len - 1) as f32 / 2.0;
     
-    // Generate window shapes on the fly based on win_len and zero pad to n_stft
-    match window_type {
-        "hamming" => {
-            for i in 0..win_len {
-                let angle = 2.0 * std::f32::consts::PI * i as f32 / (win_len - 1) as f32;
-                win_h[i] = 0.54 - 0.46 * angle.cos();
-                win_th[i] = (i as f32 - half_win) * win_h[i];
-                win_dh[i] = (0.46 * 2.0 * std::f32::consts::PI / (win_len - 1) as f32) * angle.sin();
-            }
-        },
-        "gaussian" => {
-            let sigma = (win_len - 1) as f32 / 6.0;
-            for i in 0..win_len {
-                let diff = i as f32 - half_win;
-                win_h[i] = (-0.5 * (diff / sigma).powi(2)).exp();
-                win_th[i] = diff * win_h[i];
-                win_dh[i] = -(diff / sigma.powi(2)) * win_h[i];
-            }
-        },
-        "blackman-harris" => {
-            let a0 = 0.35875f32;
-            let a1 = 0.48829f32;
-            let a2 = 0.14128f32;
-            let a3 = 0.01168f32;
-            for i in 0..win_len {
-                let angle = 2.0 * std::f32::consts::PI * i as f32 / (win_len - 1) as f32;
-                win_h[i] = a0 - a1 * angle.cos() + a2 * (2.0 * angle).cos() - a3 * (3.0 * angle).cos();
-                win_th[i] = (i as f32 - half_win) * win_h[i];
-                win_dh[i] = (2.0 * std::f32::consts::PI / (win_len - 1) as f32) * 
-                           (a1 * angle.sin() - 2.0 * a2 * (2.0 * angle).sin() + 3.0 * a3 * (3.0 * angle).sin());
-            }
-        },
-        _ => { // Hann window
-            for i in 0..win_len {
-                let angle = 2.0 * std::f32::consts::PI * i as f32 / (win_len - 1) as f32;
-                win_h[i] = 0.5 * (1.0 - angle.cos());
-                win_th[i] = (i as f32 - half_win) * win_h[i];
-                win_dh[i] = (std::f32::consts::PI / (win_len - 1) as f32) * angle.sin();
-            }
-        }
+    // Generate strictly Gaussian window g0 and its exact derivative g1 = g' (Hermite basis)
+    let sigma = 0.25 * half_win;
+    let inv_sigma_sq = 1.0 / (sigma * sigma);
+    for i in 0..win_len {
+        let diff = i as f32 - half_win;
+        let g = (-0.5 * (diff / sigma).powi(2)).exp();
+        win_h[i] = g;
+        win_dh[i] = -(diff * inv_sigma_sq) * g;
+        win_th[i] = diff * g;
     }
     
     let fmin = if fmin_custom >= 5.0 { fmin_custom } else { 20.0f32 };
@@ -5457,37 +5328,12 @@ pub fn wasm_calculate_log_spectrogram(data: &[u8], h_custom: usize, window_type:
     
     // Generate the window h
     let mut win_h = vec![0.0f32; n_stft];
-    match window_type {
-        "hamming" => {
-            for i in 0..n_stft {
-                let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
-                win_h[i] = 0.54 - 0.46 * angle.cos();
-            }
-        },
-        "gaussian" => {
-            let sigma = (n_stft - 1) as f32 / 6.0; // alpha = 3.0
-            let half_n = (n_stft - 1) as f32 / 2.0;
-            for i in 0..n_stft {
-                let diff = i as f32 - half_n;
-                win_h[i] = (-0.5 * (diff / sigma).powi(2)).exp();
-            }
-        },
-        "blackman-harris" => {
-            let a0 = 0.35875f32;
-            let a1 = 0.48829f32;
-            let a2 = 0.14128f32;
-            let a3 = 0.01168f32;
-            for i in 0..n_stft {
-                let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
-                win_h[i] = a0 - a1 * angle.cos() + a2 * (2.0 * angle).cos() - a3 * (3.0 * angle).cos();
-            }
-        },
-        _ => { // "hann" as default
-            for i in 0..n_stft {
-                let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
-                win_h[i] = 0.5 * (1.0 - angle.cos());
-            }
-        }
+    // Strictly Gaussian window g0 (Gabor limit)
+    let half_n = (n_stft - 1) as f32 / 2.0;
+    let sigma = 0.25 * half_n;
+    for i in 0..n_stft {
+        let diff = i as f32 - half_n;
+        win_h[i] = (-0.5 * (diff / sigma).powi(2)).exp();
     }
     
     let fmin = 20.0f32;
@@ -5605,37 +5451,12 @@ pub fn wasm_generate_complex_spectrogram(data: &[u8], h_custom: usize, window_ty
     
     // Generate the window h
     let mut win_h = vec![0.0f32; n_stft];
-    match window_type {
-        "hamming" => {
-            for i in 0..n_stft {
-                let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
-                win_h[i] = 0.54 - 0.46 * angle.cos();
-            }
-        },
-        "gaussian" => {
-            let sigma = (n_stft - 1) as f32 / 6.0; // alpha = 3.0
-            let half_n = (n_stft - 1) as f32 / 2.0;
-            for i in 0..n_stft {
-                let diff = i as f32 - half_n;
-                win_h[i] = (-0.5 * (diff / sigma).powi(2)).exp();
-            }
-        },
-        "blackman-harris" => {
-            let a0 = 0.35875f32;
-            let a1 = 0.48829f32;
-            let a2 = 0.14128f32;
-            let a3 = 0.01168f32;
-            for i in 0..n_stft {
-                let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
-                win_h[i] = a0 - a1 * angle.cos() + a2 * (2.0 * angle).cos() - a3 * (3.0 * angle).cos();
-            }
-        },
-        _ => { // "hann" as default
-            for i in 0..n_stft {
-                let angle = 2.0 * std::f32::consts::PI * i as f32 / (n_stft - 1) as f32;
-                win_h[i] = 0.5 * (1.0 - angle.cos());
-            }
-        }
+    // Strictly Gaussian window g0 (Gabor limit)
+    let half_n = (n_stft - 1) as f32 / 2.0;
+    let sigma = 0.25 * half_n;
+    for i in 0..n_stft {
+        let diff = i as f32 - half_n;
+        win_h[i] = (-0.5 * (diff / sigma).powi(2)).exp();
     }
     
     let fmin = 20.0f32;

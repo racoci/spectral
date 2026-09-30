@@ -15,7 +15,7 @@
     height, 
     
     // Bindable advanced DSP parameters
-    windowType = $bindable('gaussian'),
+    windowType = 'gaussian',
     windowSize = $bindable(256),
     zeroPadding = $bindable(2),
     fmin = $bindable(20),
@@ -67,7 +67,7 @@
     width: number, 
     height: number,
     
-    windowType: 'hann' | 'hamming' | 'gaussian' | 'blackman-harris',
+    windowType?: 'gaussian',
     windowSize: number,
     zeroPadding: number,
     fmin: number,
@@ -1882,13 +1882,12 @@
             <h4>⚡ Janelamento & FFT</h4>
             
             <div class="input-control">
-              <label for="win-type-select">Formato Janela:</label>
-              <select id="win-type-select" bind:value={windowType}>
-                <option value="hann">Hann (Seno Cossuave)</option>
-                <option value="hamming">Hamming (Transientes)</option>
-                <option value="gaussian">Gaussian (Gabor Limite)</option>
-                <option value="blackman-harris">Blackman-Harris (Corte)</option>
-              </select>
+              <label>Formato Janela:</label>
+              <div class="pure-gaussian-badge">
+                <span class="badge-icon">🌐</span>
+                <span class="badge-text font-mono">Gaussiana Estrita g(u) (Gabor Limite)</span>
+              </div>
+              <span class="pure-gaussian-hint">Exclusiva para álgebra Hermiteana O+1 e reassignment 2D exato.</span>
             </div>
 
             <div class="input-control">
@@ -3489,6 +3488,25 @@
   }
 
   .jet-order-hint {
+    font-size: 0.62rem;
+    color: #64748b;
+    margin-top: 0.2rem;
+    line-height: 1.2;
+  }
+  .pure-gaussian-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: rgba(14, 165, 233, 0.12);
+    border: 1px solid rgba(14, 165, 233, 0.35);
+    border-radius: 6px;
+    padding: 0.35rem 0.55rem;
+    color: #38bdf8;
+    font-size: 0.72rem;
+    font-weight: 600;
+  }
+
+  .pure-gaussian-hint {
     font-size: 0.62rem;
     color: #64748b;
     margin-top: 0.2rem;
