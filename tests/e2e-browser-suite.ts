@@ -16,6 +16,7 @@ async function runE2EBrowserSuite() {
 
   let viteProcess: any = null;
   let browser: any = null;
+  let page: any = null;
   let exitCode = 0;
 
   try {
@@ -62,7 +63,7 @@ async function runE2EBrowserSuite() {
       ]
     });
 
-    const page = await browser.newPage();
+    page = await browser.newPage();
     await page.setViewport({ width: 1440, height: 960, deviceScaleFactor: 1 });
 
     const consoleMessages: string[] = [];
@@ -70,6 +71,7 @@ async function runE2EBrowserSuite() {
 
     page.on('console', msg => {
       const text = msg.text();
+      console.log(`  [Browser Console ${msg.type()}]: ${text}`);
       if (msg.type() === 'error' || text.includes('❌')) {
         consoleErrors.push(text);
       } else {
@@ -78,7 +80,13 @@ async function runE2EBrowserSuite() {
     });
 
     page.on('pageerror', err => {
+      console.log(`  [Browser PageError]: ${err.message}`);
       consoleErrors.push(`[Unhandled JS Exception] ${err.message}`);
+    });
+
+    page.on('requestfailed', req => {
+      console.log(`  [Browser RequestFailed]: ${req.url()}: ${req.failure()?.errorText}`);
+      consoleErrors.push(`[Request Failed] ${req.url()}: ${req.failure()?.errorText}`);
     });
 
     // 3. FASE 1: Carga Inicial e Renderização do Espectrograma WebGL
@@ -86,6 +94,7 @@ async function runE2EBrowserSuite() {
     console.log('📸 STAGE 1: Navegação para a rota do Editor WebGL e Carga Inicial...');
     console.log('--------------------------------------------------------------------------------');
     await page.goto(`${serverUrl}/#/editor`, { waitUntil: 'load', timeout: 20000 });
+    console.log(`  Página carregada: ${page.url()} | Título: ${await page.title()}`);
 
     // Aguarda o Canvas WebGL e a inicialização do WASM
     await page.waitForSelector('canvas', { timeout: 30000 });
@@ -250,6 +259,32 @@ async function runE2EBrowserSuite() {
       throw new Error('O buffer de áudio da ressíntese não foi gerado pelo WASM!');
     }
 
+    // 5.5. FASE 3.5: Teste do Exportador Híbrido Bit-Perfect (MDCT 137 dB + Gabor)
+    console.log('\n--------------------------------------------------------------------------------');
+    console.log('📸 STAGE 3.5: Teste do Exportador Híbrido Bit-Perfect 16-bit...');
+    console.log('--------------------------------------------------------------------------------');
+    
+    // Verifica presença do badge híbrido
+    const hasHybridBadge = await page.evaluate(() => {
+      const badge = document.querySelector('.hybrid-badge');
+      return badge !== null && badge.textContent!.includes('MDCT 137 dB');
+    });
+    console.log(`  Badge de Garantia Bit-Perfect 16-bit: ${hasHybridBadge ? 'PRESENTE ✅' : 'AUSENTE ❌'}`);
+    if (!hasHybridBadge) throw new Error('Badge .hybrid-badge não encontrado!');
+
+    // Clica no botão de exportar
+    console.log('  Disparando exportação via [💾 EXPORTAR 16-BIT]...');
+    await page.evaluate(() => {
+      const exportBtn = document.querySelector('.export-wav-btn') as HTMLButtonElement;
+      if (exportBtn) exportBtn.click();
+    });
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    // Captura de Tela 3.5: Exportação Híbrida Bit-Perfect Concluída
+    const screen3bPath = path.join(SCREENSHOT_DIR, '03b_editor_export_16bit_active.png');
+    await page.screenshot({ path: screen3bPath, fullPage: true });
+    console.log(`  ✅ Screenshot 3.5 salva em: ${screen3bPath}`);
+
     // 6. FASE 4: Teste de Reprodução de Áudio e Playhead
     console.log('\n--------------------------------------------------------------------------------');
     console.log('📸 STAGE 4: Teste de Transporte e Reprodução com Playhead Ativo...');
@@ -281,7 +316,7 @@ async function runE2EBrowserSuite() {
     console.log('\n--------------------------------------------------------------------------------');
     console.log('🖼️ AUDITORIA DE ARQUIVOS DE SCREENSHOT:');
     console.log('--------------------------------------------------------------------------------');
-    const files = [screen1Path, screen2Path, screen2bPath, screen3Path, screen4Path];
+    const files = [screen1Path, screen2Path, screen2bPath, screen3Path, screen3bPath, screen4Path];
     for (const f of files) {
       const stat = fs.statSync(f);
       console.log(`  ${path.basename(f)}: ${stat.size} bytes (Arquivo PNG válido) ✅`);
@@ -298,6 +333,21 @@ async function runE2EBrowserSuite() {
   } catch (error: any) {
     console.error('\n❌ E2E Browser Suite Falhou:');
     console.error(`  ${error.message}`);
+    if (page) {
+      try {
+        const bodyHtml = await page.evaluate(() => document.body.innerHTML);
+        console.error('\n  Page Body HTML Snapshot:');
+        console.error(bodyHtml.substring(0, 1000));
+      } catch {}
+    }
+    if (consoleErrors.length > 0) {
+      console.error('\n  Browser Console Errors:');
+      consoleErrors.forEach(e => console.error(`    ${e}`));
+    }
+    if (consoleMessages.length > 0) {
+      console.error('\n  Recent Browser Console Messages:');
+      consoleMessages.slice(-15).forEach(m => console.error(`    ${m}`));
+    }
     exitCode = 1;
   } finally {
     if (browser) await browser.close().catch(() => {});

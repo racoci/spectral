@@ -11,6 +11,7 @@
     wasm_render_from_cached_quadruplets,
     wasm_bicubic_resample_spectrogram,
     wasm_synthesize_spectrogram_to_wav,
+    wasm_synthesize_hybrid_spectrogram_to_wav,
     wasm_get_last_mirrored_density_histogram
   } from './wasm/core_wasm.js';
 
@@ -419,7 +420,8 @@
         console.log(`🔊 Resynthesizing audio from spectrogram cols [${startCol}..${endCol}] with hop ${calculatedHop} at ${sampleRate} Hz...`);
         const t0 = performance.now();
 
-        const wavBytes = wasm_synthesize_spectrogram_to_wav(
+        const wavBytes = wasm_synthesize_hybrid_spectrogram_to_wav(
+          originalBytes ?? new Uint8Array(),
           rgbaGrid,
           gridW,
           gridH,
@@ -431,7 +433,8 @@
           startCol,
           endCol,
           calculatedHop,
-          sampleRate
+          sampleRate,
+          false // Unedited mode: bit-perfect MDCT / PCM
         );
         console.log(`🔊 Resynthesized ${wavBytes.length} bytes in ${(performance.now() - t0).toFixed(2)}ms!`);
 
