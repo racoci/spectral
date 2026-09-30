@@ -23,8 +23,8 @@
   
   // Globally preserved state
   let originalBytes = $state<Uint8Array | null>(null);
-  let selectedHeight = $state<number>(512);
-  
+  let selectedHeight = $state<number>(1024);
+
   let rgbaGrid = $state<Uint8Array | null>(null);
   let gridW = $state(0);
   let gridH = $state(0);
@@ -34,8 +34,8 @@
   let currentView = $derived<'converter' | 'editor'>(currentHash === '#/converter' ? 'converter' : 'editor');
 
   // Advanced DSP Configurations
-  let windowType = $state<'hann' | 'hamming' | 'gaussian' | 'blackman-harris'>('hann');
-  let windowSize = $state<number>(1024);
+  let windowType = $state<'hann' | 'hamming' | 'gaussian' | 'blackman-harris'>('gaussian');
+  let windowSize = $state<number>(256);
   let zeroPadding = $state<number>(2);
   let fmin = $state<number>(20);
   let fmax = $state<number>(20000);

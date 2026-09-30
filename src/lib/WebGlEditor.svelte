@@ -15,9 +15,9 @@
     height, 
     
     // Bindable advanced DSP parameters
-    windowType = $bindable('hann'),
-    windowSize = $bindable(1024),
-    zeroPadding = $bindable(4),
+    windowType = $bindable('gaussian'),
+    windowSize = $bindable(256),
+    zeroPadding = $bindable(2),
     fmin = $bindable(20),
     fmax = $bindable(20000),
     algorithmType = $bindable('reassignment'),
