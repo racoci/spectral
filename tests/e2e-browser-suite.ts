@@ -300,6 +300,48 @@ async function runE2EBrowserSuite() {
     await page.screenshot({ path: screen4Path, fullPage: true });
     console.log(`  ✅ Screenshot 4 salva em: ${screen4Path}`);
 
+    // 6.5. FASE 4.5: Teste do Motor de Inovação Cardinal de 1 Escalar (Undo / Redo no Espaço Nulo)
+    console.log('\n--------------------------------------------------------------------------------');
+    console.log('📸 STAGE 4.5: Teste de Inovação Cardinal de 1 Escalar (Undo / Redo)...');
+    console.log('--------------------------------------------------------------------------------');
+    
+    // Verifica presença dos botões e do badge de memória
+    const undoAudit = await page.evaluate(() => {
+      const undoBtn = document.querySelector('button.undo-btn') as HTMLButtonElement | null;
+      const redoBtn = document.querySelector('button.redo-btn') as HTMLButtonElement | null;
+      const badge = document.querySelector('.cardinal-memory-badge');
+      return {
+        hasUndo: undoBtn !== null,
+        hasRedo: redoBtn !== null,
+        undoDisabled: undoBtn?.disabled ?? true,
+        badgeText: badge?.textContent ?? ''
+      };
+    });
+    console.log(`  Botões Cardinal Undo/Redo: ${undoAudit.hasUndo && undoAudit.hasRedo ? 'PRESENTES ✅' : 'AUSENTES ❌'}`);
+    console.log(`  Badge de Memória Espaço Nulo: "${undoAudit.badgeText}"`);
+    console.log(`  Estado Inicial do Botão Undo: ${undoAudit.undoDisabled ? 'Desabilitado' : 'Habilitado (Inovações Ativas) ✅'}`);
+
+    // Executa Undo
+    console.log('  Disparando [↩️ UNDO] via clique...');
+    await page.evaluate(() => {
+      const undoBtn = document.querySelector('button.undo-btn') as HTMLButtonElement;
+      if (undoBtn) undoBtn.click();
+    });
+    await new Promise(resolve => setTimeout(resolve, 600));
+
+    // Executa Redo
+    console.log('  Disparando [↪️ REDO] via clique...');
+    await page.evaluate(() => {
+      const redoBtn = document.querySelector('button.redo-btn') as HTMLButtonElement;
+      if (redoBtn) redoBtn.click();
+    });
+    await new Promise(resolve => setTimeout(resolve, 600));
+
+    // Captura de Tela 4.5: Undo/Redo Concluído
+    const screen4bPath = path.join(SCREENSHOT_DIR, '04b_editor_cardinal_undo_redo.png');
+    await page.screenshot({ path: screen4bPath, fullPage: true });
+    console.log(`  ✅ Screenshot 4.5 salva em: ${screen4bPath}`);
+
     // Validação de Ausência de Erros no Console
     console.log('\n--------------------------------------------------------------------------------');
     console.log('🔍 ANÁLISE DE DIAGNÓSTICOS DO NAVEGADOR:');
@@ -316,7 +358,7 @@ async function runE2EBrowserSuite() {
     console.log('\n--------------------------------------------------------------------------------');
     console.log('🖼️ AUDITORIA DE ARQUIVOS DE SCREENSHOT:');
     console.log('--------------------------------------------------------------------------------');
-    const files = [screen1Path, screen2Path, screen2bPath, screen3Path, screen3bPath, screen4Path];
+    const files = [screen1Path, screen2Path, screen2bPath, screen3Path, screen3bPath, screen4Path, screen4bPath];
     for (const f of files) {
       const stat = fs.statSync(f);
       console.log(`  ${path.basename(f)}: ${stat.size} bytes (Arquivo PNG válido) ✅`);

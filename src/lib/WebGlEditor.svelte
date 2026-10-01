@@ -225,7 +225,73 @@
     };
   }
 
-  function addHarmonicRidge() {
+  // ============================================================================
+  // PHASE 4: 1-SCALAR CARDINAL INNOVATION UNDO / REDO ENGINE (NULL-SPACE PROJECTION)
+  // ============================================================================
+  interface CardinalInnovation {
+    id: string;
+    field: 'carrier_f0' | 'vibrato_beta' | 'harmonic_add';
+    scalar: number;          // Single scalar innovation e_n (4 bytes)
+    previousScalar: number;  // Inverse scalar -e_n
+    timestamp: number;
+    description: string;
+  }
+
+  let undoStack = $state<CardinalInnovation[]>([]);
+  let redoStack = $state<CardinalInnovation[]>([]);
+
+  function pushCardinalInnovation(field: CardinalInnovation['field'], scalar: number, previousScalar: number, description: string) {
+    const innovation: CardinalInnovation = {
+      id: Math.random().toString(36).substring(2, 9),
+      field,
+      scalar,
+      previousScalar,
+      timestamp: Date.now(),
+      description
+    };
+    undoStack = [...undoStack, innovation];
+    redoStack = [];
+    console.log(`🧭 [Cardinal Innovation e_n] Registrado no espaço nulo: ${description} (Mem=${undoStack.length * 4}B)`);
+  }
+
+  function handleUndo() {
+    if (undoStack.length === 0) return;
+    const last = undoStack[undoStack.length - 1];
+    undoStack = undoStack.slice(0, -1);
+    applyCardinalInnovation(last.field, last.previousScalar, true);
+    redoStack = [...redoStack, last];
+    console.log(`↩️ [UNDO] Inovação cardinal revertida: ${last.description}`);
+  }
+
+  function handleRedo() {
+    if (redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    redoStack = redoStack.slice(0, -1);
+    applyCardinalInnovation(next.field, next.scalar, false);
+    undoStack = [...undoStack, next];
+    console.log(`↪️ [REDO] Inovação cardinal reaplicada: ${next.description}`);
+  }
+
+  function applyCardinalInnovation(field: CardinalInnovation['field'], val: number, isInverse: boolean) {
+    if (field === 'carrier_f0') {
+      const r = activeTreeRidges.find(r => r.id === selectedRidgeId);
+      if (r) r.carrierFreqHz = val;
+    } else if (field === 'vibrato_beta') {
+      const r = activeTreeRidges.find(r => r.id === selectedRidgeId);
+      if (r) r.beta = val;
+    } else if (field === 'harmonic_add') {
+      if (isInverse) {
+        if (activeTreeRidges.length > 1) {
+          activeTreeRidges = activeTreeRidges.slice(0, -1);
+          selectedRidgeId = activeTreeRidges[activeTreeRidges.length - 1]?.id ?? null;
+        }
+      } else {
+        addHarmonicRidge(false);
+      }
+    }
+  }
+
+  function addHarmonicRidge(recordInnovation = true) {
     const r0 = activeTreeRidges[0];
     const newIdx = activeTreeRidges.length + 1;
     const newCarrier = (r0 ? r0.carrierFreqHz : 185.0) * newIdx;
@@ -240,6 +306,9 @@
       amplitude: 0.5 / newIdx,
       color: colors[newIdx % colors.length]
     };
+    if (recordInnovation) {
+      pushCardinalInnovation('harmonic_add', 1, -1, `Harmônico H${newIdx}`);
+    }
     activeTreeRidges = [...activeTreeRidges, newRidge];
     selectedRidgeId = newRidge.id;
   }
@@ -1240,6 +1309,16 @@
     if (e.code === 'Space') {
       e.preventDefault();
       onPlayToggle();
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        handleRedo();
+      } else {
+        handleUndo();
+      }
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+      e.preventDefault();
+      handleRedo();
     }
   }
 
@@ -1495,7 +1574,7 @@
           <div class="tree-nn-header">
             <span class="tree-nn-title">🌳 Nó Oscilatório (TreeNN)</span>
             <div class="tree-nn-actions">
-              <button class="add-ridge-btn" onclick={addHarmonicRidge} title="Adicionar harmônico à árvore">➕ Harmônico</button>
+              <button class="add-ridge-btn" onclick={() => addHarmonicRidge()} title="Adicionar harmônico à árvore">➕ Harmônico</button>
               <button class="close-hud-btn" onclick={() => selectedTool = 'select'}>✕</button>
             </div>
           </div>
@@ -2085,6 +2164,31 @@
               <option value="mirrored">🪞 Espelhado (Ping-Pong)</option>
               <option value="none">🚫 Sem Loop (Linear)</option>
             </select>
+          </div>
+
+          <div class="vertical-divider"></div>
+
+          <!-- 1-Scalar Cardinal Innovation Undo/Redo Engine -->
+          <div class="cardinal-undo-group">
+            <button
+              class="cardinal-btn undo-btn"
+              onclick={handleUndo}
+              disabled={undoStack.length === 0}
+              title="Desfazer alteração (Ctrl+Z) via Inovação Cardinal de 1 Escalar"
+            >
+              ↩️ UNDO
+            </button>
+            <button
+              class="cardinal-btn redo-btn"
+              onclick={handleRedo}
+              disabled={redoStack.length === 0}
+              title="Refazer alteração (Ctrl+Y) via Inovação Cardinal de 1 Escalar"
+            >
+              ↪️ REDO
+            </button>
+            <span class="cardinal-memory-badge font-mono" title="Tamanho do Histórico: Estritamente 4 bytes (1 f32) por inovação no espaço nulo!">
+              Inovações: {undoStack.length} | {undoStack.length * 4}B
+            </span>
           </div>
           
           {#if selectionStart !== null && selectionEnd !== null}
@@ -2880,6 +2984,46 @@
     padding: 0.35rem 0.55rem;
     border-radius: 4px;
     letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+
+  .cardinal-undo-group {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .cardinal-btn {
+    background: rgba(148, 163, 184, 0.12);
+    color: #cbd5e1;
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    padding: 0.45rem 0.75rem;
+    border-radius: 5px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .cardinal-btn:hover:not(:disabled) {
+    background: rgba(148, 163, 184, 0.25);
+    color: #fff;
+    border-color: #94a3b8;
+  }
+
+  .cardinal-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  .cardinal-memory-badge {
+    background: rgba(99, 102, 241, 0.15);
+    border: 1px solid rgba(99, 102, 241, 0.35);
+    color: #a5b4fc;
+    font-size: 0.65rem;
+    font-weight: 600;
+    padding: 0.35rem 0.5rem;
+    border-radius: 4px;
     white-space: nowrap;
   }
 

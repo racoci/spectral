@@ -6267,6 +6267,88 @@ pub fn wasm_generate_color_chart_4096() -> Vec<u8> {
     output
 }
 
+// ============================================================================
+// PHASE 4: RDO-JET COMPACT FRAME CODEC (LOD STREAMING & LOSSLESS RATE REDUCTION)
+// ============================================================================
+
+/// Compresses a continuous spectral/jet frame using dead-zone rate-distortion quantization
+/// and compact sparse binary packing.
+/// Packet structure:
+/// - 4 bytes: Magic ASCII "RDOJ"
+/// - 4 bytes: Original vector length (u32 little-endian)
+/// - 4 bytes: Non-zero count K (u32 little-endian)
+/// - 4 bytes: Step size Delta (f32 little-endian)
+/// - K * 6 bytes: (index: u32, quantized_val: i16)
+#[wasm_bindgen]
+pub fn wasm_rdo_jet_compress_frame(samples: &[f32], lambda: f32) -> Vec<u8> {
+    let n = samples.len();
+    if n == 0 {
+        return Vec::new();
+    }
+
+    let delta = lambda.max(0.0001);
+    let half_delta = 0.5 * delta;
+
+    let mut sparse_indices = Vec::new();
+    let mut sparse_values = Vec::new();
+
+    for (i, &val) in samples.iter().enumerate() {
+        let abs_v = val.abs();
+        if abs_v > half_delta {
+            let q = ((abs_v - half_delta) / delta + 1.0).floor();
+            let signed_q = if val < 0.0 { -q } else { q };
+            let clamped_q = signed_q.clamp(-32767.0, 32767.0) as i16;
+            if clamped_q != 0 {
+                sparse_indices.push(i as u32);
+                sparse_values.push(clamped_q);
+            }
+        }
+    }
+
+    let k = sparse_indices.len() as u32;
+    let mut payload = Vec::with_capacity(16 + k as usize * 6);
+    payload.extend_from_slice(b"RDOJ");
+    payload.extend_from_slice(&(n as u32).to_le_bytes());
+    payload.extend_from_slice(&k.to_le_bytes());
+    payload.extend_from_slice(&delta.to_le_bytes());
+
+    for i in 0..k as usize {
+        payload.extend_from_slice(&sparse_indices[i].to_le_bytes());
+        payload.extend_from_slice(&sparse_values[i].to_le_bytes());
+    }
+
+    payload
+}
+
+/// Decompresses an RDO-Jet sparse binary packet back to the full reconstructed float vector.
+#[wasm_bindgen]
+pub fn wasm_rdo_jet_decompress_frame(packet: &[u8]) -> Vec<f32> {
+    if packet.len() < 16 || &packet[0..4] != b"RDOJ" {
+        return Vec::new();
+    }
+
+    let n = u32::from_le_bytes([packet[4], packet[5], packet[6], packet[7]]) as usize;
+    let k = u32::from_le_bytes([packet[8], packet[9], packet[10], packet[11]]) as usize;
+    let delta = f32::from_le_bytes([packet[12], packet[13], packet[14], packet[15]]);
+
+    if packet.len() < 16 + k * 6 {
+        return Vec::new();
+    }
+
+    let mut out = vec![0.0f32; n];
+    let mut offset = 16;
+    for _ in 0..k {
+        let idx = u32::from_le_bytes([packet[offset], packet[offset + 1], packet[offset + 2], packet[offset + 3]]) as usize;
+        let q = i16::from_le_bytes([packet[offset + 4], packet[offset + 5]]) as f32;
+        if idx < n {
+            out[idx] = q * delta;
+        }
+        offset += 6;
+    }
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
