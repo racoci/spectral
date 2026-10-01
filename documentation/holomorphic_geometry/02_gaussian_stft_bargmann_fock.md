@@ -17,21 +17,24 @@ $$\boxed{z = \frac{x - i y}{\sqrt{2}} = \frac{1}{\sqrt{2}} \left( \frac{t}{\sigm
 A Transformada de Bargmann de $x(\tau)$ é a função holomorfa inteira definida por:
 $$B_x(z) = \left(\frac{2}{\pi \sigma^2}\right)^{1/4} \int_{-\infty}^\infty x(\tau) e^{-\frac{\tau^2}{2\sigma^2}} e^{\frac{\sqrt{2}\tau z}{\sigma} - \frac{z^2}{2}} d\tau$$
 
-A relação fundamental que conecta a STFT física e a função holomorfa $B_x(z)$ é:
-$$\boxed{V_g x(t, f) = e^{-|z|^2 / 2} B_x(z)} \qquad \iff \qquad \boxed{B_x(z) = e^{|z|^2 / 2} V_g x(t, f)}$$
+A relação que conecta a STFT física e a função holomorfa $B_x(z)$ depende da convenção de fase e do gauge escolhido:
+Para a convenção com modulação positiva $V_g^+ x(t, f) = \int_{\mathbb{R}} x(\tau) e^{-\pi(\tau-t)^2} e^{2\pi i f \tau} d\tau$ e $z = t + i f$:
+$$\boxed{B_x(z) = e^{\pi t^2 - \pi z^2 / 2} V_g^+ x(t, f)}$$
+onde $B_x(z)$ é uma função inteira satisfazendo rigorosamente:
+$$\boxed{\partial_t B_x + i \partial_f B_x = 0 \iff \partial_{\bar{z}} B_x = 0}$$
 
 ```text
                         +---------------------------------------+
-                        |   STFT Gaussiana Bruta: V_g x(t, f)   |
+                        |   STFT Gaussiana Bruta: V_g^+ x(t, f) |
                         +-------------------+-------------------+
                                             |
-                              Remoção da Envoltória Gaussiana:
-                                  B_x(z) = e^(|z|^2 / 2) * V_g
+                              Fator de Gauge Exato de Bargmann:
+                              B_x(z) = e^(pi*t^2 - pi*z^2/2) * V_g
                                             |
                                             v
                         +---------------------------------------+
                         |  Função Inteira de Bargmann B_x(z)    |
-                        |      z in C (Plano Complexo Inteiro)  |
+                        |      z = t + i*f (Plano Inteiro C)    |
                         +-------------------+-------------------+
                                             |
                       +---------------------+---------------------+
@@ -40,14 +43,14 @@ $$\boxed{V_g x(t, f) = e^{-|z|^2 / 2} B_x(z)} \qquad \iff \qquad \boxed{B_x(z) =
        +-----------------------------+             +-----------------------------+
        |   Holomorfia de Bargmann    |             |    Curvatura de Poisson     |
        |       d_zbar B_x = 0        |             |    Delta log|B_x| = 0       |
-       |  d_f B = 2*pi*i*sigma^2*d_tB|             |    Delta log|V_g| = -1      |
+       |     d_t B + i * d_f B = 0   |             |    Delta log|V_g| = -1      |
        +-----------------------------+             +-----------------------------+
 ```
 
 ```mermaid
 graph TD
-    STFT["STFT Gaussiana: V_g x(t, f)"] --> Weight["Remoção do Peso: B_x(z) = exp(|z|^2 / 2) * V_g"]
-    Weight --> Bargmann["Função Inteira B_x(z): Plano C"]
+    STFT["STFT Gaussiana: V_g^+ x(t, f)"] --> Gauge["Fator de Gauge: B_x(z) = exp(pi*t^2 - pi*z^2/2) * V_g"]
+    Gauge --> Bargmann["Função Inteira B_x(z): Plano C"]
     Bargmann --> Holo["Holomorfia: d_zbar B_x = 0"]
     Holo --> PDE["EDP no Plano: d_f B = 2*pi*i*sigma^2 * d_t B"]
     Bargmann --> Poisson["Curvatura Espectral Constante: Delta log|V_g| = -1"]

@@ -86,6 +86,9 @@ fn test_tc01_singularity_silence_tikhonov() {
         Complex32::default(),
         Complex32::default(),
         Complex32::default(),
+        Complex32::default(),
+        Complex32::default(),
+        Complex32::default(),
         1000.0,
         0.0,
     );
@@ -200,7 +203,7 @@ fn test_tc03_hessian_singularity_and_isotropic_points() {
     let s1 = Complex32::new(0.0, 0.0);
     let s_zeros = Complex32::default();
     let d_flat = compute_faa_di_bruno_derivatives(
-        2, s0, s1, s1, s_zeros, s_zeros, s_zeros, s_zeros, s_zeros, s_zeros, s_zeros, s_zeros, s_zeros, 1000.0, 0.0,
+        2, s0, s1, s1, s_zeros, s_zeros, s_zeros, s_zeros, s_zeros, s_zeros, s_zeros, s_zeros, s_zeros, s_zeros, s_zeros, s_zeros, 1000.0, 0.0,
     );
     assert_eq!(d_flat.hessian_det, 0.0);
     assert_eq!(d_flat.delta_t_star, 0.0);
@@ -210,7 +213,7 @@ fn test_tc03_hessian_singularity_and_isotropic_points() {
     // Caso 2: Ponto isotrópico (h_tt = h_ww, h_tw = 0)
     let s2_iso = Complex32::new(-40.0, 0.0);
     let d_iso = compute_faa_di_bruno_derivatives(
-        2, s0, s1, s1, s2_iso, s_zeros, s2_iso, s_zeros, s_zeros, s_zeros, s_zeros, s_zeros, s_zeros, 1000.0, 0.0,
+        2, s0, s1, s1, s2_iso, s_zeros, s2_iso, s_zeros, s_zeros, s_zeros, s_zeros, s_zeros, s_zeros, s_zeros, s_zeros, s_zeros, 1000.0, 0.0,
     );
     assert!((d_iso.lambda_1 - d_iso.lambda_2).abs() < 1e-5);
     assert!(d_iso.anisotropy < 1e-5, "Anisotropia deve ser zero para ponto isotrópico");

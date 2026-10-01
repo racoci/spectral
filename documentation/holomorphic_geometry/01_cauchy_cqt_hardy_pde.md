@@ -131,3 +131,60 @@ Isso implica que:
 2. **Harmonicidade da Fase**: $\Delta_{(t, \eta)} \phi = 0$.
 3. **Conjugação Harmônica**: O campo de fase $\phi$ é a conjugada harmônica de $\log A_F$.  
    Consequentemente, **amplitude e fase não possuem graus de liberdade independentes**: as curvas de nível de magnitude $\log A_F = \text{cte}$ cruzam as linhas de fase constante $\phi = \text{cte}$ **em ângulos rigorosamente ortogonais ($90^\circ$)** em todo o plano tempo-frequência!
+
+---
+
+## 7. Redução Estrutural do Jet 2D para Série de Taylor 1D
+
+Para um campo bidimensional genérico $G(t, p)$, a expansão de Taylor exige uma matriz de derivadas parciais mistas:
+$$G(t + \Delta t, p + \Delta p) = \sum_{m,n} \frac{\partial_t^m \partial_p^n G}{m! n!} \Delta t^m \Delta p^n$$
+
+No entanto, pela relação $\partial_p^n F = \left( i \frac{q}{2\pi} \right)^n \partial_t^n F$, todas as derivadas verticais são geradas exclusivamente pelas derivadas temporais da mesma função.  
+No plano complexo com $\Delta z = \Delta t + i \frac{q \Delta p}{2\pi}$, a expansão colapsa para uma **única série de Taylor unidimensional**:
+$$\boxed{F(z + \Delta z) = \sum_{n=0}^\infty \frac{F^{(n)}(z)}{n!} (\Delta z)^n}$$
+
+> **Impacto no Codec e Compressão**:  
+> O armazenamento de um jet bidimensional completo de ordem $O$ (com $\frac{(O+1)(O+2)}{2}$ tensores) colapsa para estritamente **$O+1$ números complexos $F^{(n)}(z)$**.
+
+---
+
+## 8. Semigrupo de Suavização Vertical e Dissipação de Energia
+
+A representação $F(t, \eta) = C \int_0^\infty \hat{x}(f) f^q e^{-2\pi f \eta} e^{2\pi i f t} df$ revela que o deslocamento vertical $\eta = \frac{qp}{2\pi}$ atua como um **semigrupo de convolução espectral**:
+$$\mathcal{P}_{\eta_1}^+ \mathcal{P}_{\eta_2}^+ = \mathcal{P}_{\eta_1 + \eta_2}^+$$
+A equação fundamental de evolução é a equação de transporte no plano complexo:
+$$\boxed{\partial_\eta F = i \partial_t F}$$
+
+Pelo Teorema de Parseval, a energia $L^2$ em cada linha horizontal é monotonicamente não crescente com a profundidade no semiplano:
+$$\frac{d}{d\eta} \|F(\cdot, \eta)\|_2^2 = -4\pi C^2 \int_0^\infty f |\hat{x}(f)|^2 f^{2q} e^{-4\pi f \eta} df \le 0$$
+À medida que subimos no semiplano (maior $\eta \iff$ maior período $p \iff$ menores frequências), as altas frequências são suave e analiticamente atenuadas.
+
+---
+
+## 9. O Limite da Fronteira $\eta \to 0^+$ como Sinal Analítico Fracionário
+
+No limite inferior do semiplano ($\eta \to 0^+$):
+$$F(t, 0^+) = C \int_0^\infty \hat{x}(f) f^q e^{2\pi i f t} df$$
+* Para $q = 0$, $F(t, 0^+)$ é rigorosamente o **sinal analítico** $x_+(t) = x(t) + i \mathcal{H}[x](t)$.
+* Para $q > 0$, $f^q$ corresponde à **derivada temporal fracionária** $\mathcal{D}_+^q$ do sinal analítico.  
+Portanto, a Transformada de Cauchy é a **extensão holomorfa no semiplano de uma derivada fracionária do sinal analítico**.
+
+---
+
+## 10. Extensão Inteira para Sinais com Banda Limitada (Nyquist)
+
+Se o sinal de áudio $x(t)$ for estritamente limitado em banda ($\hat{x}(f) = 0$ para $f > F_{\text{max}}$):
+$$F(z) = C \int_0^{F_{\text{max}}} \hat{x}(f) f^q e^{2\pi i f z} df$$
+A integral converge absolutamente para **todo $z \in \mathbb{C}$** (inclusive no semiplano inferior $\operatorname{Im} z \le 0$).  
+Assim, para áudio digital amostrado a $f_s$, **$F(z)$ estende-se como uma função inteira em todo o plano complexo**, herdando o Teorema de Fatoração de Hadamard por zeros pontuais.
+
+---
+
+## 11. Princípio do Módulo Máximo e Fontes de Curvatura
+
+1. **Ausência de Extremos Interiores**:
+   Pelo Princípio do Módulo Máximo da análise complexa, $|F(z)|$ e $\log |F(z)|$ **não possuem máximos nem mínimos locais estritos no interior do semiplano $\mathbb{H}^+$**.
+2. **Topologia dos Zeros**:
+   Nos pontos isolados $z_k$ onde $F(z_k) = 0$ com multiplicidade $m_k$, a log-magnitude comporta-se como:
+   $$\boxed{\Delta_{(t, \eta)} \log |F| = 2\pi \sum_k m_k \delta(z - z_k)}$$
+   Os zeros agem exatamente como **cargas pontuais / vórtices topológicos** na geometria bidimensional, em torno dos quais a fase sofre uma circulação inteira $\oint d\phi = 2\pi m_k$.

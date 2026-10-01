@@ -8,6 +8,7 @@ pub mod multi_track;
 pub mod higher_order;
 pub mod synthetic_scene;
 pub mod tree_nn;
+pub mod cauchy_jet;
 
 pub use geometry::*;
 pub use model::*;
@@ -15,3 +16,4 @@ pub use spline_fit::*;
 pub use higher_order::*;
 pub use synthetic_scene::*;
 pub use tree_nn::*;
+pub use cauchy_jet::*;
