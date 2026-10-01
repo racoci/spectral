@@ -4342,14 +4342,12 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
     let mut fc_lut = vec![0.0f32; h];
     let mut k_f_lut = vec![0.0f32; h];
     
-    // 1.5. Precompute Sparse Spectral CQT Kernels to eliminate log2() and exp() inside the loop!
-    let sigma_y = 0.95 * step;
-    let sigma_y_sq = sigma_y * sigma_y;
-    let bandwidth_octaves = 3.0 * sigma_y;
+    // 1.5. Precompute Cauchy Wavelet Differential Ladder Kernels (H0 and H1 = u * H0)
+    let q_cauchy = (1.0 / (2.0f32.powf(step) - 1.0)).clamp(1.5, 6.0);
     
     let mut cqt_k_low_lut = vec![0usize; h];
     let mut cqt_k_high_lut = vec![0usize; h];
-    // Array of (g_val, gy_val) for each sparse bin
+    // Array of (h0_val, h1_val) for each sparse bin
     let mut cqt_kernels_lut: Vec<Vec<(f32, f32)>> = vec![Vec::new(); h];
     
     let is_linear = scale_type == "linear";
@@ -4364,17 +4362,9 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
         fc_lut[j] = fc;
         k_f_lut[j] = fc * n_stft as f32 / fs_f32;
         
-        // Compute sparse bounds
-        let f_low = if is_linear {
-            (fc - (fc * (2.0f32.powf(step) - 1.0) * 1.5)).max(fmin)
-        } else {
-            fc * 2.0f32.powf(-bandwidth_octaves)
-        };
-        let f_high = if is_linear {
-            (fc + (fc * (2.0f32.powf(step) - 1.0) * 1.5)).min(fs_f32 / 2.0)
-        } else {
-            fc * 2.0f32.powf(bandwidth_octaves)
-        };
+        // Cauchy filter support: u = f / fc from ~0.2 to ~3.0
+        let f_low = (fc * 0.2).max(fmin);
+        let f_high = (fc * 3.0).min(fs_f32 / 2.0);
         
         let k_low = (f_low * n_stft as f32 / fs_f32).round() as isize;
         let k_high = (f_high * n_stft as f32 / fs_f32).round() as isize;
@@ -4384,21 +4374,18 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
         cqt_k_low_lut[j] = k_low_u;
         cqt_k_high_lut[j] = k_high_u;
         
-        let y_j = if is_linear {
-            (fc / fmin).log2()
-        } else {
-            j as f32 * step
-        };
         let mut kernel = Vec::with_capacity(k_high_u - k_low_u + 1);
         
         for curr_k in k_low_u..=k_high_u {
             let f_k = curr_k as f32 * fs_f32 / n_stft as f32;
-            if f_k >= fmin {
-                let y_f = (f_k / fmin).log2();
-                let dy_val = y_f - y_j;
-                let g_val = (-0.5 * (dy_val * dy_val) / sigma_y_sq).exp();
-                let gy_val = -(dy_val / sigma_y_sq) * g_val;
-                kernel.push((g_val, gy_val));
+            let u = f_k / fc;
+            if u > 1e-4 {
+                // Cauchy mother wavelet: H_0(u) = (u * e^(1-u))^q
+                let base = u * (1.0 - u).exp();
+                let h0_val = base.powf(q_cauchy);
+                // 1st Differential Ladder Wavelet: H_1(u) = u * H_0(u)
+                let h1_val = u * h0_val;
+                kernel.push((h0_val, h1_val));
             } else {
                 kernel.push((0.0, 0.0));
             }
@@ -4609,100 +4596,124 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
                     }
                 }
             } else if algorithm_type == "cqt" {
-                    // Constant-Q Log-Gaussian Spectral Jet (fCQT-Jet) - ZERO ALLOCATION / O(1) LUT HOT LOOP!
+                    // Cauchy Wavelet Differential Ladder CQT (W0 and W1 = u * W0)
                     let k_low = cqt_k_low_lut[j];
                     let k_high = cqt_k_high_lut[j];
                     let kernel = &cqt_kernels_lut[j];
                     
-                    let mut cqt_re = 0.0f32;
-                    let mut cqt_im = 0.0f32;
-                    let mut cqty_re = 0.0f32;
-                    let mut cqty_im = 0.0f32;
+                    let mut w0_re = 0.0f32;
+                    let mut w0_im = 0.0f32;
+                    let mut w1_re = 0.0f32;
+                    let mut w1_im = 0.0f32;
                     let mut weight_sum = 0.0f32;
                     
-                    // Sum over the support of the log-Gaussian filter using pre-computed LUT values!
                     let phase_multiplier = 2.0 * std::f32::consts::PI * (c * hop) as f32 / n_stft as f32;
                     
                     for (i, curr_k) in (k_low..=k_high).enumerate() {
-                        let (g_val, gy_val) = kernel[i];
+                        let (h0_val, h1_val) = kernel[i];
                         
-                        if g_val > 1e-6 {
+                        if h0_val > 1e-6 {
                             let y_k = buffer_h_th[curr_k];
                             let y_sym = buffer_h_th[n_stft - curr_k];
                             let fft_bin = Complex::new(0.5 * (y_k.re + y_sym.re), 0.5 * (y_k.im - y_sym.im));
                             
-                            // Compute the continuous phase-shifted sum for sample index n = c * hop
-                            // e^(i 2pi k n / N)
                             let angle = curr_k as f32 * phase_multiplier;
                             let phase_shifter = Complex::new(angle.cos(), angle.sin());
-                            
                             let shifted_bin = fft_bin * phase_shifter;
                             
-                            cqt_re += shifted_bin.re * g_val;
-                            cqt_im += shifted_bin.im * g_val;
+                            w0_re += shifted_bin.re * h0_val;
+                            w0_im += shifted_bin.im * h0_val;
                             
-                            cqty_re += shifted_bin.re * gy_val;
-                            cqty_im += shifted_bin.im * gy_val;
+                            w1_re += shifted_bin.re * h1_val;
+                            w1_im += shifted_bin.im * h1_val;
                             
-                            weight_sum += g_val;
+                            weight_sum += h0_val;
                         }
                     }
                     
                     if weight_sum > 1e-15 {
-                        let cqt_coeff = Complex::new(cqt_re / n_stft as f32, cqt_im / n_stft as f32);
-                        let cqty_coeff = Complex::new(cqty_re / n_stft as f32, cqty_im / n_stft as f32);
+                        let w0 = Complex::new(w0_re / n_stft as f32, w0_im / n_stft as f32);
+                        let w1 = Complex::new(w1_re / n_stft as f32, w1_im / n_stft as f32);
                         
-                        let abs_cqt = (cqt_coeff.re * cqt_coeff.re + cqt_coeff.im * cqt_coeff.im).sqrt();
+                        let abs_w0_sq = w0.re * w0.re + w0.im * w0.im;
                         
-                        if abs_cqt > 1e-12 {
-                            // Compute exact analytical derivatives of log-amplitude and phase with respect to y!
-                            // ratio = C_y / C
-                            let ratio = cqty_coeff * cqt_coeff.conj() / (abs_cqt * abs_cqt);
-                            let d_log_A_dy = ratio.re;
-                            let d_phi_dy = ratio.im;
+                        if abs_w0_sq > 1e-12 {
+                            // Exact Cauchy Wavelet Reassignment Quotient: R = W1 / W0
+                            let w1_w0_conj = w1 * w0.conj();
+                            let re_r = w1_w0_conj.re / abs_w0_sq;
+                            let im_r = w1_w0_conj.im / abs_w0_sq;
                             
-                            // We can use these derivatives to sharpen the visualization reassigning along the Y axis!
-                            // Frequency reassigned coordinate:
-                            let j_reassigned_f = if is_linear {
-                                let y_j = (fc / fmin).log2();
-                                let y_reassigned = y_j + d_phi_dy * step;
-                                let f_reassigned = fmin * 2.0f32.powf(y_reassigned);
-                                ((f_reassigned - fmin) / (fmax - fmin)) * (h as f32 - 1.0)
+                            // Reassigned frequency: f_hat = (1/p) * Re{R} = fc * Re{R}
+                            let f_reassigned = if reassign_freq && max_order >= 1 {
+                                (fc * re_r).clamp(fmin * 0.5, fmax * 1.5)
                             } else {
-                                j as f32 + d_phi_dy * step
+                                fc
                             };
                             
-                            // We can also perform 1D Gaussian sharpening spread along the Y-axis scaled by point_radius!
-                            let sig_f = (point_radius * 0.5 / (1.0 + d_log_A_dy.abs())).clamp(0.05, 5.0);
+                            // Reassigned time: t_hat = t - (q * p / (2*pi)) * Im{R}
+                            let p_period = 1.0 / fc;
+                            let q_param = 2.0f32;
+                            let t_shift_s = if reassign_time && max_order >= 1 {
+                                -(q_param * p_period / (2.0 * std::f32::consts::PI)) * im_r
+                            } else {
+                                0.0
+                            };
+                            let t_reassigned_samples = (c * hop) as f32 + t_shift_s * fs_f32;
+                            let c_reassigned_f = t_reassigned_samples / hop as f32;
                             
+                            let j_reassigned_f = if is_linear {
+                                ((f_reassigned - fmin) / (fmax - fmin)) * (h as f32 - 1.0)
+                            } else {
+                                (f_reassigned / fmin).log2() / step
+                            };
+                            
+                            let c_reassigned_i = c_reassigned_f.round() as isize;
                             let j_reassigned_i = j_reassigned_f.round() as isize;
+                            let dx = c_reassigned_f - c_reassigned_i as f32;
                             let dy = j_reassigned_f - j_reassigned_i as f32;
                             
-                            // Distribute complex energy along the Y axis using 1D Gaussian spread of 3 bins
-                            let mut w_sum = 0.0f32;
-                            let mut w_vals = [0.0f32; 3];
+                            // 1st order derivative of log-amplitude along vertical y:
+                            // d_log_A_dy = ln(2) * Re{ q * R - (q + 0.5) }
+                            let d_log_A_dy = (std::f32::consts::LN_2 * (q_param * re_r - (q_param + 0.5))).abs();
+                            let sig_f = (point_radius * 0.5 / (1.0 + d_log_A_dy)).clamp(0.1, 4.0);
+                            let sig_t = (point_radius * 0.5).clamp(0.1, 4.0);
                             
-                            for oy in -1isize..=1isize {
-                                let dist_y = oy as f32 - dy;
-                                let w_val = (-0.5 * (dist_y * dist_y) / (sig_f * sig_f)).exp();
-                                w_vals[(oy + 1) as usize] = w_val;
-                                w_sum += w_val;
-                            }
+                            let inv_2_sig_t_sq = 0.5 / (sig_t * sig_t);
+                            let inv_2_sig_f_sq = 0.5 / (sig_f * sig_f);
                             
-                            if w_sum > 1e-15 {
+                            let wx_m1 = (-(-1.0 - dx) * (-1.0 - dx) * inv_2_sig_t_sq).exp();
+                            let wx_0  = (-(-dx * dx) * inv_2_sig_t_sq).exp();
+                            let wx_p1 = (-( 1.0 - dx) * ( 1.0 - dx) * inv_2_sig_t_sq).exp();
+                            
+                            let wy_m1 = (-(-1.0 - dy) * (-1.0 - dy) * inv_2_sig_f_sq).exp();
+                            let wy_0  = (-(-dy * dy) * inv_2_sig_f_sq).exp();
+                            let wy_p1 = (-( 1.0 - dy) * ( 1.0 - dy) * inv_2_sig_f_sq).exp();
+                            
+                            let sum_x = wx_m1 + wx_0 + wx_p1;
+                            let sum_y = wy_m1 + wy_0 + wy_p1;
+                            let inv_sum = 1.0 / ((sum_x * sum_y).max(1e-12));
+                            
+                            let wx = [wx_m1, wx_0, wx_p1];
+                            let wy = [wy_m1, wy_0, wy_p1];
+                            
+                            for ox in -1isize..=1isize {
+                                let curr_c = c_reassigned_i + ox;
+                                if curr_c < 0 || curr_c >= w as isize { continue; }
+                                let w_x_val = wx[(ox + 1) as usize];
+                                
                                 for oy in -1isize..=1isize {
                                     let curr_j = j_reassigned_i + oy;
                                     if curr_j >= 0 && curr_j < h as isize {
-                                        let target_idx_cqt = curr_j as usize * w + c;
-                                        let norm_w = w_vals[(oy + 1) as usize] / w_sum;
-                                        reassigned_grid_re[target_idx_cqt] += cqt_coeff.re * norm_w * 4194304.0; // scale back
-                                        reassigned_grid_im[target_idx_cqt] += cqt_coeff.im * norm_w * 4194304.0;
+                                        let target_idx_cqt = curr_j as usize * w + curr_c as usize;
+                                        let norm_w = (w_x_val * wy[(oy + 1) as usize]) * inv_sum;
+                                        reassigned_grid_re[target_idx_cqt] += w0.re * norm_w * 4194304.0;
+                                        reassigned_grid_im[target_idx_cqt] += w0.im * norm_w * 4194304.0;
                                     }
                                 }
                             }
                         } else {
-                            reassigned_grid_re[target_idx] = cqt_coeff.re * 4194304.0;
-                            reassigned_grid_im[target_idx] = cqt_coeff.im * 4194304.0;
+                            reassigned_grid_re[target_idx] = w0.re * 4194304.0;
+                            reassigned_grid_im[target_idx] = w0.im * 4194304.0;
                         }
                     }
                 } else {

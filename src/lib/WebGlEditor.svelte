@@ -1813,12 +1813,25 @@
               <label for="algorithm-select">Visualizador:</label>
               <select id="algorithm-select" bind:value={algorithmType} onchange={() => onAdaptiveInteract()}>
                 <option value="reassignment">Auger-Flandrin Reassign (Canônico)</option>
+                <option value="cqt">🌊 Wavelet de Cauchy CQT (Escada W0..WO Reassign)</option>
                 <option value="higher_order">🧪 Derivadas de Ordem Superior (Hessiana / Cristas)</option>
                 <option value="sliding_jet">⚡ Sliding Jet DFT (Zero-FFT O(1) Real-Time)</option>
-                <option value="cqt">Constant-Q (Projeção Esparsa)</option>
                 <option value="log">Smooth Log-Spectrogram</option>
               </select>
             </div>
+
+            {#if algorithmType === 'cqt'}
+              <div class="higher-order-panel cauchy-cqt-panel">
+                <div class="experimental-header">
+                  <h4>🌊 Wavelet de Cauchy CQT (Escada Diferencial)</h4>
+                  <span class="badge-jet">ANALÍTICA</span>
+                </div>
+                <p class="experimental-desc">
+                  Escada Cauchy: <code>ψ̂_q,n(f) = fⁿ ψ̂_q(f)</code> com quociente <code>R = W₁ / W₀</code>.
+                  Reatribuição 2D exata: <code>f̂ = f_c · Re(R)</code> e <code>t̂ = t - (qp/2π) · Im(R)</code>.
+                </p>
+              </div>
+            {/if}
 
             {#if algorithmType === 'higher_order'}
               <div class="higher-order-panel experimental-section">

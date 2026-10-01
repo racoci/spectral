@@ -342,6 +342,34 @@ async function runE2EBrowserSuite() {
     await page.screenshot({ path: screen4bPath, fullPage: true });
     console.log(`  ✅ Screenshot 4.5 salva em: ${screen4bPath}`);
 
+    // 7. FASE 5: Teste da Wavelet de Cauchy CQT com Escada Diferencial (W0..WO)
+    console.log('\n--------------------------------------------------------------------------------');
+    console.log('📸 STAGE 5: Teste da Wavelet de Cauchy CQT (Escada Diferencial W0..WO)...');
+    console.log('--------------------------------------------------------------------------------');
+    
+    // Seleciona o algoritmo CQT
+    console.log('  Alternando algoritmo para Wavelet de Cauchy CQT...');
+    await page.evaluate(() => {
+      const algoSelect = document.querySelector('#algorithm-select') as HTMLSelectElement | null;
+      if (algoSelect) {
+        algoSelect.value = 'cqt';
+        algoSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+    await new Promise(resolve => setTimeout(resolve, 2500)); // Aguarda processamento CQT no WASM
+
+    // Verifica card informativo da Cauchy CQT
+    const hasCauchyPanel = await page.evaluate(() => {
+      const panel = document.querySelector('.cauchy-cqt-panel');
+      return panel !== null;
+    });
+    console.log(`  Painel Informativo da Escada de Cauchy: ${hasCauchyPanel ? 'PRESENTE ✅' : 'AUSENTE ❌'}`);
+
+    // Captura de Tela 5: Wavelet de Cauchy CQT Ativa
+    const screen5Path = path.join(SCREENSHOT_DIR, '05_editor_cauchy_cqt_active.png');
+    await page.screenshot({ path: screen5Path, fullPage: true });
+    console.log(`  ✅ Screenshot 5 salva em: ${screen5Path}`);
+
     // Validação de Ausência de Erros no Console
     console.log('\n--------------------------------------------------------------------------------');
     console.log('🔍 ANÁLISE DE DIAGNÓSTICOS DO NAVEGADOR:');
@@ -358,7 +386,7 @@ async function runE2EBrowserSuite() {
     console.log('\n--------------------------------------------------------------------------------');
     console.log('🖼️ AUDITORIA DE ARQUIVOS DE SCREENSHOT:');
     console.log('--------------------------------------------------------------------------------');
-    const files = [screen1Path, screen2Path, screen2bPath, screen3Path, screen3bPath, screen4Path, screen4bPath];
+    const files = [screen1Path, screen2Path, screen2bPath, screen3Path, screen3bPath, screen4Path, screen4bPath, screen5Path];
     for (const f of files) {
       const stat = fs.statSync(f);
       console.log(`  ${path.basename(f)}: ${stat.size} bytes (Arquivo PNG válido) ✅`);
