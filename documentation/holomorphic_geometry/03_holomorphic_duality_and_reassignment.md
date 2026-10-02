@@ -78,4 +78,27 @@ $$\mathbf{v}_{\text{reassign}} \propto \nabla \log |\Psi|$$
 Como $\nabla \log |\Psi| \perp \nabla \phi$:
 *   As **cristas de ressonância** (ressonâncias vocais, harmônicos de instrumentos) são bacias de atração do fluxo de reatribuição.
 *   Os **zeros do sinal** (singularidades topológicas de fase onde $\Psi(z) = 0$) são pontos de repulsão onde o campo de fase circula com índice de enrolamento (*winding number*) não nulo:
-    $$\oint_{\gamma} d\phi = 2\pi k, \quad k \in \mathbb{Z}$$
+    $$\oint_{\gamma_k} d\phi = 2\pi k, \quad k \in \mathbb{Z}$$
+
+---
+
+## 4. Parametrização Canônica e Potenciais Duais $\Phi_B$ vs $\Phi_C$
+
+Absorvendo o fator $2\pi$ na definição do parâmetro de forma da Cauchy ($q_{\text{antigo}} = 2\pi q_{\text{novo}}$):
+$$F(z) = C_C \int_0^\infty \hat{x}(f) \exp\left[ 2\pi (q \log f + i f z) \right] df$$
+e a transformada de Bargmann da Gaussiana:
+$$B(z) = C_B \int_{-\infty}^\infty \hat{x}(f) \exp\left[ 2\pi (-\pi \sigma_t^2 f^2 + i f z) \right] df$$
+
+Ambas passam a compartilhar a mesma constante de fase $2\pi$ fatorada, permitindo comparar diretamente seus **potenciais complexos**:
+$$\Phi_B(f, z) = -\pi \sigma_t^2 f^2 + i f z \qquad \text{versus} \qquad \Phi_C(f, z) = q \log f + i f z$$
+
+### 4.1 Pontos Estacionários de Fase
+A condição de fase estacionária $\frac{\partial \Phi}{\partial f} = 0$ localiza a frequência dominante associada a cada ponto $z$:
+*   **Bargmann (Gaussiana)**:
+    $$-2\pi \sigma_t^2 f + i z = 0 \implies \boxed{f_* = \frac{i z}{2\pi \sigma_t^2}}$$
+*   **Cauchy (CQT)**:
+    $$\frac{q}{f} + i z = 0 \implies \boxed{f_* = \frac{i q}{z}}$$
+
+No centro da janela temporal ($t = 0 \implies z = i\eta$):
+$$f_* = \frac{i q}{i \eta} = \boxed{\frac{q}{\eta} = f_c}$$
+A escala vertical $\eta = \frac{q}{f_c}$ emerge diretamente da condição de fase estacionária sem qualquer resíduo espúrio de $2\pi$.

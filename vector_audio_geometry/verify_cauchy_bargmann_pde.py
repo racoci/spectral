@@ -211,6 +211,41 @@ check_bargmann_holo = sp.simplify(dB_dt + I * dB_df)
 print(f"   d_t B_x + i * d_f B_x = {check_bargmann_holo}")
 assert check_bargmann_holo == 0, "Falha na holomorfia de Bargmann para B_x(z)"
 
+
+# ==============================================================================
+# PARTE III: PARAMETRIZAÇÃO CANÔNICA COM ABSORÇÃO DE 2*PI E POTENCIAIS DUAIS
+# ==============================================================================
+print("\n\n--- [PARTE III] PARAMETRIZAÇÃO CANÔNICA COM ABSORÇÃO DE 2*PI E POTENCIAIS DUAIS ---")
+
+f_var = sp.Symbol('f')
+q_new = sp.Symbol('q_new', positive=True, real=True)
+eta = sp.Symbol('eta', positive=True, real=True)
+sigma_t = sp.Symbol('sigma_t', positive=True, real=True)
+z_var = sp.Symbol('z')
+
+# 1. Potencial de Bargmann: Phi_B(f, z) = -pi * sigma_t^2 * f^2 + i * f * z
+Phi_B = -sp.pi * sigma_t**2 * f_var**2 + I * f_var * z_var
+dPhi_B_df = sp.diff(Phi_B, f_var)
+f_star_B = sp.solve(dPhi_B_df, f_var)[0]
+print(f"1. Ponto estacionário de Bargmann f_* = {f_star_B}  (Esperado: i*z / (2*pi*sigma_t^2))")
+assert sp.simplify(f_star_B - I * z_var / (2 * sp.pi * sigma_t**2)) == 0
+
+# 2. Potencial de Cauchy Canônico: Phi_C(f, z) = q_new * log(f) + i * f * z
+Phi_C = q_new * sp.log(f_var) + I * f_var * z_var
+dPhi_C_df = sp.diff(Phi_C, f_var)
+f_star_C = sp.solve(dPhi_C_df, f_var)[0]
+print(f"2. Ponto estacionário de Cauchy f_* = {f_star_C}  (Esperado: i*q_new / z)")
+assert sp.simplify(f_star_C - I * q_new / z_var) == 0
+
+# 3. No centro da janela (t = 0, z = i*eta):
+# f_* = i*q_new / (i*eta) = q_new / eta => f_c = q_new / eta exatamente!
+f_star_center = sp.simplify(f_star_C.subs(z_var, I * eta))
+print(f"3. No centro t=0 (z = i*eta): f_* = {f_star_center} => f_c = q_new / eta (exato, sem 2*pi residual!)")
+assert f_star_center == q_new / eta
+
+# 4. Relação com largura sigma: q_new = 2*pi * sigma_t^2 * f_c^2
+print("4. Relação canônica de largura: q = 2*pi * sigma_t^2 * f_c^2 e sigma_C = f_c / sqrt(2*pi*q)")
+
 print("\n================================================================================")
 print("🎉 TODAS AS DERIVAÇÕES SIMBÓLICAS FORAM COMPROVADAS COM SUCESSO ABSOLUTO (0.00e0)!")
 print("================================================================================")

@@ -277,6 +277,89 @@ impl CauchyHolomorphicField {
     }
 }
 
+/// Representação Canônica com absorção de 2*pi:
+/// q_antigo = 2*pi * q
+/// F(z) = C * sum_k x_hat(f_k) * exp( 2*pi * (q * log(f_k) + i * f_k * z) )
+/// com z = t + i*eta, onde eta = q / f_c = q * p
+#[derive(Debug, Clone)]
+pub struct CauchyCanonicalField {
+    pub q: f64,
+}
+
+impl CauchyCanonicalField {
+    pub fn new(q: f64) -> Self {
+        Self { q }
+    }
+
+    /// Avalia o potencial complexo Phi_C(f, z) = q * log(f) + i * f * z
+    pub fn phi_c(&self, f: f64, z: Complex64) -> Complex64 {
+        let log_f = f.ln();
+        Complex64::new(
+            self.q * log_f - f * z.im,
+            f * z.re,
+        )
+    }
+
+    /// Avalia a função holomorfa canônica F(z):
+    /// F(t, eta) = sum_k x_k * exp(2*pi * Phi_C(f_k, z))
+    pub fn eval_f(&self, spectrum: &[(f64, Complex64)], t: f64, eta: f64) -> Complex64 {
+        let mut sum = Complex64::new(0.0, 0.0);
+        let z = Complex64::new(t, eta);
+
+        for &(f_k, x_k) in spectrum {
+            if f_k <= 0.0 {
+                continue;
+            }
+            let phi = self.phi_c(f_k, z);
+            let exponent = phi * (2.0 * PI);
+            let kernel = exponent.exp();
+            sum = sum + x_k * kernel;
+        }
+
+        sum
+    }
+
+    /// Ponto estacionário complexo: f_* = i * q / z
+    /// Para t = 0, z = i*eta => f_* = q / eta = f_c exatamente!
+    pub fn stationary_frequency(&self, t: f64, eta: f64) -> Complex64 {
+        let z = Complex64::new(t, eta);
+        let num = Complex64::new(0.0, self.q);
+        num / z
+    }
+
+    /// Verifica as equações de Cauchy-Riemann puras em (t, eta):
+    /// dU/deta = -dV/dt
+    /// dV/deta =  dU/dt
+    /// SEM NENHUM FATOR DE 2*PI!
+    pub fn check_pure_cauchy_riemann(
+        &self,
+        spectrum: &[(f64, Complex64)],
+        t: f64,
+        eta: f64,
+        dt: f64,
+        deta: f64,
+    ) -> (f64, f64) {
+        let f_right = self.eval_f(spectrum, t + dt, eta);
+        let f_left  = self.eval_f(spectrum, t - dt, eta);
+        let f_up    = self.eval_f(spectrum, t, eta + deta);
+        let f_down  = self.eval_f(spectrum, t, eta - deta);
+
+        let du_dt = (f_right.re - f_left.re) / (2.0 * dt);
+        let dv_dt = (f_right.im - f_left.im) / (2.0 * dt);
+
+        let du_deta = (f_up.re - f_down.re) / (2.0 * deta);
+        let dv_deta = (f_up.im - f_down.im) / (2.0 * deta);
+
+        // Cauchy-Riemann clássica pura:
+        // du/deta = -dv/dt  => res1 = |du/deta + dv/dt|
+        // dv/deta =  du/dt  => res2 = |dv/deta - du/dt|
+        let err1 = (du_deta + dv_dt).abs() / (du_deta.abs() + dv_dt.abs() + 1e-12);
+        let err2 = (dv_deta - du_dt).abs() / (dv_deta.abs() + du_dt.abs() + 1e-12);
+
+        (err1, err2)
+    }
+}
+
 /// Avaliador da STFT Gaussiana e Transformada de Bargmann com Fator de Gauge Exato
 pub struct BargmannGaussianSTFT;
 

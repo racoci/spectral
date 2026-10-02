@@ -152,3 +152,59 @@ fn test_gaussian_bargmann_holomorphy() {
         residual
     );
 }
+
+#[test]
+fn test_canonical_pure_cauchy_riemann() {
+    // q_novo = 0.5 (correspondente a q_antigo = pi)
+    let q_canon = 0.5;
+    let canon_field = CauchyCanonicalField::new(q_canon);
+
+    let mut spectrum = Vec::new();
+    let fs = 48000.0;
+    let n_fft = 2048;
+    for k in 1..(n_fft / 2) {
+        let f_k = k as f64 * fs / n_fft as f64;
+        let amp = (-0.5 * ((f_k - 440.0) / 10.0).powi(2)).exp();
+        spectrum.push((f_k, Complex64::new(amp, 0.0)));
+    }
+
+    let t = 0.04;
+    // eta = q / f_c
+    let fc = 440.0;
+    let eta = q_canon / fc;
+    let dt = 1e-6;
+    let deta = 1e-6;
+
+    let (err1, err2) = canon_field.check_pure_cauchy_riemann(&spectrum, t, eta, dt, deta);
+    println!("Pure Cauchy-Riemann (Canonical): err1={:.6e}, err2={:.6e}", err1, err2);
+
+    assert!(
+        err1 < 1e-4 && err2 < 1e-4,
+        "Equações puras de Cauchy-Riemann dU/deta = -dV/dt e dV/deta = dU/dt falharam: err1={}, err2={}",
+        err1, err2
+    );
+}
+
+#[test]
+fn test_canonical_stationary_frequency() {
+    let q_canon = 0.75;
+    let canon_field = CauchyCanonicalField::new(q_canon);
+
+    let fc_target = 500.0;
+    let eta = q_canon / fc_target; // eta = q / f_c
+    let t = 0.0; // Centro temporal t = 0
+
+    let f_star = canon_field.stationary_frequency(t, eta);
+    println!("Frequência Estacionária f_* no centro (t=0): re={:.2}, im={:.2}", f_star.re, f_star.im);
+
+    assert!(
+        (f_star.re - fc_target).abs() < 1e-6,
+        "O ponto estacionário f_* deve ser identicamente f_c = q / eta no centro temporal: f_* = {:.4}, target = {:.4}",
+        f_star.re, fc_target
+    );
+    assert!(
+        f_star.im.abs() < 1e-6,
+        "A parte imaginária do ponto estacionário no centro deve ser zero: im = {:.6e}",
+        f_star.im
+    );
+}
