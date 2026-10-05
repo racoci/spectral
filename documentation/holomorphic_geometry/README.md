@@ -91,3 +91,8 @@ graph TD
      - Constelação de Zeros Topológicos e Singularidades de Fase ($\oint d\phi = 2\pi k$).
      - Métrica Hiperbólica de Poincaré no Semiplano ($ds^2 = \frac{dt^2 + d\eta^2}{\eta^2}$) para distâncias perceptuais invariantes.
      - Campo Vetorial do Fluxo Logarítmico (Bacias de Atração do Reassignment).
+5. **[`05_perceptual_scales_mel_bark_general_embedding.md`](./05_perceptual_scales_mel_bark_general_embedding.md)**:
+   * Teoria unificada de embutimentos holomorfos em escalas perceptuais arbitrárias ($y(f) \leftrightarrow f(y) \leftrightarrow \eta(y) \leftrightarrow \Phi(f)$).
+   * A família de polo deslocado $\eta(y) = \frac{q}{f(y) + \lambda}$ englobando CQT ($\lambda=0$), Mel ($\lambda=700$) e Bark ($\lambda=1960$).
+   * Colapso de derivadas verticais: $\frac{\partial E}{\partial y} = i \eta'(y) \frac{\partial E}{\partial t}$.
+   * Operador matricial discreto e reconstrução de frames por mínimos quadrados.

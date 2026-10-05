@@ -440,3 +440,113 @@ impl BargmannGaussianSTFT {
         res / scale
     }
 }
+
+/// Tipo de Escala Perceptual para Embutimento Holomorfo Universal:
+/// eta(y) = q / (f(y) + lambda)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PerceptualScaleType {
+    Cqt,       // lambda = 0
+    Mel,       // lambda = 700
+    Bark,      // lambda = 1960
+}
+
+#[derive(Debug, Clone)]
+pub struct ShiftedScaleHolomorphicField {
+    pub scale_type: PerceptualScaleType,
+    pub q: f64,
+    pub lambda: f64,
+    pub f0: f64,
+}
+
+impl ShiftedScaleHolomorphicField {
+    pub fn new(scale_type: PerceptualScaleType, q: f64, f0: f64) -> Self {
+        let lambda = match scale_type {
+            PerceptualScaleType::Cqt => 0.0,
+            PerceptualScaleType::Mel => 700.0,
+            PerceptualScaleType::Bark => 1960.0,
+        };
+        Self { scale_type, q, lambda, f0 }
+    }
+
+    /// Mapeamento da escala perceptual y -> frequência f(y) em Hz
+    pub fn f_from_y(&self, y: f64) -> f64 {
+        match self.scale_type {
+            PerceptualScaleType::Cqt => self.f0 * 2.0f64.powf(y),
+            PerceptualScaleType::Mel => 700.0 * (2.0f64.powf(y / 2595.0) - 1.0),
+            PerceptualScaleType::Bark => 1960.0 * (y + 0.53) / (26.28 - y),
+        }
+    }
+
+    /// Mapeamento inverso f -> y(f)
+    pub fn y_from_f(&self, f: f64) -> f64 {
+        match self.scale_type {
+            PerceptualScaleType::Cqt => (f / self.f0).log2(),
+            PerceptualScaleType::Mel => 2595.0 * (1.0 + f / 700.0).log2(),
+            PerceptualScaleType::Bark => 26.81 * (f / (1960.0 + f)) - 0.53,
+        }
+    }
+
+    /// Curva de embutimento no semiplano: eta(y) = q / (f(y) + lambda)
+    pub fn eta(&self, y: f64) -> f64 {
+        let f = self.f_from_y(y);
+        self.q / (f + self.lambda)
+    }
+
+    /// Derivada analítica d_eta / dy:
+    pub fn d_eta_dy(&self, y: f64) -> f64 {
+        let dy = 1e-6;
+        (self.eta(y + dy) - self.eta(y - dy)) / (2.0 * dy)
+    }
+
+    /// Potencial espectral Phi(f) = 2*pi * q * ln((f + lambda) / (f0 + lambda))
+    pub fn phi(&self, f: f64) -> f64 {
+        2.0 * PI * self.q * ((f + self.lambda) / (self.f0 + self.lambda)).ln()
+    }
+
+    /// Avalia a representação geral E(t, y) = F_lambda(t + i*eta(y))
+    pub fn eval_e(&self, spectrum: &[(f64, Complex64)], t: f64, y: f64) -> Complex64 {
+        let eta_val = self.eta(y);
+        let mut sum = Complex64::new(0.0, 0.0);
+
+        for &(f_k, x_k) in spectrum {
+            if f_k <= 0.0 {
+                continue;
+            }
+            let phi_val = self.phi(f_k);
+            let exponent_re = phi_val - 2.0 * PI * f_k * eta_val;
+            let exponent_im = 2.0 * PI * f_k * t;
+
+            let filter = Complex64::new(exponent_re, exponent_im).exp();
+            sum = sum + x_k * filter;
+        }
+
+        sum
+    }
+
+    /// Verifica a EDP de colapso vertical: dE/dy = i * eta'(y) * dE/dt
+    pub fn check_vertical_collapse_pde(
+        &self,
+        spectrum: &[(f64, Complex64)],
+        t: f64,
+        y: f64,
+        dt: f64,
+        dy: f64,
+    ) -> (f64, f64) {
+        let e_right = self.eval_e(spectrum, t + dt, y);
+        let e_left  = self.eval_e(spectrum, t - dt, y);
+        let e_up    = self.eval_e(spectrum, t, y + dy);
+        let e_down  = self.eval_e(spectrum, t, y - dy);
+
+        let de_dt = (e_right - e_left) / (2.0 * dt);
+        let de_dy = (e_up - e_down) / (2.0 * dy);
+
+        let eta_prime = self.d_eta_dy(y);
+        // target = i * eta'(y) * (dE_dt.re + i * dE_dt.im) = eta'(y) * (-dE_dt.im + i * dE_dt.re)
+        let target_de_dy = Complex64::new(-eta_prime * de_dt.im, eta_prime * de_dt.re);
+
+        let err_re = (de_dy.re - target_de_dy.re).abs() / (de_dy.re.abs() + target_de_dy.re.abs() + 1e-12);
+        let err_im = (de_dy.im - target_de_dy.im).abs() / (de_dy.im.abs() + target_de_dy.im.abs() + 1e-12);
+
+        (err_re, err_im)
+    }
+}

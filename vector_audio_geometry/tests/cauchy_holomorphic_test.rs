@@ -208,3 +208,76 @@ fn test_canonical_stationary_frequency() {
         f_star.im
     );
 }
+
+#[test]
+fn test_mel_scale_holomorphic_embedding() {
+    let q = 1.5;
+    let f0 = 440.0;
+    let mel_field = ShiftedScaleHolomorphicField::new(PerceptualScaleType::Mel, q, f0);
+
+    // 1. Verificação da condição de máximo estrito: eta'(y) * f'(y) < 0
+    let y_test = mel_field.y_from_f(1000.0);
+    let eta_prime = mel_field.d_eta_dy(y_test);
+    let dy = 1e-6;
+    let f_prime = (mel_field.f_from_y(y_test + dy) - mel_field.f_from_y(y_test - dy)) / (2.0 * dy);
+    println!("Mel Scale: y={:.2}, eta'={:.6e}, f'={:.6e}, prod={:.6e}", y_test, eta_prime, f_prime, eta_prime * f_prime);
+    assert!(eta_prime * f_prime < 0.0, "Condição de máximo estrito violada na escala Mel: eta'*f' >= 0");
+
+    // 2. Verificação da EDP de colapso vertical: dE/dy = i * eta'(y) * dE/dt
+    let mut spectrum = Vec::new();
+    let fs = 48000.0;
+    let n_fft = 2048;
+    for k in 1..(n_fft / 2) {
+        let f_k = k as f64 * fs / n_fft as f64;
+        let amp = (-0.5 * ((f_k - 1000.0) / 20.0).powi(2)).exp();
+        spectrum.push((f_k, Complex64::new(amp, 0.0)));
+    }
+
+    let t = 0.02;
+    let dt = 1e-6;
+    let (err_re, err_im) = mel_field.check_vertical_collapse_pde(&spectrum, t, y_test, dt, dy);
+    println!("Mel Vertical Collapse PDE Residuals: err_re={:.6e}, err_im={:.6e}", err_re, err_im);
+    assert!(err_re < 1e-4 && err_im < 1e-4, "EDP de colapso vertical falhou para a escala Mel");
+}
+
+#[test]
+fn test_bark_scale_holomorphic_embedding() {
+    let q = 2.0;
+    let f0 = 1000.0;
+    let bark_field = ShiftedScaleHolomorphicField::new(PerceptualScaleType::Bark, q, f0);
+
+    // 1. Verificação da condição de máximo estrito: eta'(y) * f'(y) < 0
+    let y_test = bark_field.y_from_f(1500.0);
+    let eta_prime = bark_field.d_eta_dy(y_test);
+    let dy = 1e-6;
+    let f_prime = (bark_field.f_from_y(y_test + dy) - bark_field.f_from_y(y_test - dy)) / (2.0 * dy);
+    println!("Bark Scale: y={:.2}, eta'={:.6e}, f'={:.6e}, prod={:.6e}", y_test, eta_prime, f_prime, eta_prime * f_prime);
+    assert!(eta_prime * f_prime < 0.0, "Condição de máximo estrito violada na escala Bark: eta'*f' >= 0");
+
+    // 2. Verificação da linearidade de eta_B(y) na fórmula de Traunmüller
+    let y_a = 5.0;
+    let y_b = 15.0;
+    let eta_a_prime = bark_field.d_eta_dy(y_a);
+    let eta_b_prime = bark_field.d_eta_dy(y_b);
+    println!("Bark linearity: eta'(5.0)={:.8e}, eta'(15.0)={:.8e}", eta_a_prime, eta_b_prime);
+    assert!(
+        (eta_a_prime - eta_b_prime).abs() / eta_a_prime.abs() < 1e-4,
+        "eta(y) deve ser linear para a escala Bark"
+    );
+
+    // 3. Verificação da EDP de colapso vertical: dE/dy = i * eta'(y) * dE/dt
+    let mut spectrum = Vec::new();
+    let fs = 48000.0;
+    let n_fft = 2048;
+    for k in 1..(n_fft / 2) {
+        let f_k = k as f64 * fs / n_fft as f64;
+        let amp = (-0.5 * ((f_k - 1500.0) / 25.0).powi(2)).exp();
+        spectrum.push((f_k, Complex64::new(amp, 0.0)));
+    }
+
+    let t = 0.03;
+    let dt = 1e-6;
+    let (err_re, err_im) = bark_field.check_vertical_collapse_pde(&spectrum, t, y_test, dt, dy);
+    println!("Bark Vertical Collapse PDE Residuals: err_re={:.6e}, err_im={:.6e}", err_re, err_im);
+    assert!(err_re < 1e-4 && err_im < 1e-4, "EDP de colapso vertical falhou para a escala Bark");
+}
