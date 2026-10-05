@@ -74,7 +74,7 @@
     zeroPadding: number,
     fmin: number,
     fmax: number,
-    algorithmType: 'reassignment' | 'log' | 'cqt' | 'higher_order' | 'sliding_jet',
+    algorithmType: 'reassignment' | 'log' | 'cqt' | 'holomorphic' | 'higher_order' | 'sliding_jet',
     higherOrderO?: number,
     higherOrderVisualMode?: 'ridge' | 'anisotropy' | 'curvature' | 'vector_reassign',
     paletteType: 'ycbcr' | 'snake',
@@ -92,7 +92,7 @@
     texStart?: number,
     texEnd?: number,
     pointRadius: number,
-    frequencyScale: 'log' | 'linear',
+    frequencyScale: 'log' | 'mel' | 'bark' | 'linear',
     zoomMode: 'gpu_debounced' | 'continuous_resample',
     horizontalResolutionK: number,
     currentQualityLod?: number,
@@ -1299,8 +1299,18 @@
     if (fmax <= fmin) return 0.0;
     if (frequencyScale === 'linear') {
       return (f - fmin) / (fmax - fmin);
+    } else if (frequencyScale === 'mel') {
+      const melMin = 2595.0 * Math.log2(1.0 + fmin / 700.0);
+      const melMax = 2595.0 * Math.log2(1.0 + fmax / 700.0);
+      const melVal = 2595.0 * Math.log2(1.0 + Math.max(0, f) / 700.0);
+      return (melVal - melMin) / (melMax - melMin);
+    } else if (frequencyScale === 'bark') {
+      const barkMin = 26.81 * (fmin / (1960.0 + fmin)) - 0.53;
+      const barkMax = 26.81 * (fmax / (1960.0 + fmax)) - 0.53;
+      const barkVal = 26.81 * (Math.max(0, f) / (1960.0 + Math.max(0, f))) - 0.53;
+      return (barkVal - barkMin) / (barkMax - barkMin);
     } else {
-      // Logarithmic spacing
+      // Logarithmic spacing (CQT)
       return Math.log2(f / fmin) / Math.log2(fmax / fmin);
     }
   }
@@ -1814,11 +1824,33 @@
               <select id="algorithm-select" bind:value={algorithmType} onchange={() => onAdaptiveInteract()}>
                 <option value="reassignment">Auger-Flandrin Reassign (Canônico)</option>
                 <option value="cqt">🌊 Wavelet de Cauchy CQT (Escada W0..WO Reassign)</option>
+                <option value="holomorphic">🌀 Geometria Holomorfa Conforme (Mel / Bark / CQT)</option>
                 <option value="higher_order">🧪 Derivadas de Ordem Superior (Hessiana / Cristas)</option>
                 <option value="sliding_jet">⚡ Sliding Jet DFT (Zero-FFT O(1) Real-Time)</option>
                 <option value="log">Smooth Log-Spectrogram</option>
               </select>
             </div>
+
+            {#if algorithmType === 'holomorphic'}
+              <div class="higher-order-panel holomorphic-panel">
+                <div class="experimental-header">
+                  <h4>🌀 Campo Holomorfo F_λ(z)</h4>
+                  <span class="badge-jet">UNIVERSAL</span>
+                </div>
+                <p class="experimental-desc">
+                  Embutimento analítico: <code>F_λ(z) = C ∫ x̂(f) ((f+λ)/(f₀+λ))^(2πq) e^(2πifz) df</code> com <code>z = t + i·η(y)</code>.
+                </p>
+                <div class="input-control">
+                  <label for="holo-scale-select">Escala Perceptual:</label>
+                  <select id="holo-scale-select" bind:value={frequencyScale} onchange={() => onAdaptiveInteract()}>
+                    <option value="mel">Mel (λ = 700 Hz - Bandas Críticas)</option>
+                    <option value="bark">Bark (λ = 1960 Hz - Traunmüller)</option>
+                    <option value="log">CQT Cauchy (λ = 0 - Log-Frequência)</option>
+                    <option value="linear">Linear (STFT Clássica)</option>
+                  </select>
+                </div>
+              </div>
+            {/if}
 
             {#if algorithmType === 'cqt'}
               <div class="higher-order-panel cauchy-cqt-panel">

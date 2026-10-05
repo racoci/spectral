@@ -40,7 +40,7 @@
   let zeroPadding = $state<number>(2);
   let fmin = $state<number>(20);
   let fmax = $state<number>(20000);
-  let algorithmType = $state<'reassignment' | 'log' | 'cqt' | 'higher_order' | 'sliding_jet'>('reassignment');
+  let algorithmType = $state<'reassignment' | 'log' | 'cqt' | 'holomorphic' | 'higher_order' | 'sliding_jet'>('reassignment');
   let higherOrderO = $state<number>(2);
   let higherOrderVisualMode = $state<'ridge' | 'anisotropy' | 'curvature' | 'vector_reassign'>('ridge');
   let paletteType = $state<'ycbcr' | 'snake'>('ycbcr');
@@ -61,7 +61,7 @@
   let pointRadius = $state<number>(1.0);
   
   // Frequency Scale Type
-  let frequencyScale = $state<'log' | 'linear'>('log');
+  let frequencyScale = $state<'log' | 'mel' | 'bark' | 'linear'>('log');
 
   // Zoom Strategy & Horizontal Precomputation Factor (2^k)
   let zoomMode = $state<'gpu_debounced' | 'continuous_resample'>('gpu_debounced');
@@ -238,7 +238,9 @@
       
       const effectiveAlgo = (algorithmType === 'higher_order' || algorithmType === 'sliding_jet')
         ? `${algorithmType}:${higherOrderO}:${higherOrderVisualMode}`
-        : algorithmType;
+        : (algorithmType === 'holomorphic')
+          ? 'cqt'
+          : algorithmType;
 
       progressiveSessionId++; // cancel any running progressive sweep
       refinementProgress = null;

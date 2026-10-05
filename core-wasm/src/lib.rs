@@ -4351,20 +4351,45 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
     let mut cqt_kernels_lut: Vec<Vec<(f32, f32)>> = vec![Vec::new(); h];
     
     let is_linear = scale_type == "linear";
+    let is_mel = scale_type == "mel";
+    let is_bark = scale_type == "bark";
+    
     let step_lin = (fmax - fmin) / (h as f32 - 1.0);
+    
+    let mel_min = 2595.0 * (1.0 + fmin / 700.0).log2();
+    let mel_max = 2595.0 * (1.0 + fmax / 700.0).log2();
+    let mel_step = (mel_max - mel_min) / (h as f32 - 1.0);
+    
+    let bark_min = 26.81 * (fmin / (1960.0 + fmin)) - 0.53;
+    let bark_max = 26.81 * (fmax / (1960.0 + fmax)) - 0.53;
+    let bark_step = (bark_max - bark_min) / (h as f32 - 1.0);
+    
+    let lambda = if is_mel {
+        700.0f32
+    } else if is_bark {
+        1960.0f32
+    } else {
+        0.0f32
+    };
     
     for j in 0..h {
         let fc = if is_linear {
             fmin + j as f32 * step_lin
+        } else if is_mel {
+            let mel_val = mel_min + j as f32 * mel_step;
+            700.0 * (2.0f32.powf(mel_val / 2595.0) - 1.0)
+        } else if is_bark {
+            let bark_val = bark_min + j as f32 * bark_step;
+            (1960.0 * (bark_val + 0.53) / (26.28 - bark_val)).max(fmin)
         } else {
             fmin * 2.0f32.powf(j as f32 * step)
         };
         fc_lut[j] = fc;
         k_f_lut[j] = fc * n_stft as f32 / fs_f32;
         
-        // Cauchy filter support: u = f / fc from ~0.2 to ~3.0
-        let f_low = (fc * 0.2).max(fmin);
-        let f_high = (fc * 3.0).min(fs_f32 / 2.0);
+        // Cauchy filter support: u = (f + lambda) / (fc + lambda) from ~0.2 to ~3.0
+        let f_low = (((fc + lambda) * 0.2) - lambda).max(fmin);
+        let f_high = (((fc + lambda) * 3.0) - lambda).min(fs_f32 / 2.0);
         
         let k_low = (f_low * n_stft as f32 / fs_f32).round() as isize;
         let k_high = (f_high * n_stft as f32 / fs_f32).round() as isize;
@@ -4378,7 +4403,7 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
         
         for curr_k in k_low_u..=k_high_u {
             let f_k = curr_k as f32 * fs_f32 / n_stft as f32;
-            let u = f_k / fc;
+            let u = (f_k + lambda) / (fc + lambda);
             if u > 1e-4 {
                 // Cauchy mother wavelet: H_0(u) = (u * e^(1-u))^q
                 let base = u * (1.0 - u).exp();
@@ -4530,6 +4555,12 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
                 
                 let j_reassigned_f = if is_linear {
                     ((f_reassigned - fmin) / (fmax - fmin)) * (h as f32 - 1.0)
+                } else if is_mel {
+                    let mel_val = 2595.0 * (1.0 + f_reassigned.max(0.0) / 700.0).log2();
+                    ((mel_val - mel_min) / (mel_max - mel_min)) * (h as f32 - 1.0)
+                } else if is_bark {
+                    let bark_val = 26.81 * (f_reassigned.max(0.0) / (1960.0 + f_reassigned.max(0.0))) - 0.53;
+                    ((bark_val - bark_min) / (bark_max - bark_min)) * (h as f32 - 1.0)
                 } else {
                     (f_reassigned / fmin).log2() / step
                 };
@@ -4643,15 +4674,15 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
                             let re_r = w1_w0_conj.re / abs_w0_sq;
                             let im_r = w1_w0_conj.im / abs_w0_sq;
                             
-                            // Reassigned frequency: f_hat = (1/p) * Re{R} = fc * Re{R}
+                            // Reassigned frequency: f_hat = (fc + lambda) * Re{R} - lambda
                             let f_reassigned = if reassign_freq && max_order >= 1 {
-                                (fc * re_r).clamp(fmin * 0.5, fmax * 1.5)
+                                (((fc + lambda) * re_r) - lambda).clamp(fmin * 0.5, fmax * 1.5)
                             } else {
                                 fc
                             };
                             
                             // Reassigned time: t_hat = t - (q * p / (2*pi)) * Im{R}
-                            let p_period = 1.0 / fc;
+                            let p_period = 1.0 / (fc + lambda);
                             let q_param = 2.0f32;
                             let t_shift_s = if reassign_time && max_order >= 1 {
                                 -(q_param * p_period / (2.0 * std::f32::consts::PI)) * im_r
@@ -4663,6 +4694,12 @@ pub fn wasm_generate_complex_reassigned_ycbcr_spectrogram(
                             
                             let j_reassigned_f = if is_linear {
                                 ((f_reassigned - fmin) / (fmax - fmin)) * (h as f32 - 1.0)
+                            } else if is_mel {
+                                let mel_val = 2595.0 * (1.0 + f_reassigned.max(0.0) / 700.0).log2();
+                                ((mel_val - mel_min) / (mel_max - mel_min)) * (h as f32 - 1.0)
+                            } else if is_bark {
+                                let bark_val = 26.81 * (f_reassigned.max(0.0) / (1960.0 + f_reassigned.max(0.0))) - 0.53;
+                                ((bark_val - bark_min) / (bark_max - bark_min)) * (h as f32 - 1.0)
                             } else {
                                 (f_reassigned / fmin).log2() / step
                             };

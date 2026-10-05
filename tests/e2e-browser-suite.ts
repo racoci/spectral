@@ -370,6 +370,39 @@ async function runE2EBrowserSuite() {
     await page.screenshot({ path: screen5Path, fullPage: true });
     console.log(`  ✅ Screenshot 5 salva em: ${screen5Path}`);
 
+    // 8. FASE 5.5: Teste do Modo de Geometria Holomorfa Conforme (Mel/Bark/CQT)
+    console.log('\n--------------------------------------------------------------------------------');
+    console.log('📸 STAGE 5.5: Teste do Modo Holomorfo Conforme na UI Svelte (Mel/Bark/CQT)...');
+    console.log('--------------------------------------------------------------------------------');
+    
+    // Seleciona o algoritmo Holomorfo e escala Mel
+    console.log('  Alternando algoritmo para Geometria Holomorfa Conforme (Escala Mel)...');
+    await page.evaluate(() => {
+      const algoSelect = document.querySelector('#algorithm-select') as HTMLSelectElement | null;
+      if (algoSelect) {
+        algoSelect.value = 'holomorphic';
+        algoSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      const scaleSelect = document.querySelector('#scale-select') as HTMLSelectElement | null;
+      if (scaleSelect) {
+        scaleSelect.value = 'mel';
+        scaleSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+    await new Promise(resolve => setTimeout(resolve, 2500)); // Aguarda processamento Holomorfo Mel no WASM
+
+    // Verifica card informativo do modo holomorfo
+    const hasHoloPanel = await page.evaluate(() => {
+      const panel = document.querySelector('.holomorphic-panel');
+      return panel !== null;
+    });
+    console.log(`  Painel Informativo do Campo Holomorfo: ${hasHoloPanel ? 'PRESENTE ✅' : 'AUSENTE ❌'}`);
+
+    // Captura de Tela 6: Modo Holomorfo Mel Ativo
+    const screen6Path = path.join(SCREENSHOT_DIR, '06_editor_holomorphic_mel_active.png');
+    await page.screenshot({ path: screen6Path, fullPage: true });
+    console.log(`  ✅ Screenshot 6 salva em: ${screen6Path}`);
+
     // Validação de Ausência de Erros no Console
     console.log('\n--------------------------------------------------------------------------------');
     console.log('🔍 ANÁLISE DE DIAGNÓSTICOS DO NAVEGADOR:');
@@ -386,7 +419,7 @@ async function runE2EBrowserSuite() {
     console.log('\n--------------------------------------------------------------------------------');
     console.log('🖼️ AUDITORIA DE ARQUIVOS DE SCREENSHOT:');
     console.log('--------------------------------------------------------------------------------');
-    const files = [screen1Path, screen2Path, screen2bPath, screen3Path, screen3bPath, screen4Path, screen4bPath, screen5Path];
+    const files = [screen1Path, screen2Path, screen2bPath, screen3Path, screen3bPath, screen4Path, screen4bPath, screen5Path, screen6Path];
     for (const f of files) {
       const stat = fs.statSync(f);
       console.log(`  ${path.basename(f)}: ${stat.size} bytes (Arquivo PNG válido) ✅`);
