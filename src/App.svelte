@@ -4,6 +4,7 @@
   import WebGlEditor from './lib/WebGlEditor.svelte';
   import init, { 
     wasm_generate_complex_reassigned_ycbcr_spectrogram,
+    wasm_generate_holomorphic_exploration_spectrogram,
     wasm_get_spectrogram_dimensions,
     WasmSpectrogramStreamer,
     wasm_cache_base_quadruplets,
@@ -238,9 +239,7 @@
       
       const effectiveAlgo = (algorithmType === 'higher_order' || algorithmType === 'sliding_jet')
         ? `${algorithmType}:${higherOrderO}:${higherOrderVisualMode}`
-        : (algorithmType === 'holomorphic')
-          ? 'cqt'
-          : algorithmType;
+        : algorithmType;
 
       progressiveSessionId++; // cancel any running progressive sweep
       refinementProgress = null;
@@ -248,29 +247,49 @@
       const targetViewStart = wasmViewStart;
       const targetViewEnd = wasmViewEnd;
 
-      // Render the complete, razor-sharp spectrogram for the target view directly!
-      const rawGrid = wasm_generate_complex_reassigned_ycbcr_spectrogram(
-        originalBytes,
-        selectedHeight,
-        windowType,
-        windowSize,
-        zeroPadding,
-        fmin,
-        fmax,
-        effectiveAlgo,
-        paletteType,
-        targetViewStart,
-        targetViewEnd,
-        pointRadius,
-        frequencyScale,
-        horizontalResolutionK,
-        lod,
-        0,
-        0,
-        enableTimeReassignment,
-        enableFreqReassignment,
-        maxDerivativeOrder
-      );
+      // Executa nova versão holomorfa isolada ou mantém 100% intacta a versão anterior:
+      let rawGrid: Uint8Array;
+      if (algorithmType === 'holomorphic') {
+        const approxW = gridW > 0 ? gridW : 1000;
+        const c_start = Math.floor(targetViewStart * approxW);
+        const c_end = Math.ceil(targetViewEnd * approxW);
+        rawGrid = wasm_generate_holomorphic_exploration_spectrogram(
+          originalBytes,
+          selectedHeight,
+          fmin,
+          fmax,
+          frequencyScale,
+          paletteType,
+          c_start,
+          c_end,
+          2.0,
+          enableTimeReassignment || enableFreqReassignment,
+          true
+        );
+      } else {
+        rawGrid = wasm_generate_complex_reassigned_ycbcr_spectrogram(
+          originalBytes,
+          selectedHeight,
+          windowType,
+          windowSize,
+          zeroPadding,
+          fmin,
+          fmax,
+          effectiveAlgo,
+          paletteType,
+          targetViewStart,
+          targetViewEnd,
+          pointRadius,
+          frequencyScale,
+          horizontalResolutionK,
+          lod,
+          0,
+          0,
+          enableTimeReassignment,
+          enableFreqReassignment,
+          maxDerivativeOrder
+        );
+      }
 
       const h = lod === 1 ? 256 : selectedHeight;
       const w = (rawGrid.length / 4) / h;

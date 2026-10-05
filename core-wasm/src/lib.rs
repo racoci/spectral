@@ -5,6 +5,8 @@ use std::sync::OnceLock;
 pub mod geometry;
 pub mod model;
 pub mod analysis;
+pub mod holomorphic;
+pub use holomorphic::*;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct C32 {
