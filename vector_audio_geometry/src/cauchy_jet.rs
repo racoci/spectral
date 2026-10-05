@@ -582,21 +582,45 @@ impl ShiftedScaleHolomorphicField {
     }
 
     /// Avalia a janela L^2-normalizada G_tilde_y[k]:
-    /// ||G_tilde_y||_2 = 1
+    /// Utiliza a técnica de centralização logarítmica para estabilidade numérica:
+    /// log_G(f) - log_G(f(y)) para evitar overflow/underflow em exponenciais brutas.
     pub fn normalized_window(&self, y: f64, fs: f64, n_fft: usize) -> Vec<f64> {
         let df = fs / n_fft as f64;
         let eta_val = self.eta(y);
-        let n2 = self.l2_normalization_factor(y, fs, n_fft);
+        let f_center = self.f_from_y(y);
         let half = n_fft / 2;
+        
         let mut window = vec![0.0f64; half];
+        let mut energy_sum = 0.0;
+        
+        let phi_center = self.phi(f_center);
+        let log_g_center = phi_center - 2.0 * PI * f_center * eta_val;
 
         for k in 1..half {
             let f_k = k as f64 * df;
             let phi_val = self.phi(f_k);
             let exponent = phi_val - 2.0 * PI * f_k * eta_val;
-            if exponent >= -30.0 {
-                window[k] = n2 * exponent.exp();
+            
+            // Centralização logarítmica em relação ao pico da janela
+            let centered_exponent = exponent - log_g_center;
+            
+            // Corta vazamentos abaixo de -745 no expoente (aproximadamente zero em float64)
+            if centered_exponent >= -700.0 {
+                let w = centered_exponent.exp();
+                window[k] = w;
+                energy_sum += w * w * df;
             }
+        }
+        
+        let n2 = if energy_sum > 1e-300 {
+            1.0 / energy_sum.sqrt()
+        } else {
+            1.0
+        };
+        
+        // Aplica a normalização L^2
+        for k in 1..half {
+            window[k] *= n2;
         }
 
         window
@@ -663,5 +687,48 @@ impl ShiftedScaleHolomorphicField {
         }
 
         x_hat
+    }
+
+    /// Otimização de Densidade de Frame via Gradiente Descendente Projetado (NNLS aproximado)
+    /// Min || A * rho - 1 ||_2^2 sujeito a rho >= 0
+    /// Onde A_{k, j} = |G_tilde_j[k]|^2
+    pub fn optimize_frame_density_nnls(
+        windows: &[Vec<f64>],
+        k_min: usize,
+        k_max: usize,
+        iterations: usize,
+        learning_rate: f64,
+    ) -> Vec<f64> {
+        let num_channels = windows.len();
+        // Inicialização uniforme ou com a densidade analítica
+        let mut rho = vec![1.0; num_channels];
+        
+        for _ in 0..iterations {
+            let mut gradient = vec![0.0; num_channels];
+            
+            // Avalia o frame operator atual H[k] = sum_j rho_j * A_{k,j}
+            for k in k_min..=k_max {
+                let mut h_k = 0.0;
+                for j in 0..num_channels {
+                    let w = windows[j][k];
+                    h_k += rho[j] * w * w;
+                }
+                
+                let err = h_k - 1.0; // Resíduo A * rho - 1
+                
+                // Acumula o gradiente: 2 * A^T * err
+                for j in 0..num_channels {
+                    let w = windows[j][k];
+                    gradient[j] += 2.0 * err * w * w;
+                }
+            }
+            
+            // Atualiza rho via gradiente descendente com projeção não-negativa
+            for j in 0..num_channels {
+                rho[j] = (rho[j] - learning_rate * gradient[j]).max(0.0);
+            }
+        }
+        
+        rho
     }
 }

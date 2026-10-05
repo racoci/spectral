@@ -1,0 +1,2 @@
+min chroma-center distance: 0.49803922
+mean chroma-center distance: 63.66014036

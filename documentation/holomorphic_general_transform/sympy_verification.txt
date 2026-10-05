@@ -1,0 +1,16 @@
+SYMPY VERIFICATION
+==================
+maximum_condition_residual: -2*pi*eta(y) + Derivative(Phi(f(y)), f(y))
+Phi_second_residual: Derivative(Phi(f(y)), (f(y), 2)) - 2*pi*Derivative(eta(y), y)/Derivative(f(y), y)
+peak_derivative_after_maximum_condition: -2*pi*f(y)*Derivative(eta(y), y)
+linear_square_completion_residual: 0
+cauchy_Phi_derivative_residual: 0
+cauchy_L2_integral_residual: 0
+shifted_Laplace_density_residual: 0
+
+Derived identities:
+Phi'(f(y)) = 2*pi*eta(y)
+Phi''(f(y)) = 2*pi*eta'(y)/f'(y)
+sigma_y^2 = -1/(2*pi*eta'(y)*f'(y))
+d/dy log A(y) = -2*pi*f(y)*eta'(y)
+For linear y=f and eta=eta0-a*y: Psi=-pi*a*(f-y)^2+pi*a*y^2

@@ -101,3 +101,8 @@ graph TD
    * A normalização natural $L^2$ por escala acoplada à densidade de frame tight $\rho(y) \propto w(\eta(y)) |\eta'(y)| / N_2(y)^2$.
    * Reconciliação com Cauchy ($N_2 \propto p^{2\pi q+1/2}$) e Bargmann ($N_2 \propto e^{-\pi a y^2}$).
    * Reconstrução exata e estável de frame com mínimos quadrados.
+7. **[`07_rigorous_mathematical_foundations.md`](./07_rigorous_mathematical_foundations.md)**:
+   * Tratado Fundacional rigoroso com demonstrações passo-a-passo.
+   * Formalização algébrica validada em Lean 4 para Cauchy-Riemann e Equação de Laplace.
+   * Prova da condição de Curvatura Negativa Estrita para qualquer escala perceptual.
+   * Prova via Isometria de Parseval e Transformada de Laplace para a existência de Frames Tight.

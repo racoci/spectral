@@ -1,0 +1,13 @@
+Display convention used in the generated images
+
+1. Magnitude: dB = 20 log10(|z| / reference), with reference = max |z| in the image.
+2. Luma Y: -96 dB -> 0, 0 dB -> 255, linearly in dB.
+3. Decode Y to Aq, the magnitude represented by that 8-bit Y code.
+4. residual magnitude = abs(|z|-Aq); it controls saturation.
+5. phase = arg(z); chroma direction is exp(i*phase).
+6. Cb = 128 + 127*saturation*sin(phase).
+7. Cr = 128 + 127*saturation*cos(phase).
+8. saturation is floored at 1/255, so (Cb,Cr) is never the neutral center (128,128).
+9. RGB is obtained from full-range BT.601 YCbCr.
+
+This is a visualization mapping. It deliberately preserves phase even when the 8-bit Y code exactly matches the magnitude, but it is not claimed to be a lossless 24-bit encoding of arbitrary complex values.

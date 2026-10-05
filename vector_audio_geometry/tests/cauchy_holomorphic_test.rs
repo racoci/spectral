@@ -356,19 +356,17 @@ fn test_tight_frame_reconstruction_ls() {
 
     // Cria banco de 48 filtros de Mel sobrepostos cobrindo a faixa ativa
     let m_channels = 48;
-    let f_min = 150.0;
+    let f_min = 50.0;
     let f_max = 7000.0;
     let y_min = mel_field.y_from_f(f_min);
     let y_max = mel_field.y_from_f(f_max);
 
     let mut windows = Vec::with_capacity(m_channels);
-    let mut log_rhos = Vec::with_capacity(m_channels);
     let mut channels = Vec::with_capacity(m_channels);
 
     for j in 0..m_channels {
         let y = y_min + (j as f64 / (m_channels - 1) as f64) * (y_max - y_min);
         let win = mel_field.normalized_window(y, fs, n_fft);
-        let log_rho = mel_field.analytical_tight_frame_density(y, fs, n_fft);
 
         // Canal Y_j[k] = X[k] * G_tilde_j[k]
         let mut y_j = vec![Complex64::new(0.0, 0.0); half_n];
@@ -377,14 +375,16 @@ fn test_tight_frame_reconstruction_ls() {
         }
 
         windows.push(win);
-        log_rhos.push(log_rho);
         channels.push(y_j);
     }
+    
+    let k_min = (f_min * n_fft as f64 / fs).round() as usize;
+    let k_max = (f_max * n_fft as f64 / fs).round() as usize;
+    
+    // Otimiza pesos via NNLS projetado
+    let weights = ShiftedScaleHolomorphicField::optimize_frame_density_nnls(&windows, k_min, k_max, 500, 1e-3);
 
-    let max_log_rho = log_rhos.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    let weights: Vec<f64> = log_rhos.iter().map(|&lr| (lr - max_log_rho).exp()).collect();
-
-    // Reconstrói X_hat via mínimos quadrados
+    // Reconstrói X_hat via mínimos quadrados com pesos NNLS
     let x_hat = ShiftedScaleHolomorphicField::reconstruct_spectrum_ls(&channels, &windows, &weights, half_n);
 
     // Avalia o erro de reconstrução no intervalo de interesse [300 Hz .. 5000 Hz]

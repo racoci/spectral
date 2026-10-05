@@ -1,0 +1,10 @@
+name = "HolomorphicGeometry"
+version = "0.1.0"
+defaultTargets = ["holomorphicgeometry"]
+
+[[lean_lib]]
+name = "HolomorphicGeometry"
+
+[[lean_exe]]
+name = "holomorphicgeometry"
+root = "Main"
