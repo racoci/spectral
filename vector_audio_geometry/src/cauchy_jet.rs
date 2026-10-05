@@ -549,4 +549,119 @@ impl ShiftedScaleHolomorphicField {
 
         (err_re, err_im)
     }
+
+    /// Calcula a energia L^2 da janela bruta G_y(f):
+    /// I_2(y) = integral_0^oo |G_y(f)|^2 df
+    pub fn eval_l2_energy(&self, y: f64, fs: f64, n_fft: usize) -> f64 {
+        let df = fs / n_fft as f64;
+        let eta_val = self.eta(y);
+        let mut sum = 0.0;
+
+        for k in 1..(n_fft / 2) {
+            let f_k = k as f64 * df;
+            let phi_val = self.phi(f_k);
+            let exponent = 2.0 * (phi_val - 2.0 * PI * f_k * eta_val);
+            if exponent < -40.0 {
+                continue;
+            }
+            sum += exponent.exp() * df;
+        }
+
+        sum
+    }
+
+    /// Fator de normalização unitária L^2:
+    /// N_2(y) = ( integral |G_y(f)|^2 df )^(-1/2)
+    pub fn l2_normalization_factor(&self, y: f64, fs: f64, n_fft: usize) -> f64 {
+        let energy = self.eval_l2_energy(y, fs, n_fft);
+        if energy > 1e-30 {
+            1.0 / energy.sqrt()
+        } else {
+            1.0
+        }
+    }
+
+    /// Avalia a janela L^2-normalizada G_tilde_y[k]:
+    /// ||G_tilde_y||_2 = 1
+    pub fn normalized_window(&self, y: f64, fs: f64, n_fft: usize) -> Vec<f64> {
+        let df = fs / n_fft as f64;
+        let eta_val = self.eta(y);
+        let n2 = self.l2_normalization_factor(y, fs, n_fft);
+        let half = n_fft / 2;
+        let mut window = vec![0.0f64; half];
+
+        for k in 1..half {
+            let f_k = k as f64 * df;
+            let phi_val = self.phi(f_k);
+            let exponent = phi_val - 2.0 * PI * f_k * eta_val;
+            if exponent >= -30.0 {
+                window[k] = n2 * exponent.exp();
+            }
+        }
+
+        window
+    }
+
+    /// Densidade analítica de frame tight estabilizada numericamente:
+    /// rho(y) propto [ eta(y)^(4*pi*q - 1) * exp(-4*pi*lambda*eta(y)) * |eta'(y)| ] / N_2(y)^2
+    pub fn analytical_tight_frame_density(&self, y: f64, fs: f64, n_fft: usize) -> f64 {
+        let eta_val = self.eta(y);
+        let eta_prime = self.d_eta_dy(y).abs();
+        let n2 = self.l2_normalization_factor(y, fs, n_fft);
+
+        let power = 4.0 * PI * self.q - 1.0;
+        // Evita subfluxo em eta^power calculando no domínio logarítmico
+        let log_w = power * eta_val.ln() - 4.0 * PI * self.lambda * eta_val;
+        let log_rho = log_w + eta_prime.ln() - 2.0 * n2.ln();
+
+        // Normalização de escala proporcional
+        if log_rho.is_finite() {
+            log_rho
+        } else {
+            0.0
+        }
+    }
+
+    /// Avalia o operador de frame espectral:
+    /// H[k] = sum_j rho_j * |G_tilde_j[k]|^2
+    pub fn eval_frame_operator(
+        windows: &[Vec<f64>],
+        weights: &[f64],
+        half_n: usize,
+    ) -> Vec<f64> {
+        let mut h_k = vec![0.0f64; half_n];
+        for (w, &rho) in windows.iter().zip(weights.iter()) {
+            for k in 0..half_n {
+                h_k[k] += rho * w[k] * w[k];
+            }
+        }
+        h_k
+    }
+
+    /// Reconstrução de frame tight por mínimos quadrados:
+    /// X_hat[k] = ( sum_j rho_j * G_tilde_j[k] * Y_j[k] ) / H[k]
+    pub fn reconstruct_spectrum_ls(
+        channels: &[Vec<Complex64>],
+        windows: &[Vec<f64>],
+        weights: &[f64],
+        half_n: usize,
+    ) -> Vec<Complex64> {
+        let h_k = Self::eval_frame_operator(windows, weights, half_n);
+        let mut x_hat = vec![Complex64::new(0.0, 0.0); half_n];
+
+        for k in 0..half_n {
+            let denom = h_k[k];
+            if denom > 1e-30 {
+                let mut num = Complex64::new(0.0, 0.0);
+                for (j, y_j) in channels.iter().enumerate() {
+                    let rho = weights[j];
+                    let g_val = windows[j][k];
+                    num = num + y_j[k] * (rho * g_val);
+                }
+                x_hat[k] = num / denom;
+            }
+        }
+
+        x_hat
+    }
 }

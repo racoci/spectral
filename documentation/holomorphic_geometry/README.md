@@ -96,3 +96,8 @@ graph TD
    * A família de polo deslocado $\eta(y) = \frac{q}{f(y) + \lambda}$ englobando CQT ($\lambda=0$), Mel ($\lambda=700$) e Bark ($\lambda=1960$).
    * Colapso de derivadas verticais: $\frac{\partial E}{\partial y} = i \eta'(y) \frac{\partial E}{\partial t}$.
    * Operador matricial discreto e reconstrução de frames por mínimos quadrados.
+6. **[`06_natural_normalization_and_tight_frames.md`](./06_natural_normalization_and_tight_frames.md)**:
+   * Teorema da impossibilidade de normalização bruta constante sem destruição da curvatura ($\frac{d}{dy}\ln A(y) = -2\pi f(y) \eta'(y)$).
+   * A normalização natural $L^2$ por escala acoplada à densidade de frame tight $\rho(y) \propto w(\eta(y)) |\eta'(y)| / N_2(y)^2$.
+   * Reconciliação com Cauchy ($N_2 \propto p^{2\pi q+1/2}$) e Bargmann ($N_2 \propto e^{-\pi a y^2}$).
+   * Reconstrução exata e estável de frame com mínimos quadrados.

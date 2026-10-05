@@ -164,11 +164,27 @@ for (const sc of scales) {
 
   let globalMax = 0.0;
 
-  // Avaliação holomorfa de alta resolução
+  // Avaliação holomorfa de alta resolução com normalização L^2 unitária por escala
+  const df = fs_audio / N_SAMPLES;
   for (let r = 0; r < height; r++) {
     const yVal = y_min + (r / (height - 1)) * (y_max - y_min);
     const etaVal = sc.eta(yVal);
     const fCenter = sc.f_from_y(yVal);
+
+    // Precomputa filtro e normalização L^2 unitária para a linha r
+    const rawFilter = new Float32Array(halfN);
+    let energySum = 0.0;
+    for (let k = 1; k < halfN; k++) {
+      const f_k = (k * fs_audio) / N_SAMPLES;
+      const phi_val = 2.0 * Math.PI * sc.q * Math.log((f_k + sc.lambda) / (fCenter + sc.lambda));
+      const exponent_re = phi_val - 2.0 * Math.PI * f_k * etaVal;
+      if (exponent_re < -22.0) continue;
+
+      const w = Math.exp(exponent_re);
+      rawFilter[k] = w;
+      energySum += w * w * df;
+    }
+    const n2 = energySum > 1e-30 ? 1.0 / Math.sqrt(energySum) : 1.0;
 
     for (let c = 0; c < width; c++) {
       const tVal = t_start + (c / (width - 1)) * (t_end - t_start);
@@ -177,12 +193,10 @@ for (const sc of scales) {
       let sumIm = 0.0;
 
       for (let k = 1; k < halfN; k++) {
-        const f_k = (k * fs_audio) / N_SAMPLES;
-        const phi_val = 2.0 * Math.PI * sc.q * Math.log((f_k + sc.lambda) / (fCenter + sc.lambda));
-        const exponent_re = phi_val - 2.0 * Math.PI * f_k * etaVal;
-        if (exponent_re < -22.0) continue;
+        const weight = rawFilter[k] * n2;
+        if (weight <= 0.0) continue;
 
-        const weight = Math.exp(exponent_re);
+        const f_k = (k * fs_audio) / N_SAMPLES;
         const angle = 2.0 * Math.PI * f_k * tVal;
         const cosA = Math.cos(angle);
         const sinA = Math.sin(angle);

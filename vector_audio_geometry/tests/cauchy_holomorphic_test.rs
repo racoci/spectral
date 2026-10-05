@@ -281,3 +281,131 @@ fn test_bark_scale_holomorphic_embedding() {
     println!("Bark Vertical Collapse PDE Residuals: err_re={:.6e}, err_im={:.6e}", err_re, err_im);
     assert!(err_re < 1e-4 && err_im < 1e-4, "EDP de colapso vertical falhou para a escala Bark");
 }
+
+#[test]
+fn test_unit_l2_energy_normalization() {
+    let fs = 48000.0;
+    let n_fft = 4096;
+    let df = fs / n_fft as f64;
+
+    for &scale in &[PerceptualScaleType::Cqt, PerceptualScaleType::Mel, PerceptualScaleType::Bark] {
+        let field = ShiftedScaleHolomorphicField::new(scale, 1.5, 440.0);
+        let y_test = field.y_from_f(1000.0);
+
+        let window = field.normalized_window(y_test, fs, n_fft);
+        let energy: f64 = window.iter().map(|&w| w * w * df).sum();
+        println!("Scale {:?}: L^2 Integral Energy = {:.6}", scale, energy);
+
+        assert!(
+            (energy - 1.0).abs() < 0.02,
+            "Energia L^2 deve ser unitária (=1.0) para {:?}: obtido {:.6}",
+            scale, energy
+        );
+    }
+}
+
+#[test]
+fn test_cauchy_l2_scale_factor_reconciliation() {
+    // Prova numérica: para Cauchy (lambda=0), N_2(y) é estritamente proporcional a p^(2*pi*q + 1/2)
+    let q = 1.0; // beta = 2*pi
+    let field = ShiftedScaleHolomorphicField::new(PerceptualScaleType::Cqt, q, 440.0);
+    let fs = 48000.0;
+    let n_fft = 4096;
+
+    let f1 = 500.0;
+    let f2 = 2000.0;
+    let y1 = field.y_from_f(f1);
+    let y2 = field.y_from_f(f2);
+
+    let n2_1 = field.l2_normalization_factor(y1, fs, n_fft);
+    let n2_2 = field.l2_normalization_factor(y2, fs, n_fft);
+
+    let ratio_n2 = n2_2 / n2_1;
+
+    // Teoria: N_2 propto p^(2*pi*q + 1/2) = f^-(2*pi*q + 1/2)
+    let p_power = 2.0 * PI * q + 0.5;
+    let expected_ratio = (f1 / f2).powf(p_power);
+
+    println!("Cauchy L^2 Ratio (2000 Hz / 500 Hz): {:.6e}, Teórico: {:.6e}", ratio_n2, expected_ratio);
+    let rel_diff = (ratio_n2 - expected_ratio).abs() / expected_ratio;
+    assert!(
+        rel_diff < 0.02,
+        "N_2(y) deve ser proporcional a p^(2*pi*q + 1/2) com alta precisão: diff={:.4}%",
+        rel_diff * 100.0
+    );
+}
+
+#[test]
+fn test_tight_frame_reconstruction_ls() {
+    // Validação de reconstrução exata por mínimos quadrados de frame tight
+    let fs = 48000.0;
+    let n_fft = 2048;
+    let half_n = n_fft / 2;
+    let mel_field = ShiftedScaleHolomorphicField::new(PerceptualScaleType::Mel, 1.5, 440.0);
+
+    // Espectro de teste sintético suave entre 200 Hz e 6000 Hz
+    let mut x_k = vec![Complex64::new(0.0, 0.0); half_n];
+    for k in 1..half_n {
+        let f = k as f64 * fs / n_fft as f64;
+        if f >= 200.0 && f <= 6000.0 {
+            let re = (f * 0.01).sin();
+            let im = (f * 0.02).cos();
+            x_k[k] = Complex64::new(re, im);
+        }
+    }
+
+    // Cria banco de 48 filtros de Mel sobrepostos cobrindo a faixa ativa
+    let m_channels = 48;
+    let f_min = 150.0;
+    let f_max = 7000.0;
+    let y_min = mel_field.y_from_f(f_min);
+    let y_max = mel_field.y_from_f(f_max);
+
+    let mut windows = Vec::with_capacity(m_channels);
+    let mut log_rhos = Vec::with_capacity(m_channels);
+    let mut channels = Vec::with_capacity(m_channels);
+
+    for j in 0..m_channels {
+        let y = y_min + (j as f64 / (m_channels - 1) as f64) * (y_max - y_min);
+        let win = mel_field.normalized_window(y, fs, n_fft);
+        let log_rho = mel_field.analytical_tight_frame_density(y, fs, n_fft);
+
+        // Canal Y_j[k] = X[k] * G_tilde_j[k]
+        let mut y_j = vec![Complex64::new(0.0, 0.0); half_n];
+        for k in 0..half_n {
+            y_j[k] = x_k[k] * win[k];
+        }
+
+        windows.push(win);
+        log_rhos.push(log_rho);
+        channels.push(y_j);
+    }
+
+    let max_log_rho = log_rhos.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let weights: Vec<f64> = log_rhos.iter().map(|&lr| (lr - max_log_rho).exp()).collect();
+
+    // Reconstrói X_hat via mínimos quadrados
+    let x_hat = ShiftedScaleHolomorphicField::reconstruct_spectrum_ls(&channels, &windows, &weights, half_n);
+
+    // Avalia o erro de reconstrução no intervalo de interesse [300 Hz .. 5000 Hz]
+    let mut num_err = 0.0;
+    let mut den_sig = 0.0;
+
+    for k in 1..half_n {
+        let f = k as f64 * fs / n_fft as f64;
+        if f >= 300.0 && f <= 5000.0 {
+            let err = (x_k[k] - x_hat[k]).abs();
+            num_err += err * err;
+            den_sig += x_k[k].norm_sq();
+        }
+    }
+
+    let snr_db = 10.0 * (den_sig / (num_err + 1e-15)).log10();
+    println!("Mel Frame Reconstruction SNR no centro de banda: {:.2} dB (num_err={:.6e})", snr_db, num_err);
+
+    assert!(
+        snr_db > 80.0,
+        "A reconstrução por mínimos quadrados do frame deve atingir SNR > 80 dB: obtido {:.2} dB",
+        snr_db
+    );
+}
