@@ -1,0 +1,32 @@
+{
+  "stage": "E12",
+  "metrics": {
+    "IID": {
+      "median_fam_error_pct": 0.05628213766856208,
+      "depth_rmse": 0.009479548920524643,
+      "max_depth_error": 0.02548403646584474,
+      "pass_promotion": true
+    },
+    "Compositional": {
+      "median_fam_error_pct": 0.021192326547899064,
+      "depth_rmse": 0.00855179460566258,
+      "max_depth_error": 0.023128002592543884,
+      "pass_promotion": true
+    },
+    "OOD": {
+      "median_fam_error_pct": 0.43547826363646347,
+      "depth_rmse": 0.0028692752839100636,
+      "max_depth_error": 0.01082127252808096,
+      "pass_promotion": true
+    },
+    "Hard": {
+      "median_fam_error_pct": 0.04386556121083725,
+      "depth_rmse": 0.007744573446873866,
+      "max_depth_error": 0.022517821477798572,
+      "pass_promotion": true
+    }
+  },
+  "isolation_metric_ratio": 702977.8009632209,
+  "isolation_metric_db": 116.93883221671516,
+  "promotion_passed": true
+}

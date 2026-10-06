@@ -1,0 +1,67 @@
+{
+  "stages": {
+    "E10": {
+      "IID": {
+        "median_fc_error_pct": 0.10486507502671424,
+        "median_fm_error_pct": 0.4367584284184238,
+        "median_beta_error_pct": 1.2361313037498887,
+        "classification_accuracy": 1.0,
+        "pass_promotion": true
+      },
+      "Compositional": {
+        "median_fc_error_pct": 0.1070175932649586,
+        "median_fm_error_pct": 0.44655744900103,
+        "median_beta_error_pct": 0.32480414526176604,
+        "classification_accuracy": 1.0,
+        "pass_promotion": true
+      },
+      "OOD": {
+        "median_fc_error_pct": 0.11039486186276926,
+        "median_fm_error_pct": 0.6528117786629299,
+        "median_beta_error_pct": 2.6265454995516,
+        "classification_accuracy": 1.0,
+        "pass_promotion": true
+      },
+      "Hard": {
+        "median_fc_error_pct": 0.09758123706375543,
+        "median_fm_error_pct": 0.34557955135242374,
+        "median_beta_error_pct": 0.6832471100579227,
+        "classification_accuracy": 1.0,
+        "pass_promotion": true
+      }
+    },
+    "E11": {
+      "IID": {
+        "median_fc_error_pct": 0.13482076367858095,
+        "median_fm_error_pct": 0.4382146661445691,
+        "median_beta_error_pct": 1.3562987655526078,
+        "classification_accuracy": 1.0,
+        "pass_promotion": true
+      },
+      "Compositional": {
+        "median_fc_error_pct": 0.11739989377876586,
+        "median_fm_error_pct": 0.364658433590903,
+        "median_beta_error_pct": 0.399471797749294,
+        "classification_accuracy": 1.0,
+        "pass_promotion": true
+      },
+      "OOD": {
+        "median_fc_error_pct": 0.10562342449728968,
+        "median_fm_error_pct": 0.7184774932304363,
+        "median_beta_error_pct": 3.8972311047401726,
+        "classification_accuracy": 1.0,
+        "pass_promotion": true
+      },
+      "Hard": {
+        "median_fc_error_pct": 0.14324193178357314,
+        "median_fm_error_pct": 0.4799542763579699,
+        "median_beta_error_pct": 1.4441286381828506,
+        "classification_accuracy": 1.0,
+        "pass_promotion": true
+      }
+    }
+  },
+  "isolation_metric_ratio": 12.84411706608447,
+  "isolation_metric_db": 22.17408510469529,
+  "promotion_passed": true
+}
