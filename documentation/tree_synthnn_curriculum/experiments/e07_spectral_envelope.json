@@ -1,0 +1,33 @@
+{
+  "stage": "E07",
+  "metrics": {
+    "IID": {
+      "mean_rmse_db": 1.9691853770670287,
+      "median_rmse_db": 0.1044605453899971,
+      "max_error_db": 27.35759772831479,
+      "pass_promotion": true
+    },
+    "Compositional": {
+      "mean_rmse_db": 2.9555426640226714,
+      "median_rmse_db": 0.132161816956746,
+      "max_error_db": 32.855228461555384,
+      "pass_promotion": true
+    },
+    "OOD": {
+      "mean_rmse_db": 2.0378091854782214,
+      "median_rmse_db": 0.054738956097999225,
+      "max_error_db": 58.0124281734338,
+      "pass_promotion": true
+    },
+    "Hard": {
+      "mean_rmse_db": 37.69756446241681,
+      "median_rmse_db": 52.15333255630585,
+      "max_error_db": 61.92694338130753,
+      "pass_promotion": false
+    }
+  },
+  "isolation_metric_ratio": 55.56339518706315,
+  "isolation_metric_db": 34.89577550659443,
+  "gauge_residual": 0.0,
+  "promotion_passed": false
+}

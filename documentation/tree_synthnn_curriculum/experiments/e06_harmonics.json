@@ -1,0 +1,32 @@
+{
+  "stage": "E06",
+  "metrics": {
+    "IID": {
+      "rmse_train_band": 0.0049284338019788265,
+      "rmse_extrap_band": 0.004132622852921486,
+      "max_extrap_error": 0.023150064051151276,
+      "pass_promotion": true
+    },
+    "Compositional": {
+      "rmse_train_band": 0.0005728931282646954,
+      "rmse_extrap_band": 0.00022093216830398887,
+      "max_extrap_error": 0.001424628309905529,
+      "pass_promotion": true
+    },
+    "OOD": {
+      "rmse_train_band": 0.05454625189304352,
+      "rmse_extrap_band": 0.06893577426671982,
+      "max_extrap_error": 0.13937366008758545,
+      "pass_promotion": false
+    },
+    "Hard": {
+      "rmse_train_band": 0.01787913218140602,
+      "rmse_extrap_band": 0.01958101987838745,
+      "max_extrap_error": 0.10396923124790192,
+      "pass_promotion": false
+    }
+  },
+  "isolation_metric_ratio": 3.196664333343506,
+  "isolation_metric_db": 10.09394070897992,
+  "promotion_passed": false
+}
