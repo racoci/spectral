@@ -1,0 +1,9 @@
+model,quadrant,rmse_cents,mae_cents,max_cents,success_rate_2c,mae_fdot,mae_fddot
+LinearPitchHead,iid,0.408703,0.331739,1.460695,100.00,9.2832,3852.9775
+LinearPitchHead,compositional,0.763897,0.638741,2.028179,99.33,8.5778,4369.8599
+LinearPitchHead,structural_ood,2.190610,2.010515,4.953289,47.33,64.0775,5440.7393
+LinearPitchHead,adversarial,4.289784,2.938599,13.319492,57.33,73.0641,656.7223
+TinyMlpPitchHead,iid,0.135198,0.053338,1.046669,100.00,9.2789,3887.7913
+TinyMlpPitchHead,compositional,0.167917,0.073904,1.366353,100.00,8.2871,4413.4067
+TinyMlpPitchHead,structural_ood,1.233254,0.538651,5.796719,94.00,63.7323,5497.7261
+TinyMlpPitchHead,adversarial,2.849197,1.631760,9.405899,77.33,72.6399,660.4099
