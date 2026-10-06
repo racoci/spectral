@@ -1,0 +1,131 @@
+[
+  {
+    "category": "Spectrogram",
+    "test_name": "Auger-Flandrin Gaussian Reassignment (YCbCr)",
+    "output_bytes": 2097152,
+    "sha256_hash": "0313dd4690878617792fec77b1ec6a7784bf5c1fb81c75afde0dfac3845fa20f",
+    "mean_time_ms": 233.94,
+    "min_time_ms": 232.965,
+    "runs": 5
+  },
+  {
+    "category": "Spectrogram",
+    "test_name": "Smooth Log Spectrogram (YCbCr)",
+    "output_bytes": 2097152,
+    "sha256_hash": "d21861eda47689cd4466035052f04422f44f30eb8112c736bad2aa567a2d49df",
+    "mean_time_ms": 115.095,
+    "min_time_ms": 114.043,
+    "runs": 5
+  },
+  {
+    "category": "Spectrogram",
+    "test_name": "Cauchy Wavelet CQT Ladder (YCbCr)",
+    "output_bytes": 2097152,
+    "sha256_hash": "739d46518cae1a4ccc0919e9850f99fdc81e01a3a781090929acb31b2305f648",
+    "mean_time_ms": 3574.996,
+    "min_time_ms": 3549.891,
+    "runs": 5
+  },
+  {
+    "category": "Spectrogram",
+    "test_name": "Higher-Order Hermite Jet O=2 Ridge Tracking",
+    "output_bytes": 2097152,
+    "sha256_hash": "1f1ae42f6712cfeb0d64f4131b949097771e3c1efc29b085e22999a5e925fa25",
+    "mean_time_ms": 225.375,
+    "min_time_ms": 223.846,
+    "runs": 5
+  },
+  {
+    "category": "Spectrogram",
+    "test_name": "Sliding Jet DFT O=2 (Zero-FFT O(1))",
+    "output_bytes": 2097152,
+    "sha256_hash": "66c32d1473b1003ea729269a59140ca9f2049afbd84ef3b73c59dfeb7293474e",
+    "mean_time_ms": 8486.412,
+    "min_time_ms": 7800.098,
+    "runs": 5
+  },
+  {
+    "category": "Spectrogram",
+    "test_name": "Cauchy CQT with Geodesic Snake 24-bit Thermal Palette",
+    "output_bytes": 2097152,
+    "sha256_hash": "fdfe842872c21118f09096394719cc5db801676d843c0ddcaa885dfb1f29b492",
+    "mean_time_ms": 3700.167,
+    "min_time_ms": 3558.797,
+    "runs": 5
+  },
+  {
+    "category": "HolomorphicExploration",
+    "test_name": "Holomorphic Multiscale (CQT) with Tight Frame & L2 Norm",
+    "output_bytes": 1024000,
+    "sha256_hash": "97bac585e8a37511a85eec4e52c84b87710090783bbd0e2c9afe0a1b5d2a9058",
+    "mean_time_ms": 201.28,
+    "min_time_ms": 197.725,
+    "runs": 5
+  },
+  {
+    "category": "HolomorphicExploration",
+    "test_name": "Holomorphic Multiscale (MEL) with Tight Frame & L2 Norm",
+    "output_bytes": 1024000,
+    "sha256_hash": "d724787207d72bce51d608d4fe6f878abaadfd366f974ee4d184d6fb9ee62583",
+    "mean_time_ms": 325.058,
+    "min_time_ms": 322.343,
+    "runs": 5
+  },
+  {
+    "category": "HolomorphicExploration",
+    "test_name": "Holomorphic Multiscale (BARK) with Tight Frame & L2 Norm",
+    "output_bytes": 1024000,
+    "sha256_hash": "0022b035dac5ca1e3e1d36c3caaa87f6b03d7181123c3dbedf9de3ec4427d0bd",
+    "mean_time_ms": 361.793,
+    "min_time_ms": 356.255,
+    "runs": 5
+  },
+  {
+    "category": "HolomorphicExploration",
+    "test_name": "Holomorphic Multiscale (LINEAR) with Tight Frame & L2 Norm",
+    "output_bytes": 1024000,
+    "sha256_hash": "6962eb53b608853a4451d910ec7c7c56d25ffdf352848c32e8f556a6c4faa5dc",
+    "mean_time_ms": 488.58,
+    "min_time_ms": 474.065,
+    "runs": 5
+  },
+  {
+    "category": "Resynthesis",
+    "test_name": "Hybrid Bit-Perfect 16-bit WAV Export (MDCT/TDAC)",
+    "output_bytes": 475180,
+    "sha256_hash": "2ad0d011a3f418c1f542bb9eb51abc876dd3b3022bd41904138f9d57c271b7c7",
+    "mean_time_ms": 3.097,
+    "min_time_ms": 3.007,
+    "runs": 5,
+    "metrics": {
+      "wav_size": 475180,
+      "is_valid_wav": true
+    }
+  },
+  {
+    "category": "CodecRDOJ",
+    "test_name": "RDO-Jet Dead-Zone Quantization & Sparse Packing",
+    "output_bytes": 10774,
+    "sha256_hash": "4ac8772f2f2b18f2ce3793859adb39ca6f20134bfb174fc1484ae4eff01dda1c",
+    "mean_time_ms": 0.054,
+    "min_time_ms": 0.049,
+    "runs": 10,
+    "metrics": {
+      "compressed_bytes": 10774,
+      "original_bytes": 8192,
+      "ratio": "0.76"
+    }
+  },
+  {
+    "category": "CodecRDOJ",
+    "test_name": "RDO-Jet Decompression and Reconstruction",
+    "output_bytes": 8192,
+    "sha256_hash": "3336d25262f6ac9d46df2b766f2360e0569cbab96dcd589582d047eed5463d34",
+    "mean_time_ms": 0.018,
+    "min_time_ms": 0.016,
+    "runs": 10,
+    "metrics": {
+      "reconstructed_samples": 2048
+    }
+  }
+]

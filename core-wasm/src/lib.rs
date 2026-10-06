@@ -7,6 +7,8 @@ pub mod model;
 pub mod analysis;
 pub mod holomorphic;
 pub use holomorphic::*;
+pub mod new_architecture;
+pub use new_architecture::*;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct C32 {
