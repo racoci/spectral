@@ -1,0 +1,24 @@
+{
+  "selected": [
+    "master_gain",
+    "master_drive",
+    "voices.0.timbre.fm_index",
+    "voices.0.timbre.inharmonicity",
+    "global_reverb_mix"
+  ],
+  "shape": [
+    94,
+    5
+  ],
+  "singular_values": [
+    4.906472206115723,
+    2.5821151733398438,
+    1.675586223602295,
+    0.9422037601470947,
+    0.525239109992981
+  ],
+  "rank_numeric_tol": 4.906472206115723e-08,
+  "rank": 5,
+  "condition": 9.34140682220459,
+  "method": "central finite-difference waveform Jacobian"
+}

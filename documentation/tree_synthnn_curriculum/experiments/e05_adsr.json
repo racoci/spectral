@@ -1,0 +1,36 @@
+{
+  "stage": "E05",
+  "metrics": {
+    "IID": {
+      "rmse_total": 0.02081035077571869,
+      "median_relative_error": 0.04987495020031929,
+      "tau_a_err_percent": 20.334230363368988,
+      "sustain_mae": 0.01808217167854309,
+      "pass_promotion": true
+    },
+    "Compositional": {
+      "rmse_total": 0.014296652749180794,
+      "median_relative_error": 0.04279099404811859,
+      "tau_a_err_percent": 35.393333435058594,
+      "sustain_mae": 0.016894130036234856,
+      "pass_promotion": true
+    },
+    "OOD": {
+      "rmse_total": 0.09903257340192795,
+      "median_relative_error": 0.08956804871559143,
+      "tau_a_err_percent": 14.101192355155945,
+      "sustain_mae": 0.09553573280572891,
+      "pass_promotion": false
+    },
+    "Hard": {
+      "rmse_total": 0.08756915479898453,
+      "median_relative_error": 0.24085746705532074,
+      "tau_a_err_percent": 46.50140404701233,
+      "sustain_mae": 0.11568168550729752,
+      "pass_promotion": false
+    }
+  },
+  "isolation_metric_ratio": 7.953550815582275,
+  "isolation_metric_db": 18.011221202894912,
+  "promotion_passed": false
+}

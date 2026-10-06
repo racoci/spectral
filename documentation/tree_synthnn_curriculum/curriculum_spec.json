@@ -1,0 +1,1476 @@
+{
+  "protocol_version": "1.0",
+  "global": {
+    "seed": 20261006,
+    "sample_rate_hz": 12000,
+    "default_batch_size": 32,
+    "early_stopping_patience": 12,
+    "max_grad_norm": 1.0,
+    "normalization": {
+      "frequency": "cents_or_log2_ratio",
+      "positive": "log_ratio",
+      "phase": "unit_circle",
+      "amplitude": "dB"
+    }
+  },
+  "parameter_distributions": {
+    "pitch": {
+      "midi": [
+        36.0,
+        84.0
+      ],
+      "detune_cents": [
+        -30.0,
+        30.0
+      ],
+      "pitch_bend_cents": [
+        -200.0,
+        200.0
+      ],
+      "pitch_slide_cents": [
+        -300.0,
+        300.0
+      ],
+      "phase": [
+        -3.141592653589793,
+        3.141592653589793
+      ],
+      "f0_hz_effective": [
+        65.4064,
+        1046.5023
+      ]
+    },
+    "amplitude": {
+      "gain_log10": [
+        -1.0,
+        0.0
+      ],
+      "log_amplitude_db": [
+        -24.0,
+        0.0
+      ]
+    },
+    "adsr": {
+      "attack_s": [
+        0.005,
+        0.1
+      ],
+      "decay_s": [
+        0.02,
+        0.3
+      ],
+      "sustain": [
+        0.25,
+        0.95
+      ],
+      "release_s": [
+        0.03,
+        0.35
+      ]
+    },
+    "harmonics": {
+      "K_choices": [
+        2,
+        4,
+        8,
+        12,
+        16
+      ],
+      "Hk_log10": [
+        -1.7,
+        -0.1
+      ],
+      "harmonic_phase": [
+        -3.141592653589793,
+        3.141592653589793
+      ]
+    },
+    "spectral_envelope": {
+      "center_hz": [
+        70.0,
+        10000.0
+      ],
+      "db": [
+        -18.0,
+        6.0
+      ],
+      "sigma_oct": [
+        0.12,
+        0.6
+      ]
+    },
+    "inharmonicity": {
+      "B_log10": [
+        -6.0,
+        -3.0
+      ]
+    },
+    "lfo": {
+      "depth_cents": [
+        2.0,
+        80.0
+      ],
+      "rate_hz": [
+        0.5,
+        12.0
+      ],
+      "phase": [
+        -3.141592653589793,
+        3.141592653589793
+      ],
+      "waveform": [
+        "sine"
+      ]
+    },
+    "fm": {
+      "ratio_log2": [
+        -2.0,
+        3.0
+      ],
+      "index": [
+        0.01,
+        8.0
+      ],
+      "phase": [
+        -3.141592653589793,
+        3.141592653589793
+      ]
+    },
+    "pm": {
+      "ratio_log2": [
+        -2.0,
+        3.0
+      ],
+      "index": [
+        0.01,
+        8.0
+      ],
+      "phase": [
+        -3.141592653589793,
+        3.141592653589793
+      ]
+    },
+    "am": {
+      "depth": [
+        0.01,
+        0.9
+      ],
+      "rate_hz": [
+        0.2,
+        12.0
+      ],
+      "phase": [
+        -3.141592653589793,
+        3.141592653589793
+      ]
+    },
+    "noise": {
+      "level": [
+        0.0,
+        0.5
+      ],
+      "alpha": [
+        -2.0,
+        1.0
+      ],
+      "knee_hz": [
+        300.0,
+        6000.0
+      ]
+    },
+    "events": {
+      "n_notes": [
+        1,
+        4
+      ],
+      "onset_jitter_s": [
+        0.0,
+        0.02
+      ],
+      "duration_s": [
+        0.15,
+        1.5
+      ],
+      "velocity": [
+        0.35,
+        1.0
+      ]
+    },
+    "voices": {
+      "V": [
+        1,
+        8
+      ],
+      "pan": [
+        -0.8,
+        0.8
+      ]
+    },
+    "tree": {
+      "width": [
+        1,
+        8
+      ],
+      "depth": [
+        1,
+        4
+      ],
+      "edge_probability": [
+        0.1,
+        0.5
+      ],
+      "edge_gain": [
+        0.05,
+        1.0
+      ]
+    }
+  },
+  "stages": [
+    {
+      "id": "E00",
+      "name": "identifiability",
+      "purpose": "Measure rank/conditioning before learning.",
+      "trainable_groups": [],
+      "frozen_groups": [
+        "master",
+        "events",
+        "pitch",
+        "envelope",
+        "harmonics",
+        "spectral_envelope",
+        "inharmonicity",
+        "lfo",
+        "fm",
+        "pm",
+        "am",
+        "noise",
+        "source_family",
+        "filter",
+        "delay",
+        "chorus",
+        "reverb",
+        "spatial",
+        "modulation_graph",
+        "graph_structure",
+        "analysis_residual"
+      ],
+      "train_examples": 4000,
+      "val_examples": 500,
+      "iid_test_examples": 1000,
+      "compositional_test_examples": 1000,
+      "structural_ood_examples": 0,
+      "hard_test_examples": 1000,
+      "duration_s": 2.0,
+      "sample_rate": 12000,
+      "max_voices": 1,
+      "max_nodes": 1,
+      "max_edges": 0,
+      "jet_order": 2,
+      "architecture": "Jacobian + SVD",
+      "optimizer": "none",
+      "lr": 0.0,
+      "weight_decay": 0.0,
+      "loss_terms": [
+        "rank",
+        "condition_number"
+      ],
+      "promotion": [
+        "full_rank_on_target_subspace",
+        "min_sigma > 1e-3 * max_sigma"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "E01",
+      "name": "cqt_and_jets",
+      "purpose": "Validate analytic CQT/reassignment/jets against ground truth.",
+      "trainable_groups": [],
+      "frozen_groups": [
+        "master",
+        "events",
+        "pitch",
+        "envelope",
+        "harmonics",
+        "spectral_envelope",
+        "inharmonicity",
+        "lfo",
+        "fm",
+        "pm",
+        "am",
+        "noise",
+        "source_family",
+        "filter",
+        "delay",
+        "chorus",
+        "reverb",
+        "spatial",
+        "modulation_graph",
+        "graph_structure",
+        "analysis_residual"
+      ],
+      "train_examples": 10000,
+      "val_examples": 1000,
+      "iid_test_examples": 2000,
+      "compositional_test_examples": 2000,
+      "structural_ood_examples": 0,
+      "hard_test_examples": 2000,
+      "duration_s": 2.0,
+      "sample_rate": 12000,
+      "max_voices": 1,
+      "max_nodes": 1,
+      "max_edges": 0,
+      "jet_order": 4,
+      "architecture": "fixed frontend",
+      "optimizer": "none",
+      "lr": 0.0,
+      "weight_decay": 0.0,
+      "loss_terms": [
+        "L_f",
+        "L_df",
+        "L_d2f",
+        "L_d3f",
+        "L_d4f"
+      ],
+      "promotion": [
+        "median_pitch_error < 1_cent",
+        "median_derivative_relative_error < 0.02"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "E02",
+      "name": "ridge",
+      "purpose": "Detect/track one ridge.",
+      "trainable_groups": [
+        "analysis_residual"
+      ],
+      "frozen_groups": [
+        "master",
+        "events",
+        "pitch",
+        "envelope",
+        "harmonics",
+        "spectral_envelope",
+        "inharmonicity",
+        "lfo",
+        "fm",
+        "pm",
+        "am",
+        "noise",
+        "source_family",
+        "filter",
+        "delay",
+        "chorus",
+        "reverb",
+        "spatial",
+        "modulation_graph",
+        "graph_structure"
+      ],
+      "train_examples": 12000,
+      "val_examples": 1500,
+      "iid_test_examples": 3000,
+      "compositional_test_examples": 3000,
+      "structural_ood_examples": 0,
+      "hard_test_examples": 3000,
+      "duration_s": 2.0,
+      "sample_rate": 12000,
+      "max_voices": 1,
+      "max_nodes": 1,
+      "max_edges": 0,
+      "jet_order": 2,
+      "architecture": "linear -> 16 -> 1",
+      "optimizer": "AdamW",
+      "lr": 0.003,
+      "weight_decay": 0.0001,
+      "loss_terms": [
+        "L_f",
+        "L_track",
+        "L_smooth"
+      ],
+      "promotion": [
+        "IID_cents_RMSE < 2",
+        "hard_cents_RMSE < 8",
+        "track_F1 > 0.995"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "E03",
+      "name": "pitch",
+      "purpose": "Recover f0 from a clean mono-sine component.",
+      "trainable_groups": [
+        "pitch"
+      ],
+      "frozen_groups": [
+        "master",
+        "events",
+        "envelope",
+        "harmonics",
+        "spectral_envelope",
+        "inharmonicity",
+        "lfo",
+        "fm",
+        "pm",
+        "am",
+        "noise",
+        "source_family",
+        "filter",
+        "delay",
+        "chorus",
+        "reverb",
+        "spatial",
+        "modulation_graph",
+        "graph_structure",
+        "analysis_residual"
+      ],
+      "train_examples": 16000,
+      "val_examples": 2000,
+      "iid_test_examples": 4000,
+      "compositional_test_examples": 4000,
+      "structural_ood_examples": 0,
+      "hard_test_examples": 4000,
+      "duration_s": 2.0,
+      "sample_rate": 12000,
+      "max_voices": 1,
+      "max_nodes": 1,
+      "max_edges": 0,
+      "jet_order": 2,
+      "architecture": "32 -> 16 -> 3 heads",
+      "optimizer": "AdamW",
+      "lr": 0.002,
+      "weight_decay": 0.0001,
+      "loss_terms": [
+        "L_f",
+        "L_df",
+        "L_d2f"
+      ],
+      "promotion": [
+        "IID_RMSE < 1_cent",
+        "OOD_RMSE < 3_cents",
+        "no systematic_bias"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "E04",
+      "name": "amplitude",
+      "purpose": "Recover scalar amplitude only.",
+      "trainable_groups": [
+        "envelope"
+      ],
+      "frozen_groups": [
+        "master",
+        "events",
+        "pitch",
+        "harmonics",
+        "spectral_envelope",
+        "inharmonicity",
+        "lfo",
+        "fm",
+        "pm",
+        "am",
+        "noise",
+        "source_family",
+        "filter",
+        "delay",
+        "chorus",
+        "reverb",
+        "spatial",
+        "modulation_graph",
+        "graph_structure",
+        "analysis_residual"
+      ],
+      "train_examples": 10000,
+      "val_examples": 1000,
+      "iid_test_examples": 2000,
+      "compositional_test_examples": 2000,
+      "structural_ood_examples": 0,
+      "hard_test_examples": 2000,
+      "duration_s": 2.0,
+      "sample_rate": 12000,
+      "max_voices": 1,
+      "max_nodes": 1,
+      "max_edges": 0,
+      "jet_order": 2,
+      "architecture": "linear -> 16 -> 1",
+      "optimizer": "AdamW",
+      "lr": 0.002,
+      "weight_decay": 0.0001,
+      "loss_terms": [
+        "L_logA"
+      ],
+      "promotion": [
+        "RMSE < 0.1_dB",
+        "intervention_isolation > 20dB"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "E05",
+      "name": "adsr",
+      "purpose": "Recover attack/decay/sustain/release.",
+      "trainable_groups": [
+        "envelope"
+      ],
+      "frozen_groups": [
+        "master",
+        "events",
+        "pitch",
+        "harmonics",
+        "spectral_envelope",
+        "inharmonicity",
+        "lfo",
+        "fm",
+        "pm",
+        "am",
+        "noise",
+        "source_family",
+        "filter",
+        "delay",
+        "chorus",
+        "reverb",
+        "spatial",
+        "modulation_graph",
+        "graph_structure",
+        "analysis_residual"
+      ],
+      "train_examples": 24000,
+      "val_examples": 3000,
+      "iid_test_examples": 5000,
+      "compositional_test_examples": 5000,
+      "structural_ood_examples": 0,
+      "hard_test_examples": 5000,
+      "duration_s": 2.0,
+      "sample_rate": 12000,
+      "max_voices": 1,
+      "max_nodes": 1,
+      "max_edges": 0,
+      "jet_order": 2,
+      "architecture": "64 -> 32 -> 4 constrained heads",
+      "optimizer": "AdamW",
+      "lr": 0.001,
+      "weight_decay": 0.0001,
+      "loss_terms": [
+        "L_onset",
+        "L_tau",
+        "L_sustain",
+        "L_env"
+      ],
+      "promotion": [
+        "median_ADSR_relative_error < 0.05",
+        "waveform_RMSE_gain < 1e-3"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "E06",
+      "name": "harmonics",
+      "purpose": "Recover H_k with shared harmonic decoder.",
+      "trainable_groups": [
+        "harmonics"
+      ],
+      "frozen_groups": [
+        "master",
+        "events",
+        "pitch",
+        "envelope",
+        "spectral_envelope",
+        "inharmonicity",
+        "lfo",
+        "fm",
+        "pm",
+        "am",
+        "noise",
+        "source_family",
+        "filter",
+        "delay",
+        "chorus",
+        "reverb",
+        "spatial",
+        "modulation_graph",
+        "graph_structure",
+        "analysis_residual"
+      ],
+      "train_examples": 30000,
+      "val_examples": 4000,
+      "iid_test_examples": 6000,
+      "compositional_test_examples": 6000,
+      "structural_ood_examples": 0,
+      "hard_test_examples": 6000,
+      "duration_s": 2.0,
+      "sample_rate": 12000,
+      "max_voices": 1,
+      "max_nodes": 1,
+      "max_edges": 0,
+      "jet_order": 2,
+      "architecture": "harmonic embedding + shared MLP",
+      "optimizer": "AdamW",
+      "lr": 0.001,
+      "weight_decay": 0.0001,
+      "loss_terms": [
+        "L_H",
+        "L_CQT",
+        "L_x"
+      ],
+      "promotion": [
+        "H_RMSE < 0.01",
+        "k>8_extrapolation_RMSE < 0.03"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "E07",
+      "name": "spectral_envelope",
+      "purpose": "Recover low-dimensional E(f) basis coefficients.",
+      "trainable_groups": [
+        "spectral_envelope"
+      ],
+      "frozen_groups": [
+        "master",
+        "events",
+        "pitch",
+        "envelope",
+        "harmonics",
+        "inharmonicity",
+        "lfo",
+        "fm",
+        "pm",
+        "am",
+        "noise",
+        "source_family",
+        "filter",
+        "delay",
+        "chorus",
+        "reverb",
+        "spatial",
+        "modulation_graph",
+        "graph_structure",
+        "analysis_residual"
+      ],
+      "train_examples": 30000,
+      "val_examples": 4000,
+      "iid_test_examples": 6000,
+      "compositional_test_examples": 6000,
+      "structural_ood_examples": 0,
+      "hard_test_examples": 6000,
+      "duration_s": 2.0,
+      "sample_rate": 12000,
+      "max_voices": 1,
+      "max_nodes": 1,
+      "max_edges": 0,
+      "jet_order": 2,
+      "architecture": "basis projection: 2 -> 3 -> spline",
+      "optimizer": "AdamW",
+      "lr": 0.0008,
+      "weight_decay": 0.0001,
+      "loss_terms": [
+        "L_Edb",
+        "L_CQT",
+        "L_x"
+      ],
+      "promotion": [
+        "median_envelope_error < 0.75_dB",
+        "gauge_constraints < 1e-4"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "E08",
+      "name": "inharmonicity",
+      "purpose": "Recover B after harmonic/envelope disentanglement.",
+      "trainable_groups": [
+        "inharmonicity"
+      ],
+      "frozen_groups": [
+        "master",
+        "events",
+        "pitch",
+        "envelope",
+        "harmonics",
+        "spectral_envelope",
+        "lfo",
+        "fm",
+        "pm",
+        "am",
+        "noise",
+        "source_family",
+        "filter",
+        "delay",
+        "chorus",
+        "reverb",
+        "spatial",
+        "modulation_graph",
+        "graph_structure",
+        "analysis_residual"
+      ],
+      "train_examples": 16000,
+      "val_examples": 2000,
+      "iid_test_examples": 4000,
+      "compositional_test_examples": 4000,
+      "structural_ood_examples": 0,
+      "hard_test_examples": 4000,
+      "duration_s": 2.0,
+      "sample_rate": 12000,
+      "max_voices": 1,
+      "max_nodes": 1,
+      "max_edges": 0,
+      "jet_order": 2,
+      "architecture": "analytic LS + residual MLP(16,8)",
+      "optimizer": "AdamW",
+      "lr": 0.0005,
+      "weight_decay": 1e-05,
+      "loss_terms": [
+        "L_B",
+        "L_freq"
+      ],
+      "promotion": [
+        "median_relative_B_error < 0.05",
+        "no_sign_errors"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "E09",
+      "name": "lfo",
+      "purpose": "Recover sinusoidal modulation parameters.",
+      "trainable_groups": [
+        "lfo"
+      ],
+      "frozen_groups": [
+        "master",
+        "events",
+        "pitch",
+        "envelope",
+        "harmonics",
+        "spectral_envelope",
+        "inharmonicity",
+        "fm",
+        "pm",
+        "am",
+        "noise",
+        "source_family",
+        "filter",
+        "delay",
+        "chorus",
+        "reverb",
+        "spatial",
+        "modulation_graph",
+        "graph_structure",
+        "analysis_residual"
+      ],
+      "train_examples": 24000,
+      "val_examples": 3000,
+      "iid_test_examples": 5000,
+      "compositional_test_examples": 5000,
+      "structural_ood_examples": 0,
+      "hard_test_examples": 5000,
+      "duration_s": 2.0,
+      "sample_rate": 12000,
+      "max_voices": 1,
+      "max_nodes": 1,
+      "max_edges": 0,
+      "jet_order": 2,
+      "architecture": "64 -> 32 -> 4 + phase vector head",
+      "optimizer": "AdamW",
+      "lr": 0.001,
+      "weight_decay": 0.0001,
+      "loss_terms": [
+        "L_depth",
+        "L_freq",
+        "L_phase",
+        "L_track"
+      ],
+      "promotion": [
+        "freq_relative_error < 0.02",
+        "phase_circular_error < 5deg"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "E10",
+      "name": "fm",
+      "purpose": "Recover FM carrier/modulator/index/phase.",
+      "trainable_groups": [
+        "fm"
+      ],
+      "frozen_groups": [
+        "master",
+        "events",
+        "pitch",
+        "envelope",
+        "harmonics",
+        "spectral_envelope",
+        "inharmonicity",
+        "lfo",
+        "pm",
+        "am",
+        "noise",
+        "source_family",
+        "filter",
+        "delay",
+        "chorus",
+        "reverb",
+        "spatial",
+        "modulation_graph",
+        "graph_structure",
+        "analysis_residual"
+      ],
+      "train_examples": 30000,
+      "val_examples": 4000,
+      "iid_test_examples": 6000,
+      "compositional_test_examples": 6000,
+      "structural_ood_examples": 0,
+      "hard_test_examples": 6000,
+      "duration_s": 2.0,
+      "sample_rate": 12000,
+      "max_voices": 1,
+      "max_nodes": 1,
+      "max_edges": 0,
+      "jet_order": 2,
+      "architecture": "96 -> 48 -> 8",
+      "optimizer": "AdamW",
+      "lr": 0.0008,
+      "weight_decay": 0.0001,
+      "loss_terms": [
+        "L_FM_params",
+        "L_J",
+        "L_x"
+      ],
+      "promotion": [
+        "median_parameter_error < 0.05",
+        "FM_classification_accuracy > 0.995"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "E11",
+      "name": "pm",
+      "purpose": "Recover PM parameters in isolation from FM.",
+      "trainable_groups": [
+        "pm"
+      ],
+      "frozen_groups": [
+        "master",
+        "events",
+        "pitch",
+        "envelope",
+        "harmonics",
+        "spectral_envelope",
+        "inharmonicity",
+        "lfo",
+        "fm",
+        "am",
+        "noise",
+        "source_family",
+        "filter",
+        "delay",
+        "chorus",
+        "reverb",
+        "spatial",
+        "modulation_graph",
+        "graph_structure",
+        "analysis_residual"
+      ],
+      "train_examples": 24000,
+      "val_examples": 3000,
+      "iid_test_examples": 5000,
+      "compositional_test_examples": 5000,
+      "structural_ood_examples": 0,
+      "hard_test_examples": 5000,
+      "duration_s": 2.0,
+      "sample_rate": 12000,
+      "max_voices": 1,
+      "max_nodes": 1,
+      "max_edges": 0,
+      "jet_order": 2,
+      "architecture": "96 -> 48 -> 8",
+      "optimizer": "AdamW",
+      "lr": 0.0008,
+      "weight_decay": 0.0001,
+      "loss_terms": [
+        "L_PM_params",
+        "L_J",
+        "L_x"
+      ],
+      "promotion": [
+        "median_parameter_error < 0.05",
+        "PM_accuracy > 0.995"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "E12",
+      "name": "am",
+      "purpose": "Recover AM/tremolo separately.",
+      "trainable_groups": [
+        "am"
+      ],
+      "frozen_groups": [
+        "master",
+        "events",
+        "pitch",
+        "envelope",
+        "harmonics",
+        "spectral_envelope",
+        "inharmonicity",
+        "lfo",
+        "fm",
+        "pm",
+        "noise",
+        "source_family",
+        "filter",
+        "delay",
+        "chorus",
+        "reverb",
+        "spatial",
+        "modulation_graph",
+        "graph_structure",
+        "analysis_residual"
+      ],
+      "train_examples": 24000,
+      "val_examples": 3000,
+      "iid_test_examples": 5000,
+      "compositional_test_examples": 5000,
+      "structural_ood_examples": 0,
+      "hard_test_examples": 5000,
+      "duration_s": 2.0,
+      "sample_rate": 12000,
+      "max_voices": 1,
+      "max_nodes": 1,
+      "max_edges": 0,
+      "jet_order": 2,
+      "architecture": "64 -> 32 -> 6",
+      "optimizer": "AdamW",
+      "lr": 0.001,
+      "weight_decay": 0.0001,
+      "loss_terms": [
+        "L_AM_params",
+        "L_env",
+        "L_x"
+      ],
+      "promotion": [
+        "depth_RMSE < 0.01",
+        "freq_relative_error < 0.02"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "E13",
+      "name": "noise",
+      "purpose": "Recover noise level and spectral slope/knee.",
+      "trainable_groups": [
+        "noise"
+      ],
+      "frozen_groups": [
+        "master",
+        "events",
+        "pitch",
+        "envelope",
+        "harmonics",
+        "spectral_envelope",
+        "inharmonicity",
+        "lfo",
+        "fm",
+        "pm",
+        "am",
+        "source_family",
+        "filter",
+        "delay",
+        "chorus",
+        "reverb",
+        "spatial",
+        "modulation_graph",
+        "graph_structure",
+        "analysis_residual"
+      ],
+      "train_examples": 30000,
+      "val_examples": 4000,
+      "iid_test_examples": 6000,
+      "compositional_test_examples": 6000,
+      "structural_ood_examples": 0,
+      "hard_test_examples": 6000,
+      "duration_s": 2.0,
+      "sample_rate": 12000,
+      "max_voices": 1,
+      "max_nodes": 1,
+      "max_edges": 0,
+      "jet_order": 2,
+      "architecture": "64 -> 32 -> 6",
+      "optimizer": "AdamW",
+      "lr": 0.0007,
+      "weight_decay": 0.0001,
+      "loss_terms": [
+        "L_noise_psd",
+        "L_alpha",
+        "L_knee",
+        "L_x"
+      ],
+      "promotion": [
+        "PSD_log_RMSE < 1dB",
+        "alpha_abs_error < 0.05"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "E14",
+      "name": "effects",
+      "purpose": "Identify nonlocal effects one at a time.",
+      "trainable_groups": [
+        "filter",
+        "delay",
+        "chorus",
+        "reverb",
+        "spatial"
+      ],
+      "frozen_groups": [
+        "master",
+        "events",
+        "pitch",
+        "envelope",
+        "harmonics",
+        "spectral_envelope",
+        "inharmonicity",
+        "lfo",
+        "fm",
+        "pm",
+        "am",
+        "noise",
+        "source_family",
+        "modulation_graph",
+        "graph_structure",
+        "analysis_residual"
+      ],
+      "train_examples": 50000,
+      "val_examples": 6000,
+      "iid_test_examples": 10000,
+      "compositional_test_examples": 10000,
+      "structural_ood_examples": 0,
+      "hard_test_examples": 10000,
+      "duration_s": 2.0,
+      "sample_rate": 12000,
+      "max_voices": 1,
+      "max_nodes": 1,
+      "max_edges": 0,
+      "jet_order": 2,
+      "architecture": "effect-specific heads",
+      "optimizer": "AdamW",
+      "lr": 0.0005,
+      "weight_decay": 0.0001,
+      "loss_terms": [
+        "L_multiscale_STFT",
+        "L_CQT",
+        "L_x"
+      ],
+      "promotion": [
+        "single_effect_parameter_error < 5_percent",
+        "effect_on_off_accuracy > 0.99"
+      ],
+      "notes": "Train each effect separately before combined-effects curriculum."
+    },
+    {
+      "id": "E15",
+      "name": "events",
+      "purpose": "Recover note onsets, offsets and pitch.",
+      "trainable_groups": [
+        "events"
+      ],
+      "frozen_groups": [
+        "master",
+        "pitch",
+        "envelope",
+        "harmonics",
+        "spectral_envelope",
+        "inharmonicity",
+        "lfo",
+        "fm",
+        "pm",
+        "am",
+        "noise",
+        "source_family",
+        "filter",
+        "delay",
+        "chorus",
+        "reverb",
+        "spatial",
+        "modulation_graph",
+        "graph_structure",
+        "analysis_residual"
+      ],
+      "train_examples": 50000,
+      "val_examples": 6000,
+      "iid_test_examples": 10000,
+      "compositional_test_examples": 10000,
+      "structural_ood_examples": 0,
+      "hard_test_examples": 10000,
+      "duration_s": 2.0,
+      "sample_rate": 12000,
+      "max_voices": 1,
+      "max_nodes": 1,
+      "max_edges": 0,
+      "jet_order": 2,
+      "architecture": "temporal conv/MLP + onset offset heads",
+      "optimizer": "AdamW",
+      "lr": 0.0008,
+      "weight_decay": 0.0001,
+      "loss_terms": [
+        "L_onset",
+        "L_offset",
+        "L_pitch",
+        "L_velocity"
+      ],
+      "promotion": [
+        "onset_F1 > 0.995",
+        "median_onset_error < 2ms",
+        "pitch_error < 3c"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "E16",
+      "name": "known_tree",
+      "purpose": "Learn modulation parameters with topology fixed.",
+      "trainable_groups": [
+        "modulation_graph"
+      ],
+      "frozen_groups": [
+        "master",
+        "events",
+        "pitch",
+        "envelope",
+        "harmonics",
+        "spectral_envelope",
+        "inharmonicity",
+        "lfo",
+        "fm",
+        "pm",
+        "am",
+        "noise",
+        "source_family",
+        "filter",
+        "delay",
+        "chorus",
+        "reverb",
+        "spatial",
+        "graph_structure",
+        "analysis_residual"
+      ],
+      "train_examples": 40000,
+      "val_examples": 5000,
+      "iid_test_examples": 8000,
+      "compositional_test_examples": 8000,
+      "structural_ood_examples": 0,
+      "hard_test_examples": 8000,
+      "duration_s": 2.0,
+      "sample_rate": 12000,
+      "max_voices": 1,
+      "max_nodes": 4,
+      "max_edges": 4,
+      "jet_order": 2,
+      "architecture": "message-passing tree, topology supplied",
+      "optimizer": "AdamW",
+      "lr": 0.0005,
+      "weight_decay": 0.0001,
+      "loss_terms": [
+        "L_edge_param",
+        "L_J",
+        "L_x"
+      ],
+      "promotion": [
+        "edge_strength_RMSE < 0.02",
+        "audio_RMSE < 1e-3"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "E17",
+      "name": "edge_inference",
+      "purpose": "Infer edges while node identities stay known.",
+      "trainable_groups": [
+        "graph_structure"
+      ],
+      "frozen_groups": [
+        "master",
+        "events",
+        "pitch",
+        "envelope",
+        "harmonics",
+        "spectral_envelope",
+        "inharmonicity",
+        "lfo",
+        "fm",
+        "pm",
+        "am",
+        "noise",
+        "source_family",
+        "filter",
+        "delay",
+        "chorus",
+        "reverb",
+        "spatial",
+        "modulation_graph",
+        "analysis_residual"
+      ],
+      "train_examples": 60000,
+      "val_examples": 8000,
+      "iid_test_examples": 12000,
+      "compositional_test_examples": 12000,
+      "structural_ood_examples": 6000,
+      "hard_test_examples": 12000,
+      "duration_s": 2.0,
+      "sample_rate": 12000,
+      "max_voices": 1,
+      "max_nodes": 6,
+      "max_edges": 8,
+      "jet_order": 2,
+      "architecture": "shared node encoder + pairwise edge head",
+      "optimizer": "AdamW",
+      "lr": 0.0005,
+      "weight_decay": 0.0002,
+      "loss_terms": [
+        "L_edge",
+        "L_degree",
+        "L_topology"
+      ],
+      "promotion": [
+        "edge_F1 > 0.99",
+        "exact_topology > 0.95",
+        "OOD_edge_F1 > 0.95"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "E18",
+      "name": "variable_topology",
+      "purpose": "Infer variable-width/depth trees.",
+      "trainable_groups": [
+        "graph_structure"
+      ],
+      "frozen_groups": [
+        "master",
+        "events",
+        "pitch",
+        "envelope",
+        "harmonics",
+        "spectral_envelope",
+        "inharmonicity",
+        "lfo",
+        "fm",
+        "pm",
+        "am",
+        "noise",
+        "source_family",
+        "filter",
+        "delay",
+        "chorus",
+        "reverb",
+        "spatial",
+        "modulation_graph",
+        "analysis_residual"
+      ],
+      "train_examples": 100000,
+      "val_examples": 12000,
+      "iid_test_examples": 20000,
+      "compositional_test_examples": 20000,
+      "structural_ood_examples": 12000,
+      "hard_test_examples": 20000,
+      "duration_s": 2.0,
+      "sample_rate": 12000,
+      "max_voices": 1,
+      "max_nodes": 10,
+      "max_edges": 18,
+      "jet_order": 2,
+      "architecture": "autoregressive TreeNN",
+      "optimizer": "AdamW",
+      "lr": 0.0003,
+      "weight_decay": 0.0002,
+      "loss_terms": [
+        "L_graph",
+        "L_node_type",
+        "L_edge",
+        "L_struct_cost"
+      ],
+      "promotion": [
+        "exact_topology > 0.90",
+        "GED_normalized < 0.05",
+        "OOD_depth_accuracy > 0.80"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "E19",
+      "name": "module_selection",
+      "purpose": "Infer module type among FM/PM/AM/LFO/noise.",
+      "trainable_groups": [
+        "graph_structure"
+      ],
+      "frozen_groups": [
+        "master",
+        "events",
+        "pitch",
+        "envelope",
+        "harmonics",
+        "spectral_envelope",
+        "inharmonicity",
+        "lfo",
+        "fm",
+        "pm",
+        "am",
+        "noise",
+        "source_family",
+        "filter",
+        "delay",
+        "chorus",
+        "reverb",
+        "spatial",
+        "modulation_graph",
+        "analysis_residual"
+      ],
+      "train_examples": 120000,
+      "val_examples": 15000,
+      "iid_test_examples": 25000,
+      "compositional_test_examples": 25000,
+      "structural_ood_examples": 15000,
+      "hard_test_examples": 25000,
+      "duration_s": 2.0,
+      "sample_rate": 12000,
+      "max_voices": 1,
+      "max_nodes": 12,
+      "max_edges": 22,
+      "jet_order": 2,
+      "architecture": "TreeNN + Gumbel-Softmax type head",
+      "optimizer": "AdamW",
+      "lr": 0.0002,
+      "weight_decay": 0.0002,
+      "loss_terms": [
+        "L_type",
+        "L_graph",
+        "L_CQT",
+        "L_x"
+      ],
+      "promotion": [
+        "module_type_accuracy > 0.98",
+        "exact_graph > 0.90",
+        "temperature_anneal_stable"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "E20",
+      "name": "analysis_by_synthesis",
+      "purpose": "Jointly refine inferred graph/parameters through SynthNN.",
+      "trainable_groups": [
+        "graph_structure",
+        "analysis_residual"
+      ],
+      "frozen_groups": [
+        "master",
+        "events",
+        "pitch",
+        "envelope",
+        "harmonics",
+        "spectral_envelope",
+        "inharmonicity",
+        "lfo",
+        "fm",
+        "pm",
+        "am",
+        "noise",
+        "source_family",
+        "filter",
+        "delay",
+        "chorus",
+        "reverb",
+        "spatial",
+        "modulation_graph"
+      ],
+      "train_examples": 150000,
+      "val_examples": 20000,
+      "iid_test_examples": 30000,
+      "compositional_test_examples": 30000,
+      "structural_ood_examples": 20000,
+      "hard_test_examples": 30000,
+      "duration_s": 2.0,
+      "sample_rate": 12000,
+      "max_voices": 1,
+      "max_nodes": 12,
+      "max_edges": 22,
+      "jet_order": 2,
+      "architecture": "encoder + TreeNN + frozen SynthNN + residual heads",
+      "optimizer": "AdamW",
+      "lr": 0.0001,
+      "weight_decay": 1e-05,
+      "loss_terms": [
+        "L_x",
+        "L_CQT",
+        "L_J",
+        "L_graph",
+        "L_sparsity"
+      ],
+      "promotion": [
+        "audio_SI-SDR > 30dB",
+        "CQT_log_RMSE < 1dB",
+        "graph_exact > 0.90"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "E21",
+      "name": "predictive_codec",
+      "purpose": "Predict future windows without observing future samples.",
+      "trainable_groups": [
+        "analysis_residual",
+        "graph_structure"
+      ],
+      "frozen_groups": [
+        "master",
+        "events",
+        "pitch",
+        "envelope",
+        "harmonics",
+        "spectral_envelope",
+        "inharmonicity",
+        "lfo",
+        "fm",
+        "pm",
+        "am",
+        "noise",
+        "source_family",
+        "filter",
+        "delay",
+        "chorus",
+        "reverb",
+        "spatial",
+        "modulation_graph"
+      ],
+      "train_examples": 200000,
+      "val_examples": 25000,
+      "iid_test_examples": 40000,
+      "compositional_test_examples": 40000,
+      "structural_ood_examples": 25000,
+      "hard_test_examples": 40000,
+      "duration_s": 4.0,
+      "sample_rate": 12000,
+      "max_voices": 8,
+      "max_nodes": 16,
+      "max_edges": 30,
+      "jet_order": 4,
+      "architecture": "causal state predictor + TreeNN + SynthNN",
+      "optimizer": "AdamW",
+      "lr": 0.0001,
+      "weight_decay": 1e-05,
+      "loss_terms": [
+        "L_future_wave",
+        "L_future_CQT",
+        "L_future_J",
+        "L_rate",
+        "L_graph"
+      ],
+      "promotion": [
+        "report E(H) curve",
+        "beats_baseline_at_same_bits",
+        "stable_online_update"
+      ],
+      "notes": ""
+    }
+  ]
+}
