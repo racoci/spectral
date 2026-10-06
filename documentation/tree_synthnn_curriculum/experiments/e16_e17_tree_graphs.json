@@ -1,0 +1,49 @@
+{
+  "stages": {
+    "E16": {
+      "IID": {
+        "edge_strength_rmse": 0.019582305184585036,
+        "audio_rmse": 0.00979017369918187,
+        "pass_promotion": true
+      },
+      "Compositional": {
+        "edge_strength_rmse": 0.01203490563690246,
+        "audio_rmse": 0.006016193027876426,
+        "pass_promotion": true
+      },
+      "OOD": {
+        "edge_strength_rmse": 0.007380936025779911,
+        "audio_rmse": 0.003692314095857827,
+        "pass_promotion": true
+      },
+      "Hard": {
+        "edge_strength_rmse": 0.020172866028266068,
+        "audio_rmse": 0.010487177314351072,
+        "pass_promotion": true
+      }
+    },
+    "E17": {
+      "IID": {
+        "edge_f1_score": 1.0,
+        "exact_topology_ratio": 1.0,
+        "pass_promotion": true
+      },
+      "Compositional": {
+        "edge_f1_score": 1.0,
+        "exact_topology_ratio": 1.0,
+        "pass_promotion": true
+      },
+      "OOD": {
+        "edge_f1_score": 1.0,
+        "exact_topology_ratio": 1.0,
+        "pass_promotion": true
+      },
+      "Hard": {
+        "edge_f1_score": 1.0,
+        "exact_topology_ratio": 1.0,
+        "pass_promotion": true
+      }
+    }
+  },
+  "promotion_passed": true
+}

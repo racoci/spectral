@@ -111,34 +111,39 @@ class TreeNNKnownTopologySolver:
         self.sr = sr
         self.fm_solver = AnalyticFmPmSolver(sr=sr)
 
-    def solve(self, x: np.ndarray, adj_matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def solve(self, x: np.ndarray, adj_matrix: np.ndarray, known_freqs: list[float] | None = None) -> tuple[np.ndarray, np.ndarray]:
         N = len(x)
-        pad_N = 4 * N
-        w = np.hanning(N)
-        fft_x = np.abs(np.fft.rfft(x * w, n=pad_N))
-        freqs = np.fft.rfftfreq(pad_N, d=1.0 / self.sr)
-
-        p0 = np.argmax(fft_x)
-        y0, y1, y2 = fft_x[p0 - 1], fft_x[p0], fft_x[p0 + 1]
-        shift0 = 0.5 * (y0 - y2) / (y0 - 2.0 * y1 + y2)
-        fc_est = float(freqs[p0] + shift0 * (freqs[1] - freqs[0]))
-
-        peaks, _ = find_peaks(fft_x, height=0.03 * fft_x[p0], distance=int(15.0 * pad_N / self.sr))
-        peak_freqs = freqs[peaks]
-
-        spacings = np.abs(peak_freqs - fc_est)
-        spacings = spacings[spacings > 20.0]
-        fm_est = float(np.min(spacings)) if len(spacings) > 0 else 60.0
-
-        _, _, beta_est, _, _ = self.fm_solver.extract_spectrum_peaks(x, fc_est, fm_est)
-
         num_nodes = len(adj_matrix)
+
+        if known_freqs is not None and len(known_freqs) >= 2:
+            fc = float(known_freqs[0])
+            fm = float(known_freqs[1])
+        else:
+            pad_N = 4 * N
+            w = np.hanning(N)
+            fft_x = np.abs(np.fft.rfft(x * w, n=pad_N))
+            freqs = np.fft.rfftfreq(pad_N, d=1.0 / self.sr)
+
+            p0 = np.argmax(fft_x)
+            y0, y1, y2 = fft_x[p0 - 1], fft_x[p0], fft_x[p0 + 1]
+            shift0 = 0.5 * (y0 - y2) / (y0 - 2.0 * y1 + y2)
+            fc = float(freqs[p0] + shift0 * (freqs[1] - freqs[0]))
+
+            peaks, _ = find_peaks(fft_x, height=0.03 * fft_x[p0], distance=int(15.0 * pad_N / self.sr))
+            peak_freqs = freqs[peaks]
+
+            spacings = np.abs(peak_freqs - fc)
+            spacings = spacings[spacings > 20.0]
+            fm = float(np.min(spacings)) if len(spacings) > 0 else 60.0
+
+        _, _, beta_est, _, _ = self.fm_solver.extract_spectrum_peaks(x, fc, fm)
+
         node_freqs = np.zeros(num_nodes)
-        node_freqs[0] = fc_est
+        node_freqs[0] = fc
         if num_nodes > 1:
-            node_freqs[1] = fm_est
+            node_freqs[1] = fm
         if num_nodes > 2:
-            node_freqs[2] = 2.0 * fm_est
+            node_freqs[2] = 2.0 * fm
         if num_nodes > 3:
             node_freqs[3] = 5.0
 
