@@ -1177,13 +1177,17 @@
       );
       const hop = Number(dims[2]);
       const sampleRate = Number(dims[3]);
-      const startCol = Math.floor(viewStart * width);
-      const endCol = Math.ceil(viewEnd * width);
+
+      const sStart = selectionStart !== null ? Math.min(selectionStart, selectionEnd ?? selectionStart) : viewStart;
+      const sEnd = selectionEnd !== null ? Math.max(selectionStart ?? selectionEnd, selectionEnd) : viewEnd;
+      const virtualWidth = 10000;
+      const startCol = Math.floor(sStart * virtualWidth);
+      const endCol = Math.ceil(sEnd * virtualWidth);
 
       const wavBytes = wasm_synthesize_hybrid_spectrogram_to_wav(
         originalBytes,
         rgbaGrid,
-        width,
+        virtualWidth,
         height,
         fmin,
         fmax,

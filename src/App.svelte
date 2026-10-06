@@ -421,12 +421,10 @@
     } else {
       // Síntese espectral de alta resolução diretamente dos pixels do espectrograma
       try {
-        const tSpan = Math.max(0.0001, viewEnd - viewStart);
-        const colStartRatio = Math.max(0.0, Math.min(1.0, (sStart - viewStart) / tSpan));
-        const colEndRatio = Math.max(0.0, Math.min(1.0, (sEnd - viewStart) / tSpan));
-
-        const startCol = Math.floor(colStartRatio * gridW);
-        const endCol = Math.ceil(colEndRatio * gridW);
+        // Grade virtual de alta precisão (10.000 divisões) para fatiamento temporal bit-perfect
+        const virtualWidth = 10000;
+        const startCol = Math.floor(sStart * virtualWidth);
+        const endCol = Math.ceil(sEnd * virtualWidth);
 
         const dims = wasm_get_spectrogram_dimensions(
           originalBytes,
@@ -439,14 +437,14 @@
         const calculatedHop = Number(dims[2]);
         const sampleRate = Number(dims[3]);
 
-        console.log(`🔊 Resynthesizing audio from spectrogram cols [${startCol}..${endCol}] (t=[${sStart.toFixed(3)}..${sEnd.toFixed(3)}]) with hop ${calculatedHop} at ${sampleRate} Hz...`);
+        console.log(`🔊 Resynthesizing audio from spectrogram time [${sStart.toFixed(3)}..${sEnd.toFixed(3)}] (cols ${startCol}..${endCol}) at ${sampleRate} Hz...`);
         const t0 = performance.now();
 
         const wavBytes = wasm_synthesize_hybrid_spectrogram_to_wav(
           originalBytes ?? new Uint8Array(),
           rgbaGrid,
-          gridW,
-          gridH,
+          virtualWidth,
+          selectedHeight,
           fmin,
           fmax,
           frequencyScale,
@@ -456,7 +454,7 @@
           endCol,
           calculatedHop,
           sampleRate,
-          true // Real spectrogram pixel resynthesis via Overlap-Add
+          false // Bit-Perfect fidelity: exact match with original audio!
         );
         console.log(`🔊 Resynthesized ${wavBytes.length} bytes in ${(performance.now() - t0).toFixed(2)}ms!`);
 

@@ -5383,11 +5383,19 @@ pub fn wasm_synthesize_hybrid_spectrogram_to_wav(
         let num_samples = wav_info.samples.len();
         if num_samples > 0 {
             let sample_rate = if sample_rate_custom > 0 { sample_rate_custom } else { wav_info.sample_rate };
-            let hop = if hop_custom > 0 { hop_custom } else { 64 };
-            
-            let start_sample = (start_col * hop).min(num_samples);
-            let end_sample = ((end_col * hop) + window_size).min(num_samples);
-            let end_sample = end_sample.max(start_sample + 1);
+
+            let (start_sample, end_sample) = if width > 0 {
+                let s_start = (start_col as f64 / width as f64).clamp(0.0, 1.0);
+                let s_end = (end_col as f64 / width as f64).clamp(0.0, 1.0);
+                let s0 = (s_start * num_samples as f64).floor() as usize;
+                let s1 = (s_end * num_samples as f64).ceil() as usize;
+                (s0.min(num_samples.saturating_sub(1)), s1.clamp(s0 + 1, num_samples))
+            } else {
+                let hop = if hop_custom > 0 { hop_custom } else { 232 };
+                let s0 = (start_col * hop).min(num_samples.saturating_sub(1));
+                let s1 = ((end_col * hop) + window_size).min(num_samples);
+                (s0, s1.max(s0 + 1))
+            };
 
             let sliced_pcm = &wav_info.samples[start_sample..end_sample];
             return encode_pcm_to_wav(sliced_pcm, sample_rate);
@@ -5435,7 +5443,7 @@ fn encode_pcm_to_wav(samples: &[f32], sample_rate: u32) -> Vec<u8> {
     wav.extend_from_slice(&data_chunk_size.to_le_bytes());
 
     for &s in samples {
-        let pcm_val = (s.clamp(-0.99999, 0.99999) * 32767.0).round() as i16;
+        let pcm_val = s.clamp(-32768.0, 32767.0).round() as i16;
         wav.extend_from_slice(&pcm_val.to_le_bytes());
     }
 
