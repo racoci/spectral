@@ -411,15 +411,16 @@
       setupOriginalAudio(originalBytes);
     }
 
+    // Determina o intervalo de tempo normalizado [0.0, 1.0] correspondente à seleção ou à visão visível
+    const sStart = selectionStart !== null ? Math.min(selectionStart, selectionEnd ?? selectionStart) : viewStart;
+    const sEnd = selectionEnd !== null ? Math.max(selectionStart ?? selectionEnd, selectionEnd) : viewEnd;
+
     if (mode === 'original' || !rgbaGrid || gridW === 0 || gridH === 0) {
       activeAudio = originalAudio;
-      playAudioRange(originalAudio!, false);
+      playAudioRange(originalAudio!, false, sStart, sEnd);
     } else {
-      // High-Resolution DAW Controller synthesizing audio directly from on-screen spectrogram pixels!
+      // Síntese espectral de alta resolução diretamente dos pixels do espectrograma
       try {
-        const sStart = selectionStart !== null ? Math.min(selectionStart, selectionEnd ?? selectionStart) : 0.0;
-        const sEnd = selectionEnd !== null ? Math.max(selectionStart ?? selectionEnd, selectionEnd) : 1.0;
-        
         const tSpan = Math.max(0.0001, viewEnd - viewStart);
         const colStartRatio = Math.max(0.0, Math.min(1.0, (sStart - viewStart) / tSpan));
         const colEndRatio = Math.max(0.0, Math.min(1.0, (sEnd - viewStart) / tSpan));
@@ -438,7 +439,7 @@
         const calculatedHop = Number(dims[2]);
         const sampleRate = Number(dims[3]);
 
-        console.log(`🔊 Resynthesizing audio from spectrogram cols [${startCol}..${endCol}] with hop ${calculatedHop} at ${sampleRate} Hz...`);
+        console.log(`🔊 Resynthesizing audio from spectrogram cols [${startCol}..${endCol}] (t=[${sStart.toFixed(3)}..${sEnd.toFixed(3)}]) with hop ${calculatedHop} at ${sampleRate} Hz...`);
         const t0 = performance.now();
 
         const wavBytes = wasm_synthesize_hybrid_spectrogram_to_wav(
@@ -455,7 +456,7 @@
           endCol,
           calculatedHop,
           sampleRate,
-          true // Real spectrogram pixel resynthesis via Overlap-Add and Griffin-Lim
+          true // Real spectrogram pixel resynthesis via Overlap-Add
         );
         console.log(`🔊 Resynthesized ${wavBytes.length} bytes in ${(performance.now() - t0).toFixed(2)}ms!`);
 
@@ -466,32 +467,30 @@
         }
         synthAudio = new Audio(url);
         activeAudio = synthAudio;
-        playAudioRange(synthAudio, true);
+        playAudioRange(synthAudio, true, sStart, sEnd);
       } catch (err) {
         console.error("Failed to synthesize audio from spectrogram, falling back to original:", err);
         activeAudio = originalAudio;
-        playAudioRange(originalAudio!, false);
+        playAudioRange(originalAudio!, false, sStart, sEnd);
       }
     }
   }
 
-  function playAudioRange(audioEl: HTMLAudioElement, isSynthesizedSlice: boolean) {
+  function playAudioRange(audioEl: HTMLAudioElement, isSynthesizedSlice: boolean, sStart: number, sEnd: number) {
     if (playbackTimer) clearInterval(playbackTimer);
     isPlaying = true;
 
     const startPlayback = () => {
-      const totalDuration = audioEl.duration && !isNaN(audioEl.duration) && audioEl.duration > 0
-        ? audioEl.duration
-        : (originalAudio?.duration || 1.0);
+      const origDuration = originalAudio?.duration && !isNaN(originalAudio.duration) && originalAudio.duration > 0
+        ? originalAudio.duration
+        : 1.0;
 
       let startTime = 0.0;
-      let endTime = totalDuration;
+      let endTime = audioEl.duration && !isNaN(audioEl.duration) ? audioEl.duration : 1.0;
 
-      if (!isSynthesizedSlice && selectionStart !== null && selectionEnd !== null) {
-        const sStart = Math.min(selectionStart, selectionEnd);
-        const sEnd = Math.max(selectionStart, selectionEnd);
-        startTime = sStart * totalDuration;
-        endTime = sEnd * totalDuration;
+      if (!isSynthesizedSlice) {
+        startTime = sStart * origDuration;
+        endTime = sEnd * origDuration;
       }
 
       audioEl.currentTime = startTime;

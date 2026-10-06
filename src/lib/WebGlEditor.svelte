@@ -373,7 +373,14 @@
         if (originalAudio) {
           const duration = originalAudio.duration;
           if (duration && !isNaN(duration) && duration > 0.0) {
-            playbackProgress = originalAudio.currentTime / duration;
+            const sStart = selectionStart !== null ? Math.min(selectionStart, selectionEnd ?? selectionStart) : viewStart;
+            const sEnd = selectionEnd !== null ? Math.max(selectionStart ?? selectionEnd, selectionEnd) : viewEnd;
+            // Se a duração for menor que o tempo de visão total, interpola no intervalo da seleção/visão
+            if (duration < 60.0 && sEnd > sStart && (sEnd - sStart) < 0.99) {
+              playbackProgress = sStart + (originalAudio.currentTime / duration) * (sEnd - sStart);
+            } else {
+              playbackProgress = originalAudio.currentTime / duration;
+            }
           } else {
             playbackProgress = 0.0;
           }
