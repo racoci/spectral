@@ -5,6 +5,7 @@ pub mod phasegrad;
 pub mod reassignment;
 pub mod spline_fit;
 pub mod multi_track;
+pub mod synth_dsl;
 pub mod higher_order;
 pub mod synthetic_scene;
 pub mod tree_nn;
