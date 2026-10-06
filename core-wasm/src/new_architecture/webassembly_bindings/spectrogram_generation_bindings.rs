@@ -8,6 +8,8 @@ use super::super::application_use_cases::{
     GenerateHolomorphicTransformUseCase, HolomorphicTransformRequest,
     GenerateShortTimeFourierTransformUseCase, ShortTimeFourierTransformRequest,
     GenerateConstantQTransformUseCase, ConstantQTransformRequest,
+    HigherOrderDerivativesUseCase, HigherOrderDerivativesRequest,
+    SlidingDifferentialJetUseCase, SlidingDifferentialJetRequest,
 };
 
 #[wasm_bindgen]
@@ -110,5 +112,65 @@ pub fn wasm_new_architecture_generate_constant_q_transform(
         enable_time_reassignment,
         enable_frequency_reassignment,
         maximum_derivative_order,
+    })
+}
+
+#[wasm_bindgen]
+pub fn wasm_new_architecture_generate_higher_order_derivatives(
+    audio_bytes: &[u8],
+    height_custom: usize,
+    window_size: usize,
+    zero_padding_factor: usize,
+    minimum_frequency: f32,
+    maximum_frequency: f32,
+    derivative_order: usize,
+    visualization_mode: usize,
+    palette_type: &str,
+    view_start_ratio: f32,
+    view_end_ratio: f32,
+    frequency_scale_type: &str,
+) -> Vec<u8> {
+    HigherOrderDerivativesUseCase::execute(HigherOrderDerivativesRequest {
+        audio_bytes,
+        height: height_custom,
+        window_size,
+        zero_padding_factor,
+        minimum_frequency,
+        maximum_frequency,
+        derivative_order,
+        visualization_mode,
+        palette_type,
+        view_start_ratio,
+        view_end_ratio,
+        frequency_scale_type,
+    })
+}
+
+#[wasm_bindgen]
+pub fn wasm_new_architecture_generate_sliding_differential_jet(
+    audio_bytes: &[u8],
+    height_custom: usize,
+    window_size: usize,
+    minimum_frequency: f32,
+    maximum_frequency: f32,
+    derivative_order: usize,
+    visualization_mode: usize,
+    palette_type: &str,
+    view_start_ratio: f32,
+    view_end_ratio: f32,
+    frequency_scale_type: &str,
+) -> Vec<u8> {
+    SlidingDifferentialJetUseCase::execute(SlidingDifferentialJetRequest {
+        audio_bytes,
+        height: height_custom,
+        window_size,
+        minimum_frequency,
+        maximum_frequency,
+        derivative_order,
+        visualization_mode,
+        palette_type,
+        view_start_ratio,
+        view_end_ratio,
+        frequency_scale_type,
     })
 }

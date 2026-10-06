@@ -1,9 +1,13 @@
 pub mod generate_holomorphic_transform;
 pub mod generate_short_time_fourier_transform;
 pub mod generate_constant_q_transform;
+pub mod higher_order_derivatives;
+pub mod sliding_differential_jet;
 pub mod bit_perfect_audio_synthesis;
 
 pub use generate_holomorphic_transform::{GenerateHolomorphicTransformUseCase, HolomorphicTransformRequest};
 pub use generate_short_time_fourier_transform::{GenerateShortTimeFourierTransformUseCase, ShortTimeFourierTransformRequest};
 pub use generate_constant_q_transform::{GenerateConstantQTransformUseCase, ConstantQTransformRequest};
+pub use higher_order_derivatives::{HigherOrderDerivativesUseCase, HigherOrderDerivativesRequest};
+pub use sliding_differential_jet::{SlidingDifferentialJetUseCase, SlidingDifferentialJetRequest};
 pub use bit_perfect_audio_synthesis::{BitPerfectAudioSynthesisUseCase, AudioSynthesisRequest};
