@@ -1,0 +1,7 @@
+{
+  "pitch_rmse_hz": 3.050008120452842,
+  "pitch_rmse_cents": 20.531053348883464,
+  "pitch_derivative_rmse_hz_s": 103.9835432595049,
+  "vibrato_residual_rmse_cents": 21.483932319755915,
+  "vibrato_true_residual_rmse_cents": 31.59184849536569
+}

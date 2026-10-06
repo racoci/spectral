@@ -1,0 +1,40 @@
+# Analytic parameter recovery from Gaussian CQT jet\n\nCQT: 60 bins/octave, Gaussian constant-Q filters, hop=21.33 ms. The test signal is one note whose F0 sweeps two octaves and contains vibrato, smooth ADSR + tremolo, four harmonics, inharmonicity, and an absolute-frequency spectral envelope.\n\nThe complex CQT is kept in baseband. Frequency is obtained from the temporal phase jet of the CQT coefficient, and amplitude from the local magnitude peak with analytic Gaussian-window gain calibration. The ridge trajectory is then used for parametric recovery.\n\n## Results\n\n{
+  "inharmonicity_true": 0.000125,
+  "inharmonicity_est": 0.0001786860246111844,
+  "inharmonicity_relative_error": 0.4294881968894752,
+  "harmonic_relative_rmse": 1.1964798524431375,
+  "spectral_envelope_rmse_db": 2.4200135149453397,
+  "spectral_factor_fit_rmse_log": 0.09595856779811587,
+  "adsr_rmse_linear": 0.03420686329090023,
+  "adsr_est": [
+    0.49999986337856905,
+    0.2612758338424685,
+    0.20000003590548374,
+    0.8126579193500864,
+    5.103111725850192,
+    0.06624131539689944,
+    3.1821569988762697,
+    0.7360245848784356,
+    1.1022830176801417
+  ],
+  "adsr_truth": [
+    0.08,
+    0.22,
+    0.76,
+    0.4,
+    4.45,
+    0.09,
+    3.2,
+    0.42,
+    1.0
+  ],
+  "f0_rmse_hz": 1.0139855132933817,
+  "f0_rmse_cents": 7.653912376267135,
+  "pitch_model_rmse_cents": 5.567016426939812,
+  "slope_true_cents_s": 480.0,
+  "slope_est_cents_s": 479.5012546264645,
+  "vibrato_depth_true_cents": 25.0,
+  "vibrato_depth_est_cents": -17.28689768039153,
+  "vibrato_rate_true_hz": 5.2,
+  "vibrato_rate_est_hz": 5.195792062274975
+}\n
