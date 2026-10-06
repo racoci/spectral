@@ -5057,8 +5057,17 @@ pub fn wasm_synthesize_spectrogram_to_wav(
     let fmin = if fmin_custom >= 5.0 { fmin_custom } else { 20.0f32 };
     let fmax = if fmax_custom > fmin { fmax_custom.min(fs / 2.0) } else { fs / 2.0 };
     let is_linear = scale_type == "linear";
+    let is_mel = scale_type == "mel";
+    let is_bark = scale_type == "bark";
+
     let step_log = (fmax / fmin).log2() / (height as f32 - 1.0);
     let step_lin = (fmax - fmin) / (height as f32 - 1.0);
+
+    let mel_min = 2595.0 * (1.0 + fmin / 700.0).log2();
+    let mel_max = 2595.0 * (1.0 + fmax / 700.0).log2();
+
+    let bark_min = 26.81 * (fmin / (1960.0 + fmin)) - 0.53;
+    let bark_max = 26.81 * (fmax / (1960.0 + fmax)) - 0.53;
 
     // Precompute a_min and delta_a LUTs
     let mut a_min_lut = vec![0.0f32; 256];
@@ -5100,24 +5109,36 @@ pub fn wasm_synthesize_spectrogram_to_wav(
             let g = rgba_grid[px_idx + 1] as f32;
             let b = rgba_grid[px_idx + 2] as f32;
 
-            let y_val = 0.299 * r + 0.587 * g + 0.114 * b;
-            if y_val < 1.0 {
+            if r < 1.0 && g < 1.0 && b < 1.0 {
                 continue;
             }
 
-            let cr = (r - y_val) / 1.402;
-            let cb = (b - y_val) / 1.772;
+            let is_snake_color = (b - (r - g).abs()).abs() < 2.0 && (r > 0.0 || g > 0.0);
+            
+            let (magnitude, phase) = if is_snake_color {
+                let level = (r as usize) + ((g as usize) << 8);
+                let norm = (level as f32 / 65535.0).clamp(0.0, 1.0);
+                let db = norm * 96.0 - 96.0;
+                let mag = 10.0f32.powf(db / 20.0) * 4194304.0;
+                (mag, 0.0f32)
+            } else {
+                let y_val = 0.299 * r + 0.587 * g + 0.114 * b;
+                let cr = (r - y_val) / 1.402;
+                let cb = (b - y_val) / 1.772;
 
-            let w_re = -cr / 112.0;
-            let w_im = cb / 112.0;
-            let phase = w_im.atan2(w_re);
-            let w_mag = (w_re * w_re + w_im * w_im).sqrt();
+                let w_re = -cr / 112.0;
+                let w_im = cb / 112.0;
+                let phase = w_im.atan2(w_re);
+                let w_mag = (w_re * w_re + w_im * w_im).sqrt();
 
-            let y_idx = (y_val.round() as usize).clamp(1, 255);
-            let a_min = a_min_lut[y_idx];
-            let delta_a = delta_a_lut[y_idx];
+                let y_idx = (y_val.round() as usize).clamp(1, 255);
+                let a_min = a_min_lut[y_idx];
+                let delta_a = delta_a_lut[y_idx];
 
-            let magnitude = (a_min + w_mag * delta_a) * 4194304.0;
+                let magnitude = (a_min + w_mag * delta_a) * 4194304.0;
+                (magnitude, phase)
+            };
+
             row_mag[j] = magnitude;
             row_phase[j] = phase;
         }
@@ -5132,10 +5153,20 @@ pub fn wasm_synthesize_spectrogram_to_wav(
                 continue;
             }
 
-            let y_f = if is_linear {
-                ((fk - fmin) / step_lin).clamp(0.0, (height - 1) as f32)
+            let (y_f, row_df) = if is_linear {
+                (((fk - fmin) / step_lin).clamp(0.0, (height - 1) as f32), step_lin)
+            } else if is_mel {
+                let mel_k = 2595.0 * (1.0 + fk / 700.0).log2();
+                let y = ((mel_k - mel_min) / (mel_max - mel_min) * (height as f32 - 1.0)).clamp(0.0, (height - 1) as f32);
+                let df_dy = (fk + 700.0) * (mel_max - mel_min) / (2595.0 * (height as f32 - 1.0)) * std::f32::consts::LN_2;
+                (y, df_dy)
+            } else if is_bark {
+                let bark_k = 26.81 * (fk / (1960.0 + fk)) - 0.53;
+                let y = ((bark_k - bark_min) / (bark_max - bark_min) * (height as f32 - 1.0)).clamp(0.0, (height - 1) as f32);
+                let df_dy = (1960.0 + fk) * (1960.0 + fk) / (1960.0 * 26.81) * (bark_max - bark_min) / (height as f32 - 1.0);
+                (y, df_dy)
             } else {
-                ((fk / fmin).log2() / step_log).clamp(0.0, (height - 1) as f32)
+                (((fk / fmin).log2() / step_log).clamp(0.0, (height - 1) as f32), fk * ln2_step)
             };
 
             let j0 = (y_f.floor() as usize).min(height - 2);

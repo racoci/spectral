@@ -455,7 +455,7 @@
           endCol,
           calculatedHop,
           sampleRate,
-          false // Unedited mode: bit-perfect MDCT / PCM
+          true // Real spectrogram pixel resynthesis via Overlap-Add and Griffin-Lim
         );
         console.log(`🔊 Resynthesized ${wavBytes.length} bytes in ${(performance.now() - t0).toFixed(2)}ms!`);
 
@@ -479,43 +479,56 @@
     if (playbackTimer) clearInterval(playbackTimer);
     isPlaying = true;
 
-    const totalDuration = audioEl.duration && !isNaN(audioEl.duration) && audioEl.duration > 0
-      ? audioEl.duration
-      : (originalAudio?.duration || 1.0);
+    const startPlayback = () => {
+      const totalDuration = audioEl.duration && !isNaN(audioEl.duration) && audioEl.duration > 0
+        ? audioEl.duration
+        : (originalAudio?.duration || 1.0);
 
-    let startTime = 0.0;
-    let endTime = totalDuration;
+      let startTime = 0.0;
+      let endTime = totalDuration;
 
-    if (!isSynthesizedSlice && selectionStart !== null && selectionEnd !== null) {
-      const sStart = Math.min(selectionStart, selectionEnd);
-      const sEnd = Math.max(selectionStart, selectionEnd);
-      startTime = sStart * totalDuration;
-      endTime = sEnd * totalDuration;
-    }
-
-    audioEl.currentTime = startTime;
-    audioEl.play().catch(err => {
-      console.warn("Audio play prevented:", err);
-      isPlaying = false;
-    });
-
-    playbackTimer = setInterval(() => {
-      if (!audioEl || !isPlaying) {
-        clearInterval(playbackTimer);
-        return;
+      if (!isSynthesizedSlice && selectionStart !== null && selectionEnd !== null) {
+        const sStart = Math.min(selectionStart, selectionEnd);
+        const sEnd = Math.max(selectionStart, selectionEnd);
+        startTime = sStart * totalDuration;
+        endTime = sEnd * totalDuration;
       }
 
-      if (audioEl.currentTime >= endTime || audioEl.ended) {
-        if (loopMode === 'normal' || loopMode === 'mirrored') {
-          audioEl.currentTime = startTime;
-          audioEl.play().catch(() => {});
-        } else {
-          audioEl.pause();
-          isPlaying = false;
+      audioEl.currentTime = startTime;
+      audioEl.play().catch(err => {
+        console.warn("Audio play prevented:", err);
+        isPlaying = false;
+      });
+
+      playbackTimer = setInterval(() => {
+        if (!audioEl || !isPlaying) {
           clearInterval(playbackTimer);
+          return;
         }
-      }
-    }, 15);
+
+        if (audioEl.currentTime >= endTime || audioEl.ended) {
+          if (loopMode === 'normal' || loopMode === 'mirrored') {
+            audioEl.currentTime = startTime;
+            audioEl.play().catch(() => {});
+          } else {
+            audioEl.pause();
+            isPlaying = false;
+            clearInterval(playbackTimer);
+          }
+        }
+      }, 15);
+    };
+
+    if (audioEl.readyState >= 1) {
+      startPlayback();
+    } else {
+      audioEl.onloadedmetadata = () => startPlayback();
+      setTimeout(() => {
+        if (isPlaying && isNaN(audioEl.currentTime)) {
+          startPlayback();
+        }
+      }, 150);
+    }
   }
 
   // Handle direct file uploads inside the WebGL Editor itself
