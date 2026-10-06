@@ -1,0 +1,10 @@
+{
+  "decision": "promote_hierarchical_core_not_hard_ood",
+  "trainable_parameters": 2771,
+  "E18H1": {"parent_f1": 0.9899799594, "exact_tree_raw": 0.96},
+  "E18H2": {"parent_f1": 0.9665831240, "exact_tree_raw": 0.09, "exact_tree_constrained_clean": 0.88},
+  "E18H3": {"parent_f1_zero_shot": 0.8226818494, "parent_f1_finetuned": 0.8583391481, "exact_tree_constrained_finetuned_hard": 0.524},
+  "E18H4": {"parent_f1_constrained": 0.72246696, "exact_tree_constrained": 0.05},
+  "matrix_tree_theorem_unit_tests": "passed for N=2,3,4",
+  "next": "multiscale_context_plus_uncertainty_residual_before_E19"
+}

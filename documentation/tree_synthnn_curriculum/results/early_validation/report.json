@@ -1,0 +1,71 @@
+{
+  "E02": {
+    "iid": {
+      "residual_rmse_cents": 0.016129866242408752,
+      "within_2c": 1.0,
+      "within_5c": 1.0,
+      "trainable_scalars": 369
+    },
+    "offgrid_ood": {
+      "rmse_cents_median": 0.011712696868926287,
+      "rmse_cents_mean": 0.016256360668194247,
+      "rmse_cents_p95": 0.043906373344361774,
+      "rmse_cents_max": 0.0679788663983345,
+      "n": 128
+    }
+  },
+  "E03": {
+    "iid_ood": {
+      "iid_rmse_cents": 0.01565316878259182,
+      "iid_median_cents": 0.00972747802734375,
+      "ood_rmse_cents": 0.01973721458251958,
+      "ood_median_cents": 0.007894635200500488,
+      "ood_max_cents": 0.06380081176757812,
+      "trainable_scalars": 25
+    },
+    "amplitude_invariance": {
+      "prediction_spread_cents_across_amplitudes": 0.0
+    }
+  },
+  "E04": {
+    "iid_rmse_db": 2.220802571173408e-06,
+    "iid_max_abs_db": 6.67572021484375e-06,
+    "ood_rmse_db": 2.0967126527955053e-06,
+    "ood_max_abs_db": 5.975378883249505e-06,
+    "counterfactual_delta_error_db_mean": 1.8328199781573555e-06,
+    "trainable_scalars": 2
+  },
+  "E05": {
+    "iid_median_relative_error": 0.02641497552394867,
+    "iid_mean_relative_error": 0.09588276594877243,
+    "boundary_median_relative_error": 0.08133266121149063,
+    "boundary_p95_relative_error": 1.8128976821899414,
+    "boundary_max_relative_error": 3.978550910949707,
+    "boundary_envelope_rmse": 0.025110537024374935,
+    "per_parameter_mae": [
+      0.0046019889414310455,
+      0.025281177833676338,
+      0.013297001831233501,
+      0.0013004217762500048
+    ],
+    "trainable_scalars": 2212
+  },
+  "freeze_integrity": {
+    "synthnn_total_scalars": 5891,
+    "synthnn_trainable_scalars": 0,
+    "all_frozen": true
+  },
+  "promotion_gates": {
+    "freeze_all_synthnn_params": true,
+    "E02_iid_rmse_lt_2c": true,
+    "E02_offgrid_ood_rmse_lt_2c": true,
+    "E03_iid_rmse_lt_1c": true,
+    "E03_ood_rmse_lt_3c": true,
+    "E03_amp_invariance_lt_0.05c": true,
+    "E04_iid_rmse_lt_0.1db": true,
+    "E04_ood_rmse_lt_0.1db": true,
+    "E05_iid_median_relative_lt_0.05": true,
+    "E05_boundary_envelope_rmse_lt_0.05": true
+  },
+  "all_gates_pass": true
+}

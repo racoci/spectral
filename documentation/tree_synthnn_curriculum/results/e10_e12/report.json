@@ -1,0 +1,37 @@
+{
+  "E10_FM": {
+    "trainable_parameters": 0,
+    "IID": {
+      "fc_mae_hz": 0.0003141028551928571,
+      "fm_mae_hz": 0.00016294280740968326,
+      "beta_relative_median": 9.363541594057792e-06,
+      "phase_mae_deg": 0.05868784749389255,
+      "phase_p95_deg": 0.2093253010625723
+    },
+    "HARD": {
+      "fc_mae_hz": 0.00041731930489311253,
+      "fm_mae_hz": 0.00015220260619635883,
+      "beta_relative_median": 1.7979178204368517e-05,
+      "phase_mae_deg": 0.054876488001095874,
+      "phase_p95_deg": 0.15482010053311965
+    }
+  },
+  "E11_PM": {
+    "max_signal_difference": 0.0,
+    "median_singular_values": [
+      154.9164630837936,
+      2.581361950117585e-14
+    ],
+    "rank": 1,
+    "decision": "PM and FM are not separately identifiable from the waveform in this isolated model; do not train a classifier between them without additional structural observations/priors."
+  },
+  "E12_AM": {
+    "trainable_parameters": 0,
+    "IID": {
+      "fm_mae_hz": 0.032655810533090954,
+      "depth_relative_median": 0.007404401284353863,
+      "phase_mae_deg": 11.75901894956586,
+      "phase_p95_deg": 21.416304190397554
+    }
+  }
+}

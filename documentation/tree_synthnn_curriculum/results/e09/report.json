@@ -1,0 +1,33 @@
+{
+  "stage": "E09",
+  "analytic_parameter_recovery": {
+    "IID": {
+      "fm_mae_hz": 0.0009111464751051284,
+      "fm_p95_hz": 0.0034917776446140012,
+      "depth_median_relative": 0.0008775858917699397,
+      "phase_mae_deg": 0.3474429232136417,
+      "phase_p95_deg": 1.2994554310401596
+    },
+    "HARD": {
+      "fm_mae_hz": 0.0014756139306818061,
+      "fm_p95_hz": 0.0050651739307201816,
+      "depth_median_relative": 0.0016532719770432605,
+      "phase_mae_deg": 0.5560904439374904,
+      "phase_p95_deg": 1.8280241944574822
+    }
+  },
+  "waveform_classifier": {
+    "IID": {
+      "accuracy": 0.9975,
+      "n": 2000
+    },
+    "HARD": {
+      "accuracy": 0.9935,
+      "n": 2000
+    },
+    "trainable_parameters": 884,
+    "best_val_loss": 0.013287726789712906,
+    "epochs": 80
+  },
+  "design_decision": "Do not train a neural residual for sinusoidal LFO parameters: the frozen analytic estimator is already substantially better. Neural learning is restricted to discrete waveform type."
+}

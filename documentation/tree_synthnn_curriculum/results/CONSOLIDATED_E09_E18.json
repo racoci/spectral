@@ -1,0 +1,133 @@
+{
+  "report_e09": {
+    "stage": "E09",
+    "analytic_parameter_recovery": {
+      "IID": {
+        "fm_mae_hz": 0.0009111464751051284,
+        "fm_p95_hz": 0.0034917776446140012,
+        "depth_median_relative": 0.0008775858917699397,
+        "phase_mae_deg": 0.3474429232136417,
+        "phase_p95_deg": 1.2994554310401596
+      },
+      "HARD": {
+        "fm_mae_hz": 0.0014756139306818061,
+        "fm_p95_hz": 0.0050651739307201816,
+        "depth_median_relative": 0.0016532719770432605,
+        "phase_mae_deg": 0.5560904439374904,
+        "phase_p95_deg": 1.8280241944574822
+      }
+    },
+    "waveform_classifier": {
+      "IID": {
+        "accuracy": 0.9975,
+        "n": 2000
+      },
+      "HARD": {
+        "accuracy": 0.9935,
+        "n": 2000
+      },
+      "trainable_parameters": 884,
+      "best_val_loss": 0.013287726789712906,
+      "epochs": 80
+    },
+    "design_decision": "Do not train a neural residual for sinusoidal LFO parameters: the frozen analytic estimator is already substantially better. Neural learning is restricted to discrete waveform type."
+  },
+  "report_e10_e12": {
+    "E10_FM": {
+      "trainable_parameters": 0,
+      "IID": {
+        "fc_mae_hz": 0.0003141028551928571,
+        "fm_mae_hz": 0.00016294280740968326,
+        "beta_relative_median": 9.363541594057792e-06,
+        "phase_mae_deg": 0.05868784749389255,
+        "phase_p95_deg": 0.2093253010625723
+      },
+      "HARD": {
+        "fc_mae_hz": 0.00041731930489311253,
+        "fm_mae_hz": 0.00015220260619635883,
+        "beta_relative_median": 1.7979178204368517e-05,
+        "phase_mae_deg": 0.054876488001095874,
+        "phase_p95_deg": 0.15482010053311965
+      }
+    },
+    "E11_PM": {
+      "max_signal_difference": 0.0,
+      "median_singular_values": [
+        154.9164630837936,
+        2.581361950117585e-14
+      ],
+      "rank": 1,
+      "decision": "PM and FM are not separately identifiable from the waveform in this isolated model; do not train a classifier between them without additional structural observations/priors."
+    },
+    "E12_AM": {
+      "trainable_parameters": 0,
+      "IID": {
+        "fm_mae_hz": 0.032655810533090954,
+        "depth_relative_median": 0.007404401284353863,
+        "phase_mae_deg": 11.75901894956586,
+        "phase_p95_deg": 21.416304190397554
+      }
+    }
+  },
+  "report_e13_e15": {
+    "E13_noise": {
+      "IID": {
+        "trainable_parameters": 0,
+        "alpha_mae": 0.01372060442097419,
+        "alpha_p95": 0.03455671027469114,
+        "mix_relative_median": 0.0005742480983346419,
+        "mix_relative_p95": 0.002570810821732959
+      },
+      "HARD": {
+        "trainable_parameters": 0,
+        "alpha_mae": 0.013853025488921672,
+        "alpha_p95": 0.031174159758346514,
+        "mix_relative_median": 0.0005871505527817898,
+        "mix_relative_p95": 0.0025912518064330897
+      }
+    },
+    "E14_events": {
+      "IID": {
+        "trainable_parameters": 0,
+        "onset_mae_ms": 18.19044542794028,
+        "onset_p95_ms": 29.2202527416048
+      },
+      "HARD": {
+        "trainable_parameters": 0,
+        "onset_mae_ms": 21.190642523788057,
+        "onset_p95_ms": 30.21201683744512
+      }
+    },
+    "E15_multivoice": {
+      "trainable_parameters": 0,
+      "ridge_mae_hz": 8.79792232389148,
+      "ridge_p95_hz": 2.016738893624918
+    }
+  },
+  "report_e16_e18": {
+    "E16_known_tree": {
+      "trainable_parameters": 0,
+      "decision": "known edge coefficients are recoverable by linear least squares; no neural parameters required"
+    },
+    "E17_edge_head": {
+      "trainable_parameters": 177,
+      "best_val_loss": 0.07930436730384827,
+      "epochs": 35,
+      "fixed_3_node_test": {
+        "accuracy": 0.9833333333333333,
+        "precision": 0.9135802469107606,
+        "recall": 0.9932885906006937,
+        "f1": 0.951768488243794
+      }
+    },
+    "E18_variable_topology": {
+      "trainable_parameters": 177,
+      "test": {
+        "edge_accuracy": 0.9822111111111111,
+        "edge_f1": 0.6254903422648518,
+        "exact_topology": 0.7566666666666667
+      },
+      "decision": "shared pairwise edge head generalizes across 2-5 nodes in the synthetic pilot"
+    }
+  }
+}

@@ -1,0 +1,46 @@
+# E18 Hierarchical TreeNN
+
+## Motivation
+The flat pairwise edge head from E17 loses global tree context when topology and node identity vary. E18H uses an explicit parent-vs-root decoder and two rounds of soft child-to-parent message passing.
+
+## Results
+```json
+{
+  "E18H1": {
+    "best_val_loss": 0.04703691462054849,
+    "epochs": 30,
+    "trainable_parameters": 2771,
+    "parent_precision": 0.9919678714846158,
+    "parent_recall": 0.9879999999986827,
+    "parent_f1": 0.9899799594185189,
+    "exact_tree": 0.96
+  },
+  "E18H2": {
+    "best_val_loss": 0.10352901816368103,
+    "epochs": 30,
+    "trainable_parameters": 2771,
+    "parent_precision": 0.9698239731760522,
+    "parent_recall": 0.9633638634463253,
+    "parent_f1": 0.9665831239770595,
+    "exact_tree": 0.09
+  },
+  "E18H3_hard_zero_shot": {
+    "parent_precision": 0.8432586946160823,
+    "parent_recall": 0.803085299455171,
+    "parent_f1": 0.8226818493720975,
+    "exact_tree": 0.01
+  },
+  "E18H3_hard_finetuned": {
+    "parent_precision": 0.8806682577561429,
+    "parent_recall": 0.8371143375676783,
+    "parent_f1": 0.8583391481391406,
+    "exact_tree": 0.014
+  },
+  "E18H4_unseen_10_nodes": {
+    "parent_precision": 0.7614128623789532,
+    "parent_recall": 0.7167503136760612,
+    "parent_f1": 0.7384068503646547,
+    "exact_tree": 0.015
+  }
+}
+```

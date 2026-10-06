@@ -1,0 +1,35 @@
+{
+  "E13_noise": {
+    "IID": {
+      "trainable_parameters": 0,
+      "alpha_mae": 0.01372060442097419,
+      "alpha_p95": 0.03455671027469114,
+      "mix_relative_median": 0.0005742480983346419,
+      "mix_relative_p95": 0.002570810821732959
+    },
+    "HARD": {
+      "trainable_parameters": 0,
+      "alpha_mae": 0.013853025488921672,
+      "alpha_p95": 0.031174159758346514,
+      "mix_relative_median": 0.0005871505527817898,
+      "mix_relative_p95": 0.0025912518064330897
+    }
+  },
+  "E14_events": {
+    "IID": {
+      "trainable_parameters": 0,
+      "onset_mae_ms": 18.19044542794028,
+      "onset_p95_ms": 29.2202527416048
+    },
+    "HARD": {
+      "trainable_parameters": 0,
+      "onset_mae_ms": 21.190642523788057,
+      "onset_p95_ms": 30.21201683744512
+    }
+  },
+  "E15_multivoice": {
+    "trainable_parameters": 0,
+    "ridge_mae_hz": 8.79792232389148,
+    "ridge_p95_hz": 2.016738893624918
+  }
+}

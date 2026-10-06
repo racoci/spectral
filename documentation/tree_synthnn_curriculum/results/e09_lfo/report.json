@@ -1,0 +1,70 @@
+{
+  "stage": "E09",
+  "trainable_parameters": 820,
+  "best_val_loss": 8.899274689611048e-05,
+  "epochs": 46,
+  "baseline": {
+    "IID": {
+      "name": "IID",
+      "n": 5000,
+      "fm_mae_hz": 0.0014109847834333777,
+      "fm_p95_hz": 0.005284583196043968,
+      "depth_relative_median": 0.0012916193809360266,
+      "depth_relative_p95": 0.010806282982230186,
+      "phase_mae_deg": 0.5266624689102173,
+      "phase_p95_deg": 1.9681981801986694
+    },
+    "OOD": {
+      "name": "OOD",
+      "n": 5000,
+      "fm_mae_hz": 0.003140759654343128,
+      "fm_p95_hz": 0.012870547361671925,
+      "depth_relative_median": 0.0016955235041677952,
+      "depth_relative_p95": 0.020728180184960365,
+      "phase_mae_deg": 1.1674875020980835,
+      "phase_p95_deg": 4.762088298797607
+    },
+    "HARD": {
+      "name": "HARD",
+      "n": 5000,
+      "fm_mae_hz": 0.0028762337751686573,
+      "fm_p95_hz": 0.010525250807404518,
+      "depth_relative_median": 0.002852931385859847,
+      "depth_relative_p95": 0.024723269045352936,
+      "phase_mae_deg": 1.119998574256897,
+      "phase_p95_deg": 4.2406721115112305
+    }
+  },
+  "residual": {
+    "IID": {
+      "name": "IID",
+      "n": 5000,
+      "fm_mae_hz": 0.006915879901498556,
+      "fm_p95_hz": 0.018231485038995743,
+      "depth_relative_median": 0.0033505605533719063,
+      "depth_relative_p95": 0.022829169407486916,
+      "phase_mae_deg": 0.5307510495185852,
+      "phase_p95_deg": 1.9534187316894531
+    },
+    "OOD": {
+      "name": "OOD",
+      "n": 5000,
+      "fm_mae_hz": 0.011969661340117455,
+      "fm_p95_hz": 0.03382869437336922,
+      "depth_relative_median": 0.0031985058449208736,
+      "depth_relative_p95": 0.0316321961581707,
+      "phase_mae_deg": 1.1799291372299194,
+      "phase_p95_deg": 4.7163190841674805
+    },
+    "HARD": {
+      "name": "HARD",
+      "n": 5000,
+      "fm_mae_hz": 0.007830072194337845,
+      "fm_p95_hz": 0.02070511318743229,
+      "depth_relative_median": 0.003997195512056351,
+      "depth_relative_p95": 0.030580386519432068,
+      "phase_mae_deg": 1.1286568641662598,
+      "phase_p95_deg": 4.216108798980713
+    }
+  }
+}

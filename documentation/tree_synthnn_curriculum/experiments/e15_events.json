@@ -1,0 +1,30 @@
+{
+  "stage": "E15",
+  "metrics": {
+    "IID": {
+      "onset_f1_score": 1.0,
+      "median_onset_error_ms": 0.9166666666666767,
+      "median_pitch_error_cents": 0.039430537289112055,
+      "pass_promotion": true
+    },
+    "Compositional": {
+      "onset_f1_score": 1.0,
+      "median_onset_error_ms": 0.666666666666621,
+      "median_pitch_error_cents": 0.033313307284274396,
+      "pass_promotion": true
+    },
+    "OOD": {
+      "onset_f1_score": 1.0,
+      "median_onset_error_ms": 0.9166666666666767,
+      "median_pitch_error_cents": 0.08249488053335184,
+      "pass_promotion": true
+    },
+    "Hard": {
+      "onset_f1_score": 1.0,
+      "median_onset_error_ms": 0.8333333333333526,
+      "median_pitch_error_cents": 0.04016772199306154,
+      "pass_promotion": true
+    }
+  },
+  "promotion_passed": true
+}

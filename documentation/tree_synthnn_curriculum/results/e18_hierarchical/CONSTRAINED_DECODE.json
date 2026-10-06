@@ -1,0 +1,16 @@
+{
+  "E18S_constrained_clean": {
+    "parent_precision": 0.9673366834165993,
+    "parent_recall": 0.9673366834165993,
+    "parent_f1": 0.9673366829165992,
+    "exact_tree": 0.88,
+    "n": 500
+  },
+  "E18S_constrained_hard": {
+    "parent_precision": 0.7939866369701626,
+    "parent_recall": 0.7939866369701626,
+    "parent_f1": 0.7939866364701625,
+    "exact_tree": 0.43,
+    "n": 200
+  }
+}
