@@ -1,0 +1,60 @@
+{
+  "nodes": {
+    "f_static": "f_nom * detune_ratio",
+    "f0": "f_static * (1 + vibrato_depth_rad * sin(2*pi*vibrato_rate*tau + vibrato_phase))",
+    "phase": "phase0 + 2*pi*f_static*tau + f_static*vibrato_depth_rad/vibrato_rate * (cos(vibrato_phase) - cos(2*pi*vibrato_rate*tau + vibrato_phase))",
+    "envelope": "Gaussian-CDF attack/decay/release transitions multiplied by (1 + tremolo)",
+    "harmonic_frequency": "k * f0 * sqrt(1 + inharmonicity*k^2)",
+    "spectral_envelope": "Gaussian-RBF interpolation of S_j in log2(f)",
+    "logA_k": "log(velocity) + log(envelope) + log(H_k) + ln(10)/20 * S(f_k)",
+    "harmonic_phase": "k * phase + psi_k",
+    "audio_note": "sum_k exp(logA_k) * sin(harmonic_phase_k) + masked/fractal noise"
+  },
+  "edges": [
+    [
+      "vibrato",
+      "f0"
+    ],
+    [
+      "f0",
+      "phase"
+    ],
+    [
+      "phase",
+      "harmonic_phase"
+    ],
+    [
+      "f0",
+      "harmonic_frequency"
+    ],
+    [
+      "harmonic_frequency",
+      "spectral_envelope"
+    ],
+    [
+      "spectral_envelope",
+      "logA_k"
+    ],
+    [
+      "envelope",
+      "logA_k"
+    ],
+    [
+      "arpeggiator",
+      "note_events"
+    ],
+    [
+      "note_events",
+      "f_nom"
+    ],
+    [
+      "tremolo",
+      "envelope"
+    ]
+  ],
+  "nonlocal_effects": [
+    "delay",
+    "chorus",
+    "reverb"
+  ]
+}

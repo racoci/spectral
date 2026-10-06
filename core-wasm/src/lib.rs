@@ -6485,28 +6485,6 @@ mod tests {
         let (s_m, d1_m, d2_m, d3_m) = forward_packet_4_band(&mid_input);
         
         let encoded = encode_wavelet_v8_mband(&original, 128);
-        
-        // Unpack manually to check
-        let w_png = (w * 8) as u32;
-        let mut s_m_rec = vec![0i64; grid_size];
-        let mut d1_m_rec = vec![0i64; grid_size];
-        for r in 0..h {
-            for c in 0..w {
-                let idx = r * w + c;
-                let offset_a = 24 + (r * w_png as usize + c * 8) * 4;
-                let offset_b = offset_a + 4;
-                let sm_u_rec = decode_rg_to_coefficient_raw(encoded[offset_a], encoded[offset_a + 1]);
-                let d1m_u_rec = decode_rg_to_coefficient_raw(encoded[offset_b], encoded[offset_b + 1]);
-                s_m_rec[idx] = zigzag_decode(sm_u_rec as u32) as i64;
-                d1_m_rec[idx] = zigzag_decode(d1m_u_rec as u32) as i64;
-            }
-        }
-        
-        for idx in 0..10 {
-            println!("COEF {}: original_s={}, decoded_s={} | original_d1={}, decoded_d1={}", 
-                     idx, s_m[idx], s_m_rec[idx], d1_m[idx], d1_m_rec[idx]);
-        }
-        
         let decoded = decode_wavelet_v8_mband(&encoded).unwrap();
         assert_eq!(original, decoded, "V8 pipeline failed for large audio!");
     }
