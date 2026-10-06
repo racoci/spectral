@@ -1,0 +1,29 @@
+{
+  "stage": "E17b",
+  "metrics": {
+    "IID": {
+      "rmse_r": 0.00040918661989157836,
+      "err_c_trans": 4.5342443674812785,
+      "pass": true
+    },
+    "Compositional": {
+      "rmse_r": 0.00041678876072780705,
+      "err_c_trans": 3.564612680699229,
+      "pass": true
+    },
+    "OOD": {
+      "rmse_r": 0.0004284635895042676,
+      "err_c_trans": 4.500256723607268,
+      "pass": true
+    },
+    "Hard": {
+      "rmse_r": 0.0004205065439531134,
+      "err_c_trans": 4.573251599532224,
+      "pass": true
+    },
+    "PhaseDispersion": {
+      "median_err_deg": 4.837052840476673,
+      "pass": true
+    }
+  }
+}
