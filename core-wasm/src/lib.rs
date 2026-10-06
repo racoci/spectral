@@ -5,6 +5,8 @@ use std::sync::OnceLock;
 pub mod geometry;
 pub mod model;
 pub mod analysis;
+pub mod synthesis;
+pub use synthesis::*;
 pub mod holomorphic;
 pub use holomorphic::*;
 pub mod new_architecture;
@@ -6461,7 +6463,7 @@ mod tests {
         
         let original_len = original.len() as u32;
         let h = 128;
-        let w = calculate_grid_width(original.len(), h);
+        let w = calculate_grid_width(original.len() / 2, h);
         let grid_size = w * h;
         
         let num_samples = original.len() / 4;

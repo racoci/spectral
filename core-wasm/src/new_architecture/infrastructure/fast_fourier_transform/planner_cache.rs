@@ -3,7 +3,7 @@
 //! Reutilização determinística de planos de FFT direta e inversa para garantir
 //! zero alocação de tabelas de twiddle factors dentro de laços de síntese e análise.
 
-use rustfft::{FftPlanner, Fft, num_complex::Complex};
+use rustfft::{FftPlanner, Fft};
 use std::sync::Arc;
 
 pub struct FastFourierTransformPlannerCache {

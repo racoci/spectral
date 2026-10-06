@@ -3,8 +3,6 @@
 //! Avaliação da janela de Gabor com incerteza tempo-frequência mínima (Gabor limit: sigma_t * sigma_w = 1/2)
 //! e operadores de derivação polinomial de Hermite.
 
-use std::f32::consts::PI;
-
 pub struct GaussianAnalysisWindow {
     pub window_length: usize,
     pub dispersion_sigma: f32,

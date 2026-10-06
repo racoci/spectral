@@ -3,8 +3,6 @@
 //! Avaliação da família de Cauchy no domínio de Fourier com suporte unilateral,
 //! centralização logarítmica e normalização unitária de energia L^2.
 
-use std::f32::consts::PI;
-
 pub struct CauchyWaveletLadder {
     pub shape_parameter_q: f32,
     pub shifted_pole_lambda: f32,
