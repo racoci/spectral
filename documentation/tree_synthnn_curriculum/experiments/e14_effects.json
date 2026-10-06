@@ -1,0 +1,58 @@
+{
+  "stage": "E14",
+  "metrics": {
+    "delay": {
+      "IID": {
+        "on_off_accuracy": 1.0,
+        "median_tau_error_ms": 0.029061015555370773,
+        "median_tau_error_pct": 0.032003858954852304,
+        "pass_promotion": true
+      },
+      "Compositional": {
+        "on_off_accuracy": 1.0,
+        "median_tau_error_ms": 0.0389239127010228,
+        "median_tau_error_pct": 0.024423267495630167,
+        "pass_promotion": true
+      },
+      "OOD": {
+        "on_off_accuracy": 1.0,
+        "median_tau_error_ms": 0.04628773176299461,
+        "median_tau_error_pct": 0.18363327820756503,
+        "pass_promotion": true
+      },
+      "Hard": {
+        "on_off_accuracy": 1.0,
+        "median_tau_error_ms": 0.031534840007605425,
+        "median_tau_error_pct": 0.03966958556833742,
+        "pass_promotion": true
+      }
+    },
+    "filter": {
+      "IID": {
+        "on_off_accuracy": 1.0,
+        "median_fc_error_hz": 0.4817179632746047,
+        "median_fc_error_pct": 0.0312890550333756,
+        "pass_promotion": true
+      },
+      "Compositional": {
+        "on_off_accuracy": 1.0,
+        "median_fc_error_hz": 0.8725788616146701,
+        "median_fc_error_pct": 0.1454764664534452,
+        "pass_promotion": true
+      },
+      "OOD": {
+        "on_off_accuracy": 1.0,
+        "median_fc_error_hz": 1.1535190738172787,
+        "median_fc_error_pct": 0.0341579619461355,
+        "pass_promotion": true
+      },
+      "Hard": {
+        "on_off_accuracy": 1.0,
+        "median_fc_error_hz": 2.0078584309094367,
+        "median_fc_error_pct": 0.12096162133596236,
+        "pass_promotion": true
+      }
+    }
+  },
+  "promotion_passed": true
+}
