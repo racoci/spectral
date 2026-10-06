@@ -1177,25 +1177,25 @@
       );
       const hop = Number(dims[2]);
       const sampleRate = Number(dims[3]);
+      const totalAudioSamples = Number(dims[4]) || 10000;
 
       const sStart = selectionStart !== null ? Math.min(selectionStart, selectionEnd ?? selectionStart) : viewStart;
       const sEnd = selectionEnd !== null ? Math.max(selectionStart ?? selectionEnd, selectionEnd) : viewEnd;
-      const virtualWidth = 10000;
-      const startCol = Math.floor(sStart * virtualWidth);
-      const endCol = Math.ceil(sEnd * virtualWidth);
+      const startSample = Math.round(sStart * totalAudioSamples);
+      const endSample = Math.round(sEnd * totalAudioSamples);
 
       const wavBytes = wasm_synthesize_hybrid_spectrogram_to_wav(
         originalBytes,
         rgbaGrid,
-        virtualWidth,
+        totalAudioSamples,
         height,
         fmin,
         fmax,
         frequencyScale,
         windowSize,
         zeroPadding,
-        startCol,
-        endCol,
+        startSample,
+        endSample,
         hop,
         sampleRate,
         false // Bit-perfect 16-bit PCM / MDCT

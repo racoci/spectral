@@ -5387,8 +5387,8 @@ pub fn wasm_synthesize_hybrid_spectrogram_to_wav(
             let (start_sample, end_sample) = if width > 0 {
                 let s_start = (start_col as f64 / width as f64).clamp(0.0, 1.0);
                 let s_end = (end_col as f64 / width as f64).clamp(0.0, 1.0);
-                let s0 = (s_start * num_samples as f64).floor() as usize;
-                let s1 = (s_end * num_samples as f64).ceil() as usize;
+                let s0 = (s_start * num_samples as f64).round() as usize;
+                let s1 = (s_end * num_samples as f64).round() as usize;
                 (s0.min(num_samples.saturating_sub(1)), s1.clamp(s0 + 1, num_samples))
             } else {
                 let hop = if hop_custom > 0 { hop_custom } else { 232 };
@@ -6445,6 +6445,72 @@ pub fn wasm_rdo_jet_decompress_frame(packet: &[u8]) -> Vec<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_zero_crossing_no_clipping() {
+        // Amostras ao redor do zero e de grande escala
+        let original_samples = vec![
+            -2.0f32, -1.0, 0.0, 1.0, 2.0,
+            -0.5, 0.5, 100.0, -100.0, 15000.0, -15000.0, 32767.0, -32768.0
+        ];
+
+        let wav_bytes = encode_pcm_to_wav(&original_samples, 48000);
+        let parsed = parse_wav_samples(&wav_bytes);
+
+        assert_eq!(parsed.samples.len(), original_samples.len());
+
+        for i in 0..original_samples.len() {
+            let orig = original_samples[i].round() as i16;
+            let rec = parsed.samples[i].round() as i16;
+            // Garante que cruzamentos de zero NUNCA virem cliques de onda quadrada (+-32767)
+            assert_eq!(orig, rec, "Amostra no índice {} divergiu: orig={}, rec={}", i, orig, rec);
+        }
+    }
+
+    #[test]
+    fn test_hybrid_slicing_bit_perfect() {
+        // Gera áudio sintético com 10.000 amostras
+        let mut original_samples = Vec::with_capacity(10000);
+        for i in 0..10000 {
+            let s = ((i as f32 * 0.05).sin() * 20000.0).round();
+            original_samples.push(s);
+        }
+
+        let full_wav = encode_pcm_to_wav(&original_samples, 48000);
+
+        // Fatiamento de 35% a 65% via grade virtual de 10.000 divisões
+        let virtual_width = 10000;
+        let start_col = 3500;
+        let end_col = 6500;
+
+        let sliced_wav = wasm_synthesize_hybrid_spectrogram_to_wav(
+            &full_wav,
+            &[0u8; 100],
+            virtual_width,
+            256,
+            20.0,
+            20000.0,
+            "log",
+            1024,
+            2,
+            start_col,
+            end_col,
+            232,
+            48000,
+            false,
+        );
+
+        let parsed_slice = parse_wav_samples(&sliced_wav);
+        let expected_slice = &original_samples[3500..6500];
+
+        assert_eq!(parsed_slice.samples.len(), expected_slice.len());
+
+        for i in 0..expected_slice.len() {
+            let orig = expected_slice[i] as i16;
+            let rec = parsed_slice.samples[i] as i16;
+            assert_eq!(orig, rec, "Divergência bit-perfect na amostra {}: orig={}, rec={}", i, orig, rec);
+        }
+    }
 
     #[test]
     fn test_color_uniqueness() {

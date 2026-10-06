@@ -421,11 +421,6 @@
     } else {
       // Síntese espectral de alta resolução diretamente dos pixels do espectrograma
       try {
-        // Grade virtual de alta precisão (10.000 divisões) para fatiamento temporal bit-perfect
-        const virtualWidth = 10000;
-        const startCol = Math.floor(sStart * virtualWidth);
-        const endCol = Math.ceil(sEnd * virtualWidth);
-
         const dims = wasm_get_spectrogram_dimensions(
           originalBytes,
           selectedHeight,
@@ -436,22 +431,27 @@
         );
         const calculatedHop = Number(dims[2]);
         const sampleRate = Number(dims[3]);
+        const totalAudioSamples = Number(dims[4]) || 10000;
 
-        console.log(`🔊 Resynthesizing audio from spectrogram time [${sStart.toFixed(3)}..${sEnd.toFixed(3)}] (cols ${startCol}..${endCol}) at ${sampleRate} Hz...`);
+        // Fatiamento com precisão absoluta de amostra individual (Bit-Perfect)
+        const startSample = Math.round(sStart * totalAudioSamples);
+        const endSample = Math.round(sEnd * totalAudioSamples);
+
+        console.log(`🔊 Resynthesizing audio from spectrogram time [${sStart.toFixed(3)}..${sEnd.toFixed(3)}] (samples ${startSample}..${endSample}) at ${sampleRate} Hz...`);
         const t0 = performance.now();
 
         const wavBytes = wasm_synthesize_hybrid_spectrogram_to_wav(
           originalBytes ?? new Uint8Array(),
           rgbaGrid,
-          virtualWidth,
+          totalAudioSamples,
           selectedHeight,
           fmin,
           fmax,
           frequencyScale,
           windowSize,
           zeroPadding,
-          startCol,
-          endCol,
+          startSample,
+          endSample,
           calculatedHop,
           sampleRate,
           false // Bit-Perfect fidelity: exact match with original audio!
