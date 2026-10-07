@@ -1,0 +1,17 @@
+{
+  "stages": {
+    "E18": {
+      "exact_topology_ratio": 1.0,
+      "pass_promotion": true
+    },
+    "E19": {
+      "module_type_accuracy": 0.9860000014305115,
+      "pass_promotion": true
+    },
+    "E20": {
+      "audio_SI_SDR_db": 39.99299621582031,
+      "pass_promotion": true
+    }
+  },
+  "promotion_passed": true
+}
