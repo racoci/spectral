@@ -1,0 +1,78 @@
+{
+  "E06_PureTone": {
+    "M4_HankelSSA": {
+      "sisdr": 110.96910013008056,
+      "mdl": {
+        "L_theta_bits": 8352.0,
+        "L_residual_bits": 12.993201350377538,
+        "L_total_bits": 8364.993201350377,
+        "L_raw_baseline_bits": 21706.456071487584,
+        "residual_entropy_bps": 0.004331067116792512,
+        "raw_entropy_bps": 7.235485357162529,
+        "compression_ratio": 0.38536890470748814
+      }
+    },
+    "M6_WaveletMaxima": {
+      "sisdr": 110.96910013008056,
+      "mdl": {
+        "L_theta_bits": 121984.0,
+        "L_residual_bits": 96.69106563530846,
+        "L_total_bits": 122080.69106563531,
+        "L_raw_baseline_bits": 21706.456071487584,
+        "residual_entropy_bps": 0.032230355211769486,
+        "raw_entropy_bps": 7.235485357162529,
+        "compression_ratio": 5.624165025537902
+      }
+    },
+    "M12_InvertibleFlow": {
+      "sisdr": 17.196038737748843,
+      "mdl": {
+        "L_theta_bits": 94208.0,
+        "L_residual_bits": 726.8739575178847,
+        "L_total_bits": 94934.87395751789,
+        "L_raw_baseline_bits": 21706.456071487584,
+        "residual_entropy_bps": 0.24229131917262822,
+        "raw_entropy_bps": 7.235485357162529,
+        "compression_ratio": 4.37357778003288
+      }
+    }
+  },
+  "E14_Transient": {
+    "M4_HankelSSA": {
+      "sisdr": 0.36789378153918645,
+      "mdl": {
+        "L_theta_bits": 8352.0,
+        "L_residual_bits": 10891.434044187537,
+        "L_total_bits": 19243.43404418754,
+        "L_raw_baseline_bits": 9408.543874109737,
+        "residual_entropy_bps": 3.630478014729179,
+        "raw_entropy_bps": 3.1361812913699123,
+        "compression_ratio": 2.0453148012777276
+      }
+    },
+    "M6_WaveletMaxima": {
+      "sisdr": 102.0188420280774,
+      "mdl": {
+        "L_theta_bits": 28288.0,
+        "L_residual_bits": 0.0,
+        "L_total_bits": 28288.0,
+        "L_raw_baseline_bits": 9408.543874109737,
+        "residual_entropy_bps": 0.0,
+        "raw_entropy_bps": 3.1361812913699123,
+        "compression_ratio": 3.0066289086287212
+      }
+    },
+    "M12_InvertibleFlow": {
+      "sisdr": 102.0188420280774,
+      "mdl": {
+        "L_theta_bits": 94208.0,
+        "L_residual_bits": 0.0,
+        "L_total_bits": 94208.0,
+        "L_raw_baseline_bits": 9408.543874109737,
+        "residual_entropy_bps": 0.0,
+        "raw_entropy_bps": 3.1361812913699123,
+        "compression_ratio": 10.013026591632302
+      }
+    }
+  }
+}
