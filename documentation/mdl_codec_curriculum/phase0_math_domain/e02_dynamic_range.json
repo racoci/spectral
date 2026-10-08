@@ -1,0 +1,7 @@
+{
+  "stage": "E02",
+  "original_bits": 14.872722969303823,
+  "transformed_bits": 11.991835751122633,
+  "expansion_ratio": 0.8062972581330854,
+  "passed": true
+}
