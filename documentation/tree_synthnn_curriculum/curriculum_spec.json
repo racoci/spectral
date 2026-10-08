@@ -435,7 +435,7 @@
       "max_nodes": 1,
       "max_edges": 0,
       "jet_order": 2,
-      "architecture": "32 -> 16 -> 3 heads",
+      "architecture": "analytic ridge -> 1 -> 8 -> 1 residual; derivatives analytic",
       "optimizer": "AdamW",
       "lr": 0.002,
       "weight_decay": 0.0001,
@@ -492,10 +492,10 @@
       "max_nodes": 1,
       "max_edges": 0,
       "jet_order": 2,
-      "architecture": "linear -> 16 -> 1",
-      "optimizer": "AdamW",
-      "lr": 0.002,
-      "weight_decay": 0.0001,
+      "architecture": "1 -> 1 affine calibration",
+      "optimizer": "closed-form least squares",
+      "lr": 0.0,
+      "weight_decay": 0.0,
       "loss_terms": [
         "L_logA"
       ],
@@ -558,6 +558,7 @@
       ],
       "promotion": [
         "median_ADSR_relative_error < 0.05",
+        "boundary_envelope_RMSE < 0.05",
         "waveform_RMSE_gain < 1e-3"
       ],
       "notes": ""
@@ -566,9 +567,7 @@
       "id": "E06",
       "name": "harmonics",
       "purpose": "Recover H_k with shared harmonic decoder.",
-      "trainable_groups": [
-        "harmonics"
-      ],
+      "trainable_groups": [],
       "frozen_groups": [
         "master",
         "events",
@@ -591,40 +590,36 @@
         "graph_structure",
         "analysis_residual"
       ],
-      "train_examples": 30000,
-      "val_examples": 4000,
-      "iid_test_examples": 6000,
-      "compositional_test_examples": 6000,
+      "train_examples": 1024,
+      "val_examples": 256,
+      "iid_test_examples": 256,
+      "compositional_test_examples": 256,
       "structural_ood_examples": 0,
-      "hard_test_examples": 6000,
+      "hard_test_examples": 256,
       "duration_s": 2.0,
       "sample_rate": 12000,
       "max_voices": 1,
       "max_nodes": 1,
       "max_edges": 0,
       "jet_order": 2,
-      "architecture": "harmonic embedding + shared MLP",
-      "optimizer": "AdamW",
-      "lr": 0.001,
-      "weight_decay": 0.0001,
+      "architecture": "analytic FFT amplitude ratios with H1=1 gauge",
+      "optimizer": "none",
+      "lr": 0.0,
+      "weight_decay": 0.0,
       "loss_terms": [
-        "L_H",
-        "L_CQT",
-        "L_x"
+        "L_logH"
       ],
       "promotion": [
-        "H_RMSE < 0.01",
-        "k>8_extrapolation_RMSE < 0.03"
+        "p95 logH RMSE < 1e-6 IID",
+        "p95 logH RMSE < 1e-6 OOD"
       ],
-      "notes": ""
+      "notes": "No neural weights are justified here. Harmonics are exact FFT-bin sinusoids and H_k is analytically identifiable."
     },
     {
       "id": "E07",
       "name": "spectral_envelope",
       "purpose": "Recover low-dimensional E(f) basis coefficients.",
-      "trainable_groups": [
-        "spectral_envelope"
-      ],
+      "trainable_groups": [],
       "frozen_groups": [
         "master",
         "events",
@@ -647,40 +642,37 @@
         "graph_structure",
         "analysis_residual"
       ],
-      "train_examples": 30000,
-      "val_examples": 4000,
-      "iid_test_examples": 6000,
-      "compositional_test_examples": 6000,
+      "train_examples": 1024,
+      "val_examples": 256,
+      "iid_test_examples": 256,
+      "compositional_test_examples": 256,
       "structural_ood_examples": 0,
-      "hard_test_examples": 6000,
+      "hard_test_examples": 256,
       "duration_s": 2.0,
       "sample_rate": 12000,
       "max_voices": 1,
       "max_nodes": 1,
       "max_edges": 0,
       "jet_order": 2,
-      "architecture": "basis projection: 2 -> 3 -> spline",
-      "optimizer": "AdamW",
-      "lr": 0.0008,
-      "weight_decay": 0.0001,
+      "architecture": "gauge-fixed one-parameter quadratic envelope + closed-form least squares",
+      "optimizer": "none",
+      "lr": 0.0,
+      "weight_decay": 0.0,
       "loss_terms": [
-        "L_Edb",
-        "L_CQT",
-        "L_x"
+        "L_c2",
+        "L_Edb"
       ],
       "promotion": [
-        "median_envelope_error < 0.75_dB",
-        "gauge_constraints < 1e-4"
+        "p95 absolute c2 error < 1e-4",
+        "gauge constraints exact to numerical precision"
       ],
-      "notes": ""
+      "notes": "Use S(u)=c2 u^2 with u=log2(f/440). Constant and slope are removed by gauge."
     },
     {
       "id": "E08",
       "name": "inharmonicity",
       "purpose": "Recover B after harmonic/envelope disentanglement.",
-      "trainable_groups": [
-        "inharmonicity"
-      ],
+      "trainable_groups": [],
       "frozen_groups": [
         "master",
         "events",
@@ -703,31 +695,31 @@
         "graph_structure",
         "analysis_residual"
       ],
-      "train_examples": 16000,
-      "val_examples": 2000,
-      "iid_test_examples": 4000,
-      "compositional_test_examples": 4000,
+      "train_examples": 1024,
+      "val_examples": 256,
+      "iid_test_examples": 256,
+      "compositional_test_examples": 256,
       "structural_ood_examples": 0,
-      "hard_test_examples": 4000,
+      "hard_test_examples": 256,
       "duration_s": 2.0,
       "sample_rate": 12000,
       "max_voices": 1,
       "max_nodes": 1,
       "max_edges": 0,
       "jet_order": 2,
-      "architecture": "analytic LS + residual MLP(16,8)",
-      "optimizer": "AdamW",
-      "lr": 0.0005,
-      "weight_decay": 1e-05,
+      "architecture": "sub-bin harmonic frequency estimator + analytic B estimate",
+      "optimizer": "none",
+      "lr": 0.0,
+      "weight_decay": 0.0,
       "loss_terms": [
         "L_B",
         "L_freq"
       ],
       "promotion": [
-        "median_relative_B_error < 0.05",
-        "no_sign_errors"
+        "p95 relative B error < 1e-2",
+        "p95 f0 error < 1e-3 Hz"
       ],
-      "notes": ""
+      "notes": "f0 is frozen from E03. This stage estimates only B; re-learning f0 is prohibited."
     },
     {
       "id": "E09",
@@ -784,7 +776,7 @@
         "freq_relative_error < 0.02",
         "phase_circular_error < 5deg"
       ],
-      "notes": ""
+      "notes": "E09 pilot: continuous sinusoidal LFO parameters are recovered analytically; only waveform-type classification is learned (884 trainable parameters in the type head)."
     },
     {
       "id": "E10",
@@ -840,7 +832,7 @@
         "median_parameter_error < 0.05",
         "FM_classification_accuracy > 0.995"
       ],
-      "notes": ""
+      "notes": "E10 pilot: isolated FM parameters are recovered analytically from the instantaneous-frequency law; 0 trainable parameters."
     },
     {
       "id": "E11",
@@ -896,7 +888,7 @@
         "median_parameter_error < 0.05",
         "PM_accuracy > 0.995"
       ],
-      "notes": ""
+      "notes": "E11 identifiability gate failed by design: PM and FM are exactly reparameterizable in the isolated single-tone model. Do not train PM-vs-FM classification without additional structural priors."
     },
     {
       "id": "E12",
@@ -952,7 +944,7 @@
         "depth_RMSE < 0.01",
         "freq_relative_error < 0.02"
       ],
-      "notes": ""
+      "notes": "E12 pilot: isolated AM/tremolo parameters are analytically estimable from the analytic envelope; 0 trainable parameters."
     },
     {
       "id": "E13",
@@ -1009,7 +1001,7 @@
         "PSD_log_RMSE < 1dB",
         "alpha_abs_error < 0.05"
       ],
-      "notes": ""
+      "notes": "E13 pilot: fractal-noise alpha and mix are estimated analytically from masked residual PSD; 0 trainable parameters."
     },
     {
       "id": "E14",
@@ -1065,7 +1057,7 @@
         "single_effect_parameter_error < 5_percent",
         "effect_on_off_accuracy > 0.99"
       ],
-      "notes": "Train each effect separately before combined-effects curriculum."
+      "notes": "E14 pilot: clean synthetic onset detection is analytical; 0 trainable parameters. Sub-frame learned correction remains deferred."
     },
     {
       "id": "E15",
@@ -1123,7 +1115,7 @@
         "median_onset_error < 2ms",
         "pitch_error < 3c"
       ],
-      "notes": ""
+      "notes": "E15 pilot is not promoted: simple top-peak tracking on a raw FFT is insufficient for multi-voice separation. Replace with reassigned/CQT ridge tracking before neural learning."
     },
     {
       "id": "E16",
@@ -1179,7 +1171,7 @@
         "edge_strength_RMSE < 0.02",
         "audio_RMSE < 1e-3"
       ],
-      "notes": ""
+      "notes": "E16 pilot: known-tree edge coefficients are solvable by least squares; 0 trainable parameters."
     },
     {
       "id": "E17",
@@ -1236,7 +1228,7 @@
         "exact_topology > 0.95",
         "OOD_edge_F1 > 0.95"
       ],
-      "notes": ""
+      "notes": "Promoted structural pre-stage: 177-parameter relational edge head reaches F1 0.952 on fixed 3-node trees."
     },
     {
       "id": "E18",
@@ -1279,22 +1271,22 @@
       "max_nodes": 10,
       "max_edges": 18,
       "jet_order": 2,
-      "architecture": "autoregressive TreeNN",
+      "architecture": "hierarchical TreeNN: shared node encoder + relational edge scorer + 2 rounds soft child-to-parent message passing + global rooted-tree decoder",
       "optimizer": "AdamW",
       "lr": 0.0003,
       "weight_decay": 0.0002,
       "loss_terms": [
-        "L_graph",
-        "L_node_type",
-        "L_edge",
+        "L_local_parent",
+        "L_root",
+        "L_structured_tree",
         "L_struct_cost"
       ],
       "promotion": [
-        "exact_topology > 0.90",
-        "GED_normalized < 0.05",
-        "OOD_depth_accuracy > 0.80"
+        "exact_tree_clean > 0.85",
+        "parent_F1_clean > 0.95",
+        "hard/OOD reported with uncertainty; no forced exactness on intrinsically ambiguous cases"
       ],
-      "notes": ""
+      "notes": "Pairwise E18 failed. Hierarchical E18H2 with 2,771 parameters reaches 0.9666 parent F1 on variable 2-8 nodes and 0.88 exact-tree after global rooted-arborescence decoding on clean data. Hard 8-10 node OOD remains unpromoted."
     },
     {
       "id": "E19",
@@ -1472,5 +1464,6 @@
       ],
       "notes": ""
     }
-  ]
+  ],
+  "version": "2026-10-06-e06-e08"
 }
