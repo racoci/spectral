@@ -1,0 +1,87 @@
+{
+  "E06_PureTone": {
+    "M1_CQTRidge": {
+      "sisdr": -0.0032056250283583818,
+      "time": 2.3059844970703125,
+      "num_params": 150
+    },
+    "M3_MatrixPencil": {
+      "sisdr": 16.94349424783558,
+      "time": 250.12731552124023,
+      "num_params": 352
+    },
+    "M5_MatchingPursuit": {
+      "sisdr": 2.4422072638845655,
+      "time": 199.44429397583008,
+      "num_params": 40
+    }
+  },
+  "E08_Chirp": {
+    "M1_CQTRidge": {
+      "sisdr": -0.028373151565992474,
+      "time": 3.6547183990478516,
+      "num_params": 150
+    },
+    "M3_MatrixPencil": {
+      "sisdr": 17.281693595261494,
+      "time": 305.29284477233887,
+      "num_params": 352
+    },
+    "M5_MatchingPursuit": {
+      "sisdr": 5.176876547831184,
+      "time": 223.82879257202148,
+      "num_params": 40
+    }
+  },
+  "E10_Polo": {
+    "M1_CQTRidge": {
+      "sisdr": -0.009060881235624464,
+      "time": 3.22723388671875,
+      "num_params": 150
+    },
+    "M3_MatrixPencil": {
+      "sisdr": 23.988123526216757,
+      "time": 110.92448234558105,
+      "num_params": 352
+    },
+    "M5_MatchingPursuit": {
+      "sisdr": 12.140044306288589,
+      "time": 185.4414939880371,
+      "num_params": 40
+    }
+  },
+  "E12_Crossing": {
+    "M1_CQTRidge": {
+      "sisdr": -0.0036921057713245505,
+      "time": 3.6308765411376953,
+      "num_params": 150
+    },
+    "M3_MatrixPencil": {
+      "sisdr": 16.700319229925352,
+      "time": 296.9045639038086,
+      "num_params": 352
+    },
+    "M5_MatchingPursuit": {
+      "sisdr": 2.9330616756822336,
+      "time": 179.50010299682617,
+      "num_params": 40
+    }
+  },
+  "E14_Transient_Click": {
+    "M1_CQTRidge": {
+      "sisdr": -4.0507076389596455e-08,
+      "time": 4.244804382324219,
+      "num_params": 150
+    },
+    "M3_MatrixPencil": {
+      "sisdr": 0.24230481743241564,
+      "time": 258.34107398986816,
+      "num_params": 352
+    },
+    "M5_MatchingPursuit": {
+      "sisdr": 0.7114966517963496,
+      "time": 200.2086639404297,
+      "num_params": 40
+    }
+  }
+}
