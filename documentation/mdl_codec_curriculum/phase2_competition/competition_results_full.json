@@ -1,87 +1,312 @@
 {
   "E06_PureTone": {
+    "M1b_CQTJetRidge": {
+      "sisdr": 116.98970004336019,
+      "time": 35.44735908508301,
+      "num_params": 6000
+    },
     "M1_CQTRidge": {
       "sisdr": -0.0032056250283583818,
-      "time": 2.3059844970703125,
+      "time": 39.80612754821777,
       "num_params": 150
+    },
+    "M2_ChirpletRidge": {
+      "sisdr": 116.98970004336019,
+      "time": 189.96715545654297,
+      "num_params": 111
+    },
+    "M6_WaveletMaxima": {
+      "sisdr": 116.98970004336019,
+      "time": 261.31224632263184,
+      "num_params": 3812
+    },
+    "M9_VMD": {
+      "sisdr": 116.98970004336019,
+      "time": 6.304264068603516,
+      "num_params": 15
+    },
+    "M4_HankelSSA": {
+      "sisdr": 116.98970004336019,
+      "time": 290.98963737487793,
+      "num_params": 519
+    },
+    "M7_AFD": {
+      "sisdr": 44.07562055173563,
+      "time": 292.91415214538574,
+      "num_params": 49
+    },
+    "M8_DMD": {
+      "sisdr": 116.98970004336019,
+      "time": 325.3755569458008,
+      "num_params": 21
+    },
+    "M12_InvertibleFlow": {
+      "sisdr": 17.196038737748843,
+      "time": 380.92708587646484,
+      "num_params": 2944
+    },
+    "M5_MatchingPursuit": {
+      "sisdr": 2.0749394286934533,
+      "time": 674.5884418487549,
+      "num_params": 40
     },
     "M3_MatrixPencil": {
       "sisdr": 16.94349424783558,
-      "time": 250.12731552124023,
+      "time": 771.4366912841797,
       "num_params": 352
     },
-    "M5_MatchingPursuit": {
-      "sisdr": 2.4422072638845655,
-      "time": 199.44429397583008,
-      "num_params": 40
+    "M11_StateSpaceGP": {
+      "sisdr": 76.29254792432488,
+      "time": 641.8025493621826,
+      "num_params": 10
     }
   },
   "E08_Chirp": {
+    "M1b_CQTJetRidge": {
+      "sisdr": 116.98970391398626,
+      "time": 4.36711311340332,
+      "num_params": 6000
+    },
     "M1_CQTRidge": {
       "sisdr": -0.028373151565992474,
-      "time": 3.6547183990478516,
+      "time": 7.64012336730957,
       "num_params": 150
+    },
+    "M6_WaveletMaxima": {
+      "sisdr": 116.98970391398626,
+      "time": 38.915157318115234,
+      "num_params": 890
+    },
+    "M2_ChirpletRidge": {
+      "sisdr": 27.97305389878566,
+      "time": 42.969465255737305,
+      "num_params": 111
+    },
+    "M4_HankelSSA": {
+      "sisdr": 24.136090166456196,
+      "time": 149.08218383789062,
+      "num_params": 519
+    },
+    "M7_AFD": {
+      "sisdr": 3.3896436283648956,
+      "time": 236.47093772888184,
+      "num_params": 49
+    },
+    "M9_VMD": {
+      "sisdr": 0.23196922869070322,
+      "time": 133.8493824005127,
+      "num_params": 15
+    },
+    "M12_InvertibleFlow": {
+      "sisdr": 17.56492953940677,
+      "time": 218.10221672058105,
+      "num_params": 2944
+    },
+    "M8_DMD": {
+      "sisdr": -2.8856142420152042,
+      "time": 534.1501235961914,
+      "num_params": 21
+    },
+    "M5_MatchingPursuit": {
+      "sisdr": 2.18721631306429,
+      "time": 600.388765335083,
+      "num_params": 40
     },
     "M3_MatrixPencil": {
       "sisdr": 17.281693595261494,
-      "time": 305.29284477233887,
+      "time": 771.3592052459717,
       "num_params": 352
     },
-    "M5_MatchingPursuit": {
-      "sisdr": 5.176876547831184,
-      "time": 223.82879257202148,
-      "num_params": 40
+    "M11_StateSpaceGP": {
+      "sisdr": 19.74868059373447,
+      "time": 784.2872142791748,
+      "num_params": 10
     }
   },
   "E10_Polo": {
+    "M1b_CQTJetRidge": {
+      "sisdr": 109.97799468925761,
+      "time": 3.4265518188476562,
+      "num_params": 6000
+    },
     "M1_CQTRidge": {
       "sisdr": -0.009060881235624464,
-      "time": 3.22723388671875,
+      "time": 7.29823112487793,
       "num_params": 150
+    },
+    "M6_WaveletMaxima": {
+      "sisdr": 109.97799468925761,
+      "time": 79.4980525970459,
+      "num_params": 874
+    },
+    "M2_ChirpletRidge": {
+      "sisdr": 24.82474724649652,
+      "time": 89.49089050292969,
+      "num_params": 111
+    },
+    "M9_VMD": {
+      "sisdr": 4.929884561275916,
+      "time": 4.458189010620117,
+      "num_params": 15
+    },
+    "M4_HankelSSA": {
+      "sisdr": 109.97799468925761,
+      "time": 164.33262825012207,
+      "num_params": 519
+    },
+    "M7_AFD": {
+      "sisdr": 19.181468294023954,
+      "time": 212.90016174316406,
+      "num_params": 49
+    },
+    "M8_DMD": {
+      "sisdr": 109.97799468925761,
+      "time": 207.0004940032959,
+      "num_params": 21
+    },
+    "M12_InvertibleFlow": {
+      "sisdr": 32.062094005826005,
+      "time": 204.8971652984619,
+      "num_params": 2944
+    },
+    "M5_MatchingPursuit": {
+      "sisdr": 10.277752319476054,
+      "time": 489.3949031829834,
+      "num_params": 40
     },
     "M3_MatrixPencil": {
       "sisdr": 23.988123526216757,
-      "time": 110.92448234558105,
+      "time": 596.0781574249268,
       "num_params": 352
     },
-    "M5_MatchingPursuit": {
-      "sisdr": 12.140044306288589,
-      "time": 185.4414939880371,
-      "num_params": 40
+    "M11_StateSpaceGP": {
+      "sisdr": 60.5977462570958,
+      "time": 687.5622272491455,
+      "num_params": 10
     }
   },
   "E12_Crossing": {
+    "M1b_CQTJetRidge": {
+      "sisdr": 119.68132292358133,
+      "time": 4.975557327270508,
+      "num_params": 6000
+    },
     "M1_CQTRidge": {
       "sisdr": -0.0036921057713245505,
-      "time": 3.6308765411376953,
+      "time": 18.307209014892578,
       "num_params": 150
+    },
+    "M2_ChirpletRidge": {
+      "sisdr": 3.4308474593339877,
+      "time": 74.37324523925781,
+      "num_params": 111
+    },
+    "M6_WaveletMaxima": {
+      "sisdr": 119.68132292358133,
+      "time": 139.05668258666992,
+      "num_params": 3610
+    },
+    "M9_VMD": {
+      "sisdr": 0.19529759524515394,
+      "time": 3.832101821899414,
+      "num_params": 15
+    },
+    "M4_HankelSSA": {
+      "sisdr": 10.27128259744173,
+      "time": 152.67491340637207,
+      "num_params": 519
+    },
+    "M7_AFD": {
+      "sisdr": 1.8348090167294353,
+      "time": 188.66515159606934,
+      "num_params": 49
+    },
+    "M8_DMD": {
+      "sisdr": -0.3616058380464004,
+      "time": 175.99821090698242,
+      "num_params": 21
+    },
+    "M12_InvertibleFlow": {
+      "sisdr": 17.88976357625874,
+      "time": 171.96059226989746,
+      "num_params": 2944
     },
     "M3_MatrixPencil": {
       "sisdr": 16.700319229925352,
-      "time": 296.9045639038086,
+      "time": 446.58708572387695,
       "num_params": 352
     },
     "M5_MatchingPursuit": {
-      "sisdr": 2.9330616756822336,
-      "time": 179.50010299682617,
+      "sisdr": 1.7869782555414244,
+      "time": 563.866138458252,
       "num_params": 40
+    },
+    "M11_StateSpaceGP": {
+      "sisdr": 10.224360598012638,
+      "time": 610.4176044464111,
+      "num_params": 10
     }
   },
-  "E14_Transient_Click": {
+  "E14_Transient": {
+    "M1b_CQTJetRidge": {
+      "sisdr": 102.0188420280774,
+      "time": 4.916667938232422,
+      "num_params": 6000
+    },
     "M1_CQTRidge": {
-      "sisdr": -4.0507076389596455e-08,
-      "time": 4.244804382324219,
+      "sisdr": -0.0007881558764498745,
+      "time": 8.841991424560547,
       "num_params": 150
     },
-    "M3_MatrixPencil": {
-      "sisdr": 0.24230481743241564,
-      "time": 258.34107398986816,
-      "num_params": 352
+    "M2_ChirpletRidge": {
+      "sisdr": -0.9932532030743547,
+      "time": 25.617599487304688,
+      "num_params": 111
+    },
+    "M6_WaveletMaxima": {
+      "sisdr": 102.0188420280774,
+      "time": 222.89800643920898,
+      "num_params": 884
+    },
+    "M9_VMD": {
+      "sisdr": 0.058724843076271,
+      "time": 3.8673877716064453,
+      "num_params": 15
+    },
+    "M4_HankelSSA": {
+      "sisdr": 0.7487648352991162,
+      "time": 234.1916561126709,
+      "num_params": 519
+    },
+    "M8_DMD": {
+      "sisdr": 0.0,
+      "time": 362.8532886505127,
+      "num_params": 21
+    },
+    "M12_InvertibleFlow": {
+      "sisdr": 102.0188420280774,
+      "time": 234.0230941772461,
+      "num_params": 2944
+    },
+    "M7_AFD": {
+      "sisdr": 0.17824871770662493,
+      "time": 529.9265384674072,
+      "num_params": 49
     },
     "M5_MatchingPursuit": {
-      "sisdr": 0.7114966517963496,
-      "time": 200.2086639404297,
+      "sisdr": 0.33536267029844885,
+      "time": 622.4794387817383,
       "num_params": 40
+    },
+    "M3_MatrixPencil": {
+      "sisdr": 0.3144454477949393,
+      "time": 694.7181224822998,
+      "num_params": 352
+    },
+    "M11_StateSpaceGP": {
+      "sisdr": 1.6307509549076094,
+      "time": 652.0991325378418,
+      "num_params": 10
     }
   }
 }
