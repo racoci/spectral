@@ -1,0 +1,184 @@
+{
+  "phase": "Phase 5: Canonicalization and Gauges",
+  "sample_rate_hz": 16000.0,
+  "e39_equivalence_classes": {
+    "time_shift_vs_phase_diff": 5.484501741648273e-14,
+    "fm_vs_pm_diff": 0.0,
+    "filter_vs_envelope_diff": 3.552713678800501e-13,
+    "polar_phase_diff": 1.3475331961387838e-14,
+    "jacobian_nullity": {
+      "singular_values": [
+        55292.034320338025,
+        4.627455802932605e-15
+      ],
+      "singular_value_ratio": 8.369118372681202e-20,
+      "has_nullity": true,
+      "null_vector": [
+        0.0003617157560911702,
+        0.9999999345808538
+      ]
+    }
+  },
+  "e40_canonical_gauge": {
+    "time_phase_projection": {
+      "raw": {
+        "A": -1.6,
+        "f0": 520.0,
+        "t0": 0.008,
+        "phi0": 1.1
+      },
+      "canon": {
+        "A": 1.6,
+        "f0": 520.0,
+        "t0": 0.0,
+        "phi0": -3.0469023027385234
+      }
+    },
+    "filter_envelope_decisions": {
+      "case_a": {
+        "chosen_family": "FILTER",
+        "L_chosen_bits": 40.0,
+        "L_alternative_bits": 200.0,
+        "bit_savings": 160.0,
+        "num_poles": 2,
+        "num_harmonics": 16
+      },
+      "case_b": {
+        "chosen_family": "HARMONIC_ENVELOPE",
+        "L_chosen_bits": 44.0,
+        "L_alternative_bits": 136.0,
+        "bit_savings": 92.0,
+        "num_poles": 8,
+        "num_harmonics": 3
+      }
+    },
+    "mdl_savings": {
+      "total_unconstrained_bits": 3225.0,
+      "total_canonical_bits": 2475.0,
+      "bit_savings_total": 750.0,
+      "bit_savings_percentage": 23.25581395348837,
+      "compression_ratio_unconstrained": 0.0050390625,
+      "compression_ratio_canonical": 0.0038671875,
+      "max_reconstruction_error": 9.719352059289754e-14
+    }
+  },
+  "e41_physical_ambiguity": {
+    "harmonic_collision": {
+      "mean_A1": 0.7501594896331738,
+      "mean_A2": 0.7501594896331738,
+      "covariance": [
+        [
+          0.12539872408293462,
+          -0.12460127591706538
+        ],
+        [
+          -0.12460127591706538,
+          0.12539872408293462
+        ]
+      ],
+      "prior_entropy_bits": 2.094191170361282,
+      "entropy_bits": -2.0519696460397117,
+      "information_gain_bits": 4.146160816400993,
+      "eigenvalues": [
+        0.0007974481658692342,
+        0.25
+      ]
+    },
+    "resonator_vs_noise": {
+      "resonator_eval": {
+        "instantaneous_freq_variance": 20.96218085790567,
+        "p_resonator": 0.9926561647786941,
+        "p_noise": 0.007343835221305969,
+        "ambiguity_entropy": 0.06261820363763429
+      },
+      "noise_eval": {
+        "instantaneous_freq_variance": 3850.028168515536,
+        "p_resonator": 7.440392707522754e-07,
+        "p_noise": 0.9999992559607291,
+        "ambiguity_entropy": 1.622066055924584e-05
+      }
+    },
+    "lookahead_trace": [
+      {
+        "horizon_seconds": 0.01,
+        "num_samples": 160,
+        "det_covariance": 4.868531830136924e-07,
+        "entropy_bits": -6.390813774638135,
+        "covariance": [
+          [
+            0.011141624856137232,
+            -0.012159872593714711
+          ],
+          [
+            -0.012159872593714711,
+            0.013314876114920651
+          ]
+        ]
+      },
+      {
+        "horizon_seconds": 0.02,
+        "num_samples": 320,
+        "det_covariance": 4.769906506215205e-08,
+        "entropy_bits": -8.066540714892646,
+        "covariance": [
+          [
+            0.0016486449827532376,
+            -0.0019333239599238082
+          ],
+          [
+            -0.0019333239599238084,
+            0.002296092026286909
+          ]
+        ]
+      },
+      {
+        "horizon_seconds": 0.05,
+        "num_samples": 800,
+        "det_covariance": 4.4590187931726214e-09,
+        "entropy_bits": -9.776122116577211,
+        "covariance": [
+          [
+            0.00019858704303268564,
+            -0.00026279246224545646
+          ],
+          [
+            -0.00026279246224545646,
+            0.00037020993859152094
+          ]
+        ]
+      },
+      {
+        "horizon_seconds": 0.1,
+        "num_samples": 1600,
+        "det_covariance": 1.6884785317814979e-09,
+        "entropy_bits": -10.476623338498765,
+        "covariance": [
+          [
+            7.746888517659666e-05,
+            -0.00010767887778775465
+          ],
+          [
+            -0.00010767887778775465,
+            0.00017146521759195984
+          ]
+        ]
+      },
+      {
+        "horizon_seconds": 0.2,
+        "num_samples": 3200,
+        "det_covariance": 1.2925160550387847e-09,
+        "entropy_bits": -10.669394156059624,
+        "covariance": [
+          [
+            5.9355852336203315e-05,
+            -8.29826620676605e-05
+          ],
+          [
+            -8.29826620676605e-05,
+            0.00013778992191955898
+          ]
+        ]
+      }
+    ]
+  }
+}

@@ -22,11 +22,16 @@ Para lidar com a complexidade realística do áudio, transformamos o projeto num
    - O Matrix Pencil (M3) resolveu cruzamentos complexos e polos.
 4. **Fase 3 (Custo do Resíduo):** O pulo do gato. Introduzimos o `ResidualEvaluator` para medir a Entropia de Shannon (Bits) do erro não modelado (L(R)) mais o tamanho da representação (L(theta)). O modelo só é útil se a soma for menor que a Entropia(PCM Raw).
 5. **Fase 4 (A Hipótese Híbrida - Roteamento Estrutural):** O `StructuralRouter` fatiou um sinal de áudio misto em blocos e realizou a seleção ótima de Codec. Ele identificou que o Hankel deve assumir os tons sustentados, o Matrix Pencil aproxima o Chirp, mas frente a um cruzamento massivo ou um transiente explosivo, o melhor é desligar os extratores (fallback) e transmitir o áudio RAW, esmagando a barreira de compressão e atingindo uma taxa global de 0.66x.
+6. **Fase 5 (Canonicalização e Gauges - E39-E41):** Formalizamos as simetrias de gauge e ambiguidades físicas.
+   - **E39:** Provamos que Time Shift $\equiv$ Phase Gauge, FM $\equiv$ PM (erro 0.0), e Filter LTI $\equiv$ Envelope Harmônico. O Jacobiano numérico ao longo das órbitas tem autovalores estritamente nulos ($\sigma_2 / \sigma_1 < 10^{-19}$).
+   - **E40:** Implementamos os operadores de projeção canônica $\mathcal{G}: \Theta \to \Theta / \sim$ (`CanonicalTimePhase`, `CanonicalAngleModulation`, `CanonicalFilterEnvelope`), eliminando graus de liberdade redundantes e gerando **23.3% de economia líquida de bits** nos parâmetros sem qualquer distorção acústica ($< 10^{-13}$).
+   - **E41:** Modelamos a incerteza física real $p(\theta|x)$ (colisão harmônica $2f_1 = f_2$, pólos ressonantes vs ruído) e provamos que o lookahead temporal colapsa monotonicamente a entropia de ambiguidade ($\partial H / \partial \tau \le 0$).
 
-## 3. O Próximo Estágio (Fase 5+ e o Codec Preditivo)
-Com as representações base ancoradas no custo exato, o horizonte metodológico que se descortina dita as seguintes fases:
+## 3. O Próximo Estágio (Fase 6+ e o Codec Preditivo)
+Com as representações base ancoradas no custo exato e canonicalizadas no quociente $\Theta / \sim$, o horizonte metodológico que se descortina dita as seguintes fases:
 
-- **Evolução e Incerteza (Fase 6):** As trajetórias extraídas pelas representações vencedoras serão submetidas a um Gaussian Process / SDE. Em vez de transmitir o valor exato, o Codec fará a previsão no instante t+1. Se a predição bater com o áudio, o Codec consome zero bits. Se falhar, transmite apenas a Surpresa (Delta G).
+- **Evolução e Incerteza (Fase 6 - E42-E45):** As trajetórias extraídas pelas representações vencedoras serão submetidas a um Gaussian Process / SDE sobre as variáveis canônicas. Em vez de transmitir o valor exato, o Codec fará a previsão no instante t+1. Se a predição bater com o áudio, o Codec consome zero bits. Se falhar, transmite apenas a Surpresa (Delta G).
+- **Tracking Probabilístico (Fase 7 - E46-E50):** Rastreamento de múltiplas ridges com covariância e resolução de crossing e birth/death.
 - **Context Modeling (Fase 10):** Uma rede neural entra no pipeline exclusivamente para aprender a distribuição (entropia condicional) dos bits residuais, atuando como Entropy Coder de alta performance.
 - **TreeNN Causal (Fase 14):** Somente no final, quando as estruturas (Ressonâncias, Chirps, Transientes) estão cristalizadas sem ambiguidade, o Grafo Semântico tenta organizar quem-modulou-quem. A topologia TreeNN vira assim um bônus de explicabilidade, e não mais o pilar de reconstrução.
 
