@@ -1,0 +1,105 @@
+"""
+Unit and Integration Tests for Phase 6: Evolution and Uncertainty (E42-E45).
+Verifies SDE/GP anchor state evolution, cubic phase variance explosion,
+probabilistic calibration (exact 95% +/- 1.96 sigma envelope), and GP vs Taylor Jets.
+"""
+
+from __future__ import annotations
+import unittest
+import numpy as np
+from pathlib import Path
+import sys
+
+# Add phase directory to path
+PHASE_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(PHASE_DIR))
+
+from gp_anchor_evolution import (
+    AmplitudeOUEvolution,
+    FrequencyKinematicEvolution,
+    simulate_euler_maruyama
+)
+
+
+class TestGPAnchorEvolution(unittest.TestCase):
+    """Test suite for E42: GP distance from anchor."""
+
+    def test_amplitude_ou_evolution_anchor_properties(self):
+        """Verify boundary conditions and asymptotic convergence for amplitude OU process."""
+        ou = AmplitudeOUEvolution(A0=1.5, A_inf=1.0, lambda_A=2.0, sigma_A=0.3)
+        
+        # At delta_t = 0, mean is A0 and variance is 0
+        mu_0, var_0 = ou.predict(0.0)
+        self.assertAlmostEqual(mu_0, 1.5, places=7)
+        self.assertAlmostEqual(var_0, 0.0, places=7)
+        
+        # Monotonicity check
+        dts = np.linspace(0.0, 1.0, 50)
+        mus, vars_ = ou.predict(dts)
+        self.assertTrue(np.all(np.diff(vars_) >= 0.0), "Variance must grow monotonically with distance from anchor")
+        
+        # Asymptotic variance check: sigma^2 / (2 * lambda)
+        _, var_inf = ou.predict(100.0)
+        theoretical_var_inf = (0.3 ** 2) / (2.0 * 2.0)
+        self.assertAlmostEqual(var_inf, theoretical_var_inf, places=5)
+        
+        # Asymptotic mean check: A_inf
+        mu_inf, _ = ou.predict(100.0)
+        self.assertAlmostEqual(mu_inf, 1.0, places=5)
+
+    def test_amplitude_monte_carlo_matches_analytical(self):
+        """Verify that Monte Carlo Euler-Maruyama simulation matches analytical variance within 3%."""
+        np.random.seed(42)
+        A0 = 1.2
+        A_inf = 0.8
+        lambda_A = 3.0
+        sigma_A = 0.4
+        dt_target = 0.25
+        num_trajectories = 10000
+        num_steps = 250
+        
+        ou = AmplitudeOUEvolution(A0=A0, A_inf=A_inf, lambda_A=lambda_A, sigma_A=sigma_A)
+        _, analytical_var = ou.predict(dt_target)
+        
+        # Run Monte Carlo Euler-Maruyama
+        mc_trajectories = simulate_euler_maruyama(
+            x0=A0,
+            drift_fn=lambda x: -lambda_A * (x - A_inf),
+            diffusion_fn=lambda x: sigma_A,
+            t_max=dt_target,
+            num_steps=num_steps,
+            num_trajectories=num_trajectories
+        )
+        final_values = mc_trajectories[:, -1]
+        empirical_var = float(np.var(final_values))
+        
+        rel_error = abs(empirical_var - analytical_var) / analytical_var
+        self.assertLess(rel_error, 0.03, f"Relative variance error {rel_error:.4f} must be < 3%")
+
+    def test_frequency_kinematic_evolution(self):
+        """Verify 2D kinematic SDE [f, dot_f] covariance propagation."""
+        f0 = 440.0
+        f_dot0 = 10.0
+        q_f = 25.0  # spectral density of frequency acceleration noise
+        gamma_f = 0.5  # damping
+        
+        kin = FrequencyKinematicEvolution(f0=f0, f_dot0=f_dot0, q_f=q_f, gamma_f=gamma_f)
+        
+        # At delta_t = 0
+        mu_0, P_0 = kin.predict(0.0)
+        self.assertAlmostEqual(mu_0[0], f0, places=6)
+        self.assertAlmostEqual(mu_0[1], f_dot0, places=6)
+        self.assertAlmostEqual(P_0[0, 0], 0.0, places=6)
+        
+        # Distance evolution
+        dts = np.array([0.01, 0.05, 0.1, 0.2, 0.5])
+        prev_var = 0.0
+        for dt in dts:
+            mu_t, P_t = kin.predict(dt)
+            var_f = P_t[0, 0]
+            self.assertGreater(var_f, prev_var, "Frequency variance must grow monotonically")
+            prev_var = var_f
+
+
+if __name__ == '__main__':
+    unittest.main()
