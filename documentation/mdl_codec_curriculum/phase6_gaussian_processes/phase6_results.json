@@ -1,0 +1,327 @@
+{
+  "phase": 6,
+  "title": "Phase 6: Evolution and Uncertainty (E42-E45)",
+  "E42_gp_anchor_evolution": {
+    "amplitude_ou": [
+      {
+        "delta_t": 0.01,
+        "analytical_mu": 1.4876549560141663,
+        "analytical_var": 0.0011948790997325066,
+        "analytical_std": 0.034567023298694766,
+        "empirical_var": 0.0011875154410388986,
+        "relative_error": 0.006162680973544865
+      },
+      {
+        "delta_t": 0.05,
+        "analytical_mu": 1.4412484512922976,
+        "analytical_var": 0.00541938081475058,
+        "analytical_std": 0.07361644391540914,
+        "empirical_var": 0.005393769308983251,
+        "relative_error": 0.0047259099596063045
+      },
+      {
+        "delta_t": 0.1,
+        "analytical_mu": 1.3894003915357025,
+        "analytical_var": 0.00963999883704048,
+        "analytical_std": 0.09818349574669095,
+        "empirical_var": 0.009906822426988943,
+        "relative_error": 0.0276787989769487
+      },
+      {
+        "delta_t": 0.25,
+        "analytical_mu": 1.2676307142594951,
+        "analytical_var": 0.01748063247692534,
+        "analytical_std": 0.13221434293194267,
+        "empirical_var": 0.01710019555671338,
+        "relative_error": 0.021763338409759584
+      },
+      {
+        "delta_t": 0.5,
+        "analytical_mu": 1.143252398430095,
+        "analytical_var": 0.022488917533714476,
+        "analytical_std": 0.14996305389566617,
+        "empirical_var": 0.02268986667243903,
+        "relative_error": 0.00893547403619139
+      },
+      {
+        "delta_t": 1.0,
+        "analytical_mu": 1.0410424993119494,
+        "analytical_var": 0.024334920298522404,
+        "analytical_std": 0.15599653937995678,
+        "empirical_var": 0.024412684642868946,
+        "relative_error": 0.003195586564187911
+      }
+    ],
+    "frequency_kinematic": [
+      {
+        "delta_t": 0.01,
+        "f_mean": 440.0499500333167,
+        "f_dot_mean": 4.990009993336665,
+        "var_f": 6.656676039377972e-06,
+        "std_f": 0.002580053495448878,
+        "cov_f_fdot": 0.0009980023313316266,
+        "var_fdot": 0.19960053280042578
+      },
+      {
+        "delta_t": 0.05,
+        "f_mean": 440.2487541562708,
+        "f_dot_mean": 4.950249168745841,
+        "var_f": 0.0008271123964689873,
+        "std_f": 0.028759561826790535,
+        "cov_f_fdot": 0.02475145210475982,
+        "var_fdot": 0.9900663346622374
+      },
+      {
+        "delta_t": 0.1,
+        "f_mean": 440.49503316733114,
+        "f_dot_mean": 4.900993366533776,
+        "var_f": 0.0065675933722947315,
+        "std_f": 0.08104068960895343,
+        "cov_f_fdot": 0.09802313470316792,
+        "var_fdot": 1.9605280423838412
+      },
+      {
+        "delta_t": 0.25,
+        "f_mean": 441.21926438748216,
+        "f_dot_mean": 4.75614712250357,
+        "var_f": 0.10034995862068238,
+        "std_f": 0.31678061591688716,
+        "cov_f_fdot": 0.5946422586328715,
+        "var_fdot": 4.758129098202025
+      },
+      {
+        "delta_t": 0.5,
+        "f_mean": 442.37906454910103,
+        "f_dot_mean": 4.524187090179797,
+        "var_f": 0.7736488323203115,
+        "std_f": 0.879573096632856,
+        "cov_f_fdot": 2.2639792515156962,
+        "var_fdot": 9.06346234610091
+      },
+      {
+        "delta_t": 1.0,
+        "f_mean": 444.53173117305045,
+        "f_dot_mean": 4.093653765389909,
+        "var_f": 5.753707845359944,
+        "std_f": 2.3986887762608853,
+        "cov_f_fdot": 8.214634969918922,
+        "var_fdot": 16.483997698218033
+      }
+    ]
+  },
+  "E43_phase_uncertainty": {
+    "scaling_table": [
+      {
+        "delta_t": 0.005,
+        "phase_mean_rad": 13.823007675795091,
+        "phase_variance_rad2": 2.0150442318890775e-05,
+        "phase_std_rad": 0.004488924405566525,
+        "phase_std_deg": 0.2571964229922337,
+        "coherence_attenuation": 0.9999899248295955
+      },
+      {
+        "delta_t": 0.01,
+        "phase_mean_rad": 27.646015351590183,
+        "phase_variance_rad2": 0.0001612035385511262,
+        "phase_std_rad": 0.012696595549639525,
+        "phase_std_deg": 0.7274613391789285,
+        "coherence_attenuation": 0.9999194014789597
+      },
+      {
+        "delta_t": 0.02,
+        "phase_mean_rad": 55.292030703180366,
+        "phase_variance_rad2": 0.0012896283084090096,
+        "phase_std_rad": 0.0359113952445322,
+        "phase_std_deg": 2.0575713839378698,
+        "coherence_attenuation": 0.9993553936937654
+      },
+      {
+        "delta_t": 0.05,
+        "phase_mean_rad": 138.2300767579509,
+        "phase_variance_rad2": 0.020150442318890776,
+        "phase_std_rad": 0.14195225365907643,
+        "phase_std_deg": 8.133265027035577,
+        "coherence_attenuation": 0.9899753638536558
+      },
+      {
+        "delta_t": 0.1,
+        "phase_mean_rad": 276.4601535159018,
+        "phase_variance_rad2": 0.1612035385511262,
+        "phase_std_rad": 0.40150160466818335,
+        "phase_std_deg": 23.004347415216976,
+        "coherence_attenuation": 0.9225610104404237
+      },
+      {
+        "delta_t": 0.2,
+        "phase_mean_rad": 552.9203070318036,
+        "phase_variance_rad2": 1.2896283084090097,
+        "phase_std_rad": 1.1356180292726115,
+        "phase_std_deg": 65.06612021628462,
+        "coherence_attenuation": 0.524760057495229
+      }
+    ],
+    "power_law_exponent": 3.0000000000000004,
+    "mc_verification": {
+      "delta_t": 0.05,
+      "analytical_var": 0.020150442318890776,
+      "empirical_var": 0.019979137209135696,
+      "relative_error": 0.008501307665811574
+    },
+    "decoherence_horizons": {
+      "tau_1_radian_s": 0.18374201571695428,
+      "tau_1_radian_ms": 183.74201571695428,
+      "tau_pi_s": 0.394132025197303,
+      "tau_pi_ms": 394.132025197303
+    }
+  },
+  "E44_probabilistic_calibration": {
+    "amplitude_ou_calibration": {
+      "total_samples": 10000,
+      "z_mean": -0.016255677993086744,
+      "z_std": 0.9929068916916072,
+      "coverage_50_percent": 0.5028,
+      "coverage_68_sigma": 0.6887,
+      "coverage_90_percent": 0.9016,
+      "coverage_1_96_sigma": 0.9514,
+      "coverage_99_percent": 0.99,
+      "pit_ks_statistic": 0.009608697959129109,
+      "pit_ks_pvalue": 0.31234219257150775,
+      "diagnosis": "WELL_CALIBRATED",
+      "is_calibrated": true
+    },
+    "phase_stochastic_calibration": {
+      "total_samples": 10000,
+      "z_mean": -0.003650730570487016,
+      "z_std": 0.9915772785140982,
+      "coverage_50_percent": 0.4983,
+      "coverage_68_sigma": 0.685,
+      "coverage_90_percent": 0.9027,
+      "coverage_1_96_sigma": 0.953,
+      "coverage_99_percent": 0.9905,
+      "pit_ks_statistic": 0.004627700005029878,
+      "pit_ks_pvalue": 0.9822955024713,
+      "diagnosis": "WELL_CALIBRATED",
+      "is_calibrated": true
+    },
+    "control_experiments": {
+      "overconfident": {
+        "total_samples": 5000,
+        "z_mean": 0.010097400380623182,
+        "z_std": 1.6330107760783206,
+        "coverage_50_percent": 0.311,
+        "coverage_68_sigma": 0.4514,
+        "coverage_90_percent": 0.6854,
+        "coverage_1_96_sigma": 0.7748,
+        "coverage_99_percent": 0.8844,
+        "pit_ks_statistic": 0.1245614481365489,
+        "pit_ks_pvalue": 4.470332947505481e-68,
+        "diagnosis": "OVERCONFIDENT",
+        "is_calibrated": false
+      },
+      "underconfident": {
+        "total_samples": 5000,
+        "z_mean": 0.003563788369631714,
+        "z_std": 0.5763567444982308,
+        "coverage_50_percent": 0.7628,
+        "coverage_68_sigma": 0.913,
+        "coverage_90_percent": 0.9966,
+        "coverage_1_96_sigma": 0.9994,
+        "coverage_99_percent": 1.0,
+        "pit_ks_statistic": 0.13466567550411412,
+        "pit_ks_pvalue": 1.5354039523328763e-79,
+        "diagnosis": "UNDERCONFIDENT",
+        "is_calibrated": false
+      }
+    }
+  },
+  "E45_gp_vs_jet_benchmark": {
+    "horizon_table": [
+      {
+        "delta_t_ms": 10.0,
+        "ground_truth_hz": 449.20311381711696,
+        "err_j0_hz": 9.203113817116957,
+        "err_j1_hz": 0.2216641436524469,
+        "err_j2_hz": 0.2216641436524469,
+        "err_gp_hz": 0.35847848076991795,
+        "gp_predicted_std_hz": 0.08288240688861268
+      },
+      {
+        "delta_t_ms": 20.0,
+        "ground_truth_hz": 457.1136776482172,
+        "err_j0_hz": 17.11367764821722,
+        "err_j1_hz": 1.735878273321532,
+        "err_j2_hz": 1.735878273321532,
+        "err_gp_hz": 1.2982299437937286,
+        "gp_predicted_std_hz": 0.2182676628397627
+      },
+      {
+        "delta_t_ms": 50.0,
+        "ground_truth_hz": 463.7764129073788,
+        "err_j0_hz": 23.776412907378813,
+        "err_j1_hz": 23.347476896468095,
+        "err_j2_hz": 23.347476896468095,
+        "err_gp_hz": 4.132849253107793,
+        "gp_predicted_std_hz": 0.593989730327116
+      },
+      {
+        "delta_t_ms": 100.0,
+        "ground_truth_hz": 425.30536869268815,
+        "err_j0_hz": 14.694631307311852,
+        "err_j1_hz": 108.94241091500567,
+        "err_j2_hz": 108.94241091500567,
+        "err_gp_hz": 5.080979501624142,
+        "gp_predicted_std_hz": 0.7050679484079115
+      },
+      {
+        "delta_t_ms": 150.0,
+        "ground_truth_hz": 425.30536869268815,
+        "err_j0_hz": 14.694631307311852,
+        "err_j1_hz": 156.06630071885252,
+        "err_j2_hz": 156.06630071885252,
+        "err_gp_hz": 6.232122912467901,
+        "gp_predicted_std_hz": 0.8483515409319888
+      },
+      {
+        "delta_t_ms": 200.0,
+        "ground_truth_hz": 463.7764129073788,
+        "err_j0_hz": 23.776412907378813,
+        "err_j1_hz": 164.71914630800882,
+        "err_j2_hz": 164.71914630800882,
+        "err_gp_hz": 13.190598250381015,
+        "gp_predicted_std_hz": 0.8784932438101826
+      },
+      {
+        "delta_t_ms": 250.0,
+        "ground_truth_hz": 440.0,
+        "err_j0_hz": 0.0,
+        "err_j1_hz": 235.61944901923448,
+        "err_j2_hz": 235.61944901923448,
+        "err_gp_hz": 0.49184187830292103,
+        "gp_predicted_std_hz": 0.9257775654480795
+      },
+      {
+        "delta_t_ms": 300.0,
+        "ground_truth_hz": 416.22358709262113,
+        "err_j0_hz": 23.77641290737887,
+        "err_j1_hz": 306.5197517304602,
+        "err_j2_hz": 306.5197517304602,
+        "err_gp_hz": 16.43981942658553,
+        "gp_predicted_std_hz": 0.94993744514333
+      }
+    ],
+    "mdl_costs_bits": {
+      "J0_constant": 825.1995755863773,
+      "J1_linear": 49161.99598884161,
+      "J2_parabolic": 49161.99598884161,
+      "GP_stochastic": 4375.150592248806,
+      "gp_savings_vs_j1_percent": 91.10054320568709
+    },
+    "valid_prediction_horizons_ms": {
+      "tolerance_hz": 15.0,
+      "tau_J0_ms": 18.000000000000004,
+      "tau_J1_ms": 43.0,
+      "tau_J2_ms": 43.0,
+      "tau_GP_ms": 279.0
+    }
+  }
+}
