@@ -19,7 +19,7 @@
   - Documentation: Derivations and API specifications in `phase_uncertainty.py` and `PHASE6_GAUSSIAN_PROCESSES_REPORT.md`.
 
 ## Phase 3: Probabilistic Calibration Validation (E44)
-- [ ] Task 3.1: Implement Statistical Calibration & PIT Verification (`probabilistic_calibration.py`)
+- [x] Task 3.1: Implement Statistical Calibration & PIT Verification (`probabilistic_calibration.py`) [25ab373]
   - Implement empirical coverage and calibration analysis over Monte Carlo ensembles ($N \ge 1,000$ ground-truth trajectories):
     1. Standardized innovation computation $Z(t) = (x_{\text{gt}}(t) - \mu(t)) / \sigma(t)$.
     2. Mandatory Pass-to-Complete Gate: verify that empirical coverage for $\pm 1.96\sigma$ is strictly within $95.0\% \pm 1.5\%$ ($[93.5\%, 96.5\%]$).
