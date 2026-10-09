@@ -10,7 +10,7 @@
   - Documentation: Docstrings and mathematical derivations in `gp_anchor_evolution.py` and section in `PHASE6_GAUSSIAN_PROCESSES_REPORT.md`.
 
 ## Phase 2: Phase Uncertainty & Cubic Variance Explosion (E43)
-- [ ] Task 2.1: Implement Stochastic Phase Integration & Decoherence (`phase_uncertainty.py`)
+- [x] Task 2.1: Implement Stochastic Phase Integration & Decoherence (`phase_uncertainty.py`) [0208f8e]
   - Implement continuous stochastic integration of frequency variation into instantaneous phase $\phi(t) = \phi_0 + 2\pi \int f(\tau) d\tau$:
     1. Analytical proof and numerical verification of cubic variance explosion: $\text{Var}(\phi(\Delta t)) = \frac{4\pi^2 \sigma_w^2}{3} \Delta t^3$ (standard deviation scaling $\propto \Delta t^{1.5}$).
     2. Log-log linear regression verifying power-law exponent $p = 3.0 \pm 0.1$.
