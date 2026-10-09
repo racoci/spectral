@@ -22,6 +22,9 @@ from gp_anchor_evolution import (
 from phase_uncertainty import (
     PhaseStochasticIntegrator
 )
+from probabilistic_calibration import (
+    CalibrationEvaluator
+)
 
 
 class TestGPAnchorEvolution(unittest.TestCase):
@@ -176,6 +179,103 @@ class TestPhaseUncertainty(unittest.TestCase):
         # Verify coherent cosine expectation attenuation: e^(-0.5 * 1^2) = e^(-0.5) ~ 0.6065
         coh_factor = integrator.compute_coherence_factor(tau_decoh)
         self.assertAlmostEqual(coh_factor, np.exp(-0.5), places=5)
+
+
+class TestProbabilisticCalibration(unittest.TestCase):
+    """Test suite for E44: Probabilistic Calibration Validation."""
+
+    def test_calibrated_model_coverage_95_percent(self):
+        """Mandatory Gate: 95% of ground-truth test samples must fall within +/- 1.96 sigma envelope."""
+        np.random.seed(42)
+        evaluator = CalibrationEvaluator()
+        
+        # Simulate calibrated SDE ensemble (N = 10,000 samples)
+        mu_true = 440.0
+        sigma_true = 5.0
+        gt_samples = np.random.normal(mu_true, sigma_true, size=10000)
+        
+        # Evaluate against the model predicting mu=440, sigma=5
+        metrics = evaluator.evaluate_calibration(
+            ground_truth=gt_samples,
+            predicted_mean=np.full_like(gt_samples, mu_true),
+            predicted_std=np.full_like(gt_samples, sigma_true)
+        )
+        
+        cov_95 = metrics['coverage_1_96_sigma']
+        self.assertAlmostEqual(cov_95, 0.950, delta=0.015, msg="Coverage for +/- 1.96 sigma must be 95% +/- 1.5%")
+        
+        # Also check Z-score standard normality
+        self.assertAlmostEqual(metrics['z_mean'], 0.0, delta=0.05)
+        self.assertAlmostEqual(metrics['z_std'], 1.0, delta=0.05)
+        
+        # PIT uniformity test p-value should not reject uniformity (p > 0.05)
+        self.assertGreater(metrics['pit_ks_pvalue'], 0.05)
+
+    def test_multistep_sde_trajectory_calibration(self):
+        """Verify calibration holds across multi-step SDE trajectory propagation."""
+        np.random.seed(42)
+        A0 = 1.0
+        A_inf = 1.2
+        lambda_A = 2.0
+        sigma_A = 0.3
+        
+        ou = AmplitudeOUEvolution(A0=A0, A_inf=A_inf, lambda_A=lambda_A, sigma_A=sigma_A)
+        evaluator = CalibrationEvaluator()
+        
+        # Generate 5,000 Monte Carlo trajectories over 50 time steps
+        t_max = 0.5
+        num_steps = 50
+        num_trajs = 5000
+        trajs = simulate_euler_maruyama(
+            x0=A0,
+            drift_fn=lambda x: -lambda_A * (x - A_inf),
+            diffusion_fn=lambda x: sigma_A,
+            t_max=t_max,
+            num_steps=num_steps,
+            num_trajectories=num_trajs
+        )
+        
+        dts = np.linspace(0.0, t_max, num_steps + 1)
+        # Check calibration at midpoint (t = 0.25s) and endpoint (t = 0.50s)
+        for step_idx in [25, 50]:
+            dt = dts[step_idx]
+            mu_pred, var_pred = ou.predict(dt)
+            std_pred = np.sqrt(var_pred)
+            gt_at_t = trajs[:, step_idx]
+            
+            metrics = evaluator.evaluate_calibration(
+                ground_truth=gt_at_t,
+                predicted_mean=np.full_like(gt_at_t, mu_pred),
+                predicted_std=np.full_like(gt_at_t, std_pred)
+            )
+            self.assertAlmostEqual(
+                metrics['coverage_1_96_sigma'], 0.950, delta=0.015,
+                msg=f"Trajectory at t={dt:.2f}s must have 95% +/- 1.5% coverage"
+            )
+
+    def test_overconfident_and_underconfident_detection(self):
+        """Verify that evaluator correctly flags overconfident and underconfident predictors."""
+        evaluator = CalibrationEvaluator()
+        np.random.seed(42)
+        gt = np.random.normal(0.0, 1.0, size=5000)
+        
+        # Overconfident model predicts sigma = 0.5 (too small)
+        over_metrics = evaluator.evaluate_calibration(
+            ground_truth=gt,
+            predicted_mean=np.zeros_like(gt),
+            predicted_std=np.full_like(gt, 0.5)
+        )
+        self.assertLess(over_metrics['coverage_1_96_sigma'], 0.90, "Overconfident model coverage must drop below 90%")
+        self.assertEqual(over_metrics['diagnosis'], 'OVERCONFIDENT')
+        
+        # Underconfident model predicts sigma = 2.0 (too large)
+        under_metrics = evaluator.evaluate_calibration(
+            ground_truth=gt,
+            predicted_mean=np.zeros_like(gt),
+            predicted_std=np.full_like(gt, 2.0)
+        )
+        self.assertGreater(under_metrics['coverage_1_96_sigma'], 0.98, "Underconfident model coverage must exceed 98%")
+        self.assertEqual(under_metrics['diagnosis'], 'UNDERCONFIDENT')
 
 
 if __name__ == '__main__':
