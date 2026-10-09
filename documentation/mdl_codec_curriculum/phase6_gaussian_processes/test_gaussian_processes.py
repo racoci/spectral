@@ -19,6 +19,9 @@ from gp_anchor_evolution import (
     FrequencyKinematicEvolution,
     simulate_euler_maruyama
 )
+from phase_uncertainty import (
+    PhaseStochasticIntegrator
+)
 
 
 class TestGPAnchorEvolution(unittest.TestCase):
@@ -99,6 +102,80 @@ class TestGPAnchorEvolution(unittest.TestCase):
             var_f = P_t[0, 0]
             self.assertGreater(var_f, prev_var, "Frequency variance must grow monotonically")
             prev_var = var_f
+
+
+class TestPhaseUncertainty(unittest.TestCase):
+    """Test suite for E43: Phase uncertainty and cubic variance explosion."""
+
+    def test_analytical_cubic_variance(self):
+        """Verify analytical cubic variance formula Var(phi) = 4*pi^2 * sigma_w^2 * dt^3 / 3."""
+        phi0 = 0.5
+        f0 = 440.0
+        sigma_w = 4.0  # Hz / s^0.5
+        integrator = PhaseStochasticIntegrator(phi0=phi0, f0=f0, sigma_w=sigma_w)
+        
+        # At dt = 0
+        mu_0, var_0 = integrator.predict_phase_distribution(0.0)
+        self.assertAlmostEqual(mu_0, phi0, places=6)
+        self.assertAlmostEqual(var_0, 0.0, places=6)
+        
+        # At dt = 0.1
+        dt = 0.1
+        expected_var = (4.0 * np.pi**2 * sigma_w**2 / 3.0) * (dt ** 3)
+        mu_dt, var_dt = integrator.predict_phase_distribution(dt)
+        self.assertAlmostEqual(var_dt, expected_var, places=6)
+
+    def test_cubic_power_law_exponent(self):
+        """Verify that log-log regression of phase variance against dt yields exponent p = 3.0 +/- 0.05."""
+        integrator = PhaseStochasticIntegrator(phi0=0.0, f0=440.0, sigma_w=2.5)
+        dts = np.logspace(-2, 0, 30)  # 0.01 to 1.0 s
+        vars_ = [integrator.predict_phase_distribution(dt)[1] for dt in dts]
+        
+        log_dts = np.log(dts)
+        log_vars = np.log(vars_)
+        
+        # Linear fit: log(var) = p * log(dt) + const
+        poly = np.polyfit(log_dts, log_vars, 1)
+        power_exponent = poly[0]
+        self.assertAlmostEqual(power_exponent, 3.0, delta=0.02, msg="Phase variance scaling exponent must be 3.0")
+
+    def test_monte_carlo_phase_variance(self):
+        """Verify that Monte Carlo integration of frequency Brownian motion matches analytical within 4%."""
+        np.random.seed(42)
+        phi0 = 0.0
+        f0 = 220.0
+        sigma_w = 5.0
+        dt = 0.15
+        
+        integrator = PhaseStochasticIntegrator(phi0=phi0, f0=f0, sigma_w=sigma_w)
+        _, analytical_var = integrator.predict_phase_distribution(dt)
+        
+        # Run Monte Carlo
+        mc_phases = integrator.simulate_phase_trajectories(
+            t_max=dt,
+            num_steps=300,
+            num_trajectories=8000
+        )
+        final_phases = mc_phases[:, -1]
+        empirical_var = float(np.var(final_phases))
+        
+        rel_err = abs(empirical_var - analytical_var) / analytical_var
+        self.assertLess(rel_err, 0.04, f"Empirical variance error {rel_err:.4f} must be < 4%")
+
+    def test_decoherence_horizon(self):
+        """Verify calculation of decoherence horizon where phase standard deviation reaches 1.0 rad."""
+        sigma_w = 3.0
+        integrator = PhaseStochasticIntegrator(phi0=0.0, f0=440.0, sigma_w=sigma_w)
+        
+        tau_decoh = integrator.compute_decoherence_horizon(threshold_rad=1.0)
+        _, var_at_tau = integrator.predict_phase_distribution(tau_decoh)
+        std_at_tau = np.sqrt(var_at_tau)
+        
+        self.assertAlmostEqual(std_at_tau, 1.0, places=5)
+        
+        # Verify coherent cosine expectation attenuation: e^(-0.5 * 1^2) = e^(-0.5) ~ 0.6065
+        coh_factor = integrator.compute_coherence_factor(tau_decoh)
+        self.assertAlmostEqual(coh_factor, np.exp(-0.5), places=5)
 
 
 if __name__ == '__main__':
