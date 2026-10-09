@@ -1,7 +1,7 @@
 # Implementation Plan - Phase 6: Evolution and Uncertainty (E42-E45)
 
 ## Phase 1: GP Distance from Anchor (E42)
-- [ ] Task 1.1: Design and Implement SDE/GP Anchor State Evolution (`gp_anchor_evolution.py`)
+- [x] Task 1.1: Design and Implement SDE/GP Anchor State Evolution (`gp_anchor_evolution.py`) [f16987f]
   - Implement continuous-time Gauss-Markov SDE state-space model for amplitude $A(t)$ and frequency $f(t)$:
     1. Amplitude Ornstein-Uhlenbeck (OU) mean reversion and variance propagation $\sigma_A^2(\Delta t) = \frac{\sigma_A^2}{2\lambda_A}(1 - e^{-2\lambda_A \Delta t})$.
     2. Kinematic integrated Wiener velocity model for frequency $[f(t), \dot{f}(t)]^T$ with discrete state transition matrix $\mathbf{\Phi}(\Delta t)$ and process noise covariance $\mathbf{Q}_d(\Delta t)$.
