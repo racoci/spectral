@@ -29,7 +29,7 @@
   - Documentation: Calibration tables and statistical validation details in `probabilistic_calibration.py` and `PHASE6_GAUSSIAN_PROCESSES_REPORT.md`.
 
 ## Phase 4: GP versus High-Order Jet Horizon Comparison (E45)
-- [ ] Task 4.1: Implement Taylor Jets vs GP Predictive Horizon Benchmark (`gp_vs_jet_benchmark.py`)
+- [x] Task 4.1: Implement Taylor Jets vs GP Predictive Horizon Benchmark (`gp_vs_jet_benchmark.py`) [07c8cad]
   - Implement Taylor jet extrapolators ($J_0$ constant, $J_1$ linear, $J_2$ parabolic) and SDE/GP Kalman predictor:
     1. Evaluate on frequency vibrato and transient acoustic trajectories.
     2. Demonstrate that Taylor polynomial error diverges as $O(\Delta t^{k+1})$ outside local convergence radius, with $J_2$ catastrophically blowing up.
