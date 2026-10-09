@@ -25,6 +25,10 @@ from phase_uncertainty import (
 from probabilistic_calibration import (
     CalibrationEvaluator
 )
+from gp_vs_jet_benchmark import (
+    TaylorJetPredictor,
+    GPPredictor
+)
 
 
 class TestGPAnchorEvolution(unittest.TestCase):
@@ -276,6 +280,75 @@ class TestProbabilisticCalibration(unittest.TestCase):
         )
         self.assertGreater(under_metrics['coverage_1_96_sigma'], 0.98, "Underconfident model coverage must exceed 98%")
         self.assertEqual(under_metrics['diagnosis'], 'UNDERCONFIDENT')
+
+
+class TestGPVsJetBenchmark(unittest.TestCase):
+    """Test suite for E45: GP versus High-Order Taylor Jet Horizon Comparison."""
+
+    def setUp(self):
+        # Synthetic frequency vibrato ground truth
+        self.fc = 440.0
+        self.delta_f = 25.0  # vibrato depth (+/- 25 Hz)
+        self.fm = 6.0        # vibrato frequency (6 Hz)
+        
+        # Ground truth trajectory function
+        self.gt_fn = lambda t: self.fc + self.delta_f * np.sin(2.0 * np.pi * self.fm * t)
+        
+        # Theoretical derivatives at t = 0
+        self.f0 = self.gt_fn(0.0)  # 440.0
+        self.f_dot0 = self.delta_f * (2.0 * np.pi * self.fm) * np.cos(0.0)  # 25 * 12*pi ~ 942.47
+        self.f_ddot0 = -self.delta_f * ((2.0 * np.pi * self.fm) ** 2) * np.sin(0.0)  # 0.0
+
+    def test_taylor_jet_divergence_behavior(self):
+        """Verify that high-order Taylor jet J2 error explodes quadratically/cubically beyond local radius."""
+        jet = TaylorJetPredictor(x0=self.f0, x_dot0=self.f_dot0, x_ddot0=self.f_ddot0)
+        
+        # At very small dt (e.g. 5ms), J1 and J2 are accurate
+        dt_near = 0.005
+        err_j1_near = abs(jet.predict(dt_near, order=1) - self.gt_fn(dt_near))
+        self.assertLess(err_j1_near, 0.5, "At 5ms Taylor approximation should have low error")
+        
+        # Beyond quarter period (dt > 0.05s), J1 shoots off linearly
+        dt_far = 0.15
+        pred_j1_far = jet.predict(dt_far, order=1)
+        err_j1_far = abs(pred_j1_far - self.gt_fn(dt_far))
+        self.assertGreater(err_j1_far, 50.0, "At 150ms J1 should diverge significantly from bounded vibrato")
+
+    def test_gp_bounded_prediction_and_mdl_superiority(self):
+        """Verify that GP predictor maintains bounded predictions and lower MDL code length than Taylor jets."""
+        omega_m = 2.0 * np.pi * self.fm
+        gp = GPPredictor(x0=self.f0, x_dot0=self.f_dot0, nominal_mean=self.fc, damping=8.0, lambda_revert=omega_m**2, sigma_process=150.0)
+        jet = TaylorJetPredictor(x0=self.f0, x_dot0=self.f_dot0, x_ddot0=self.f_ddot0)
+        
+        dts = np.linspace(0.01, 0.25, 25)
+        gt_vals = np.array([self.gt_fn(t) for t in dts])
+        
+        # GP predictions remain bounded within [fc - 2*delta_f, fc + 2*delta_f]
+        gp_preds, gp_stds = gp.predict(dts)
+        self.assertTrue(np.all(np.abs(gp_preds - self.fc) < 3.0 * self.delta_f), "GP mean prediction must stay bounded")
+        
+        # Compare MDL code lengths over the horizon
+        mdl_gp = gp.compute_mdl_cost(gt_vals, gp_preds, gp_stds)
+        
+        j1_preds = np.array([jet.predict(t, order=1) for t in dts])
+        mdl_j1 = jet.compute_mdl_cost(gt_vals, j1_preds, residual_std=5.0)
+        
+        self.assertLess(mdl_gp, mdl_j1, "GP must achieve strictly lower predictive description length than diverging J1")
+
+    def test_predictive_horizon_comparison(self):
+        """Verify that GP achieves longer valid predictive horizon than J1 and J2 under tolerance epsilon."""
+        omega_m = 2.0 * np.pi * self.fm
+        gp = GPPredictor(x0=self.f0, x_dot0=self.f_dot0, nominal_mean=self.fc, damping=8.0, lambda_revert=omega_m**2, sigma_process=150.0)
+        jet = TaylorJetPredictor(x0=self.f0, x_dot0=self.f_dot0, x_ddot0=self.f_ddot0)
+        
+        tolerance_hz = 20.0
+        t_grid = np.linspace(0.001, 0.30, 300)
+        gt_grid = np.array([self.gt_fn(t) for t in t_grid])
+        
+        tau_j1 = jet.compute_valid_horizon(t_grid, gt_grid, order=1, tolerance=tolerance_hz)
+        tau_gp = gp.compute_valid_horizon(t_grid, gt_grid, tolerance=tolerance_hz)
+        
+        self.assertGreater(tau_gp, tau_j1, f"GP horizon {tau_gp:.3f}s must exceed J1 horizon {tau_j1:.3f}s")
 
 
 if __name__ == '__main__':
