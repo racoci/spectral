@@ -1,0 +1,28 @@
+{
+  "stage": "E37",
+  "decisions": [
+    {
+      "block": 0,
+      "method": "M4_HankelSSA",
+      "L_bits": 8256.0
+    },
+    {
+      "block": 1,
+      "method": "RAW_AUDIO",
+      "L_bits": 31220.371706173337
+    },
+    {
+      "block": 2,
+      "method": "RAW_AUDIO",
+      "L_bits": 9432.225197348074
+    },
+    {
+      "block": 3,
+      "method": "M3_MatrixPencil",
+      "L_bits": 29849.785551258963
+    }
+  ],
+  "L_raw_kb": 115.80830188461896,
+  "L_hybrid_kb": 76.91248286599645,
+  "compression_ratio": 0.6641361768919225
+}
