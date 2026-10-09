@@ -39,7 +39,7 @@
   - Documentation: Performance analysis and comparative metrics in `gp_vs_jet_benchmark.py` and `PHASE6_GAUSSIAN_PROCESSES_REPORT.md`.
 
 ## Phase 5: Integration, Benchmarking & Curriculum Validation
-- [ ] Task 5.1: End-to-End Curriculum Benchmark Runner (`run_phase6.py`)
+- [x] Task 5.1: End-to-End Curriculum Benchmark Runner (`run_phase6.py`) [2332721]
   - Orchestrate automated execution across all E42-E45 benchmarks.
   - Export structured metrics to `phase6_results.json`.
   - Automated Testing: `python3 documentation/mdl_codec_curriculum/phase6_gaussian_processes/run_phase6.py`
