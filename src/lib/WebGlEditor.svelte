@@ -3,10 +3,16 @@
   import { 
     wasm_analyze_higher_order_point, 
     type WasmHigherOrderPointResult,
+    wasm_probe_holomorphic_analytic_point,
     wasm_render_from_cached_quadruplets,
     wasm_has_cached_quadruplets,
     wasm_synthesize_hybrid_spectrogram_to_wav,
-    wasm_get_spectrogram_dimensions
+    wasm_get_spectrogram_dimensions,
+    wasm_ddsp_synthesize_wav,
+    wasm_ddsp_synthesize_pcm,
+    wasm_ddsp_analyze_audio,
+    wasm_ddsp_get_preset,
+    wasm_ddsp_list_presets
   } from '../wasm/core_wasm.js';
 
   // Svelte 5 strict typing: Receive all reactive props from App.svelte
@@ -23,6 +29,9 @@
     fmin = $bindable(20),
     fmax = $bindable(20000),
     algorithmType = $bindable('reassignment'),
+    holomorphicFieldMode = $bindable<'log_amplitude' | 'phase' | 'phase_frequency' | 'envelope_growth' | 'cr_residual' | 'harmonicity_residual'>('log_amplitude'),
+    showContours = $bindable(true),
+    showRidgeCandidates = $bindable(true),
     higherOrderO = $bindable(2),
     higherOrderVisualMode = $bindable<'ridge' | 'anisotropy' | 'curvature' | 'vector_reassign'>('ridge'),
     paletteType = $bindable('ycbcr'),
@@ -61,7 +70,8 @@
     isPlaying,
     onPlayToggle,
     onAudioUploaded,
-    onBackToConverter 
+    onBackToConverter,
+    onTransportToSynth = () => {} 
   }: { 
     rgbaGrid: Uint8Array | null, 
     originalBytes?: Uint8Array | null,
@@ -75,6 +85,9 @@
     fmin: number,
     fmax: number,
     algorithmType: 'reassignment' | 'log' | 'cqt' | 'holomorphic' | 'higher_order' | 'sliding_jet',
+    holomorphicFieldMode?: 'log_amplitude' | 'phase' | 'phase_frequency' | 'envelope_growth' | 'cr_residual' | 'harmonicity_residual',
+    showContours?: boolean,
+    showRidgeCandidates?: boolean,
     higherOrderO?: number,
     higherOrderVisualMode?: 'ridge' | 'anisotropy' | 'curvature' | 'vector_reassign',
     paletteType: 'ycbcr' | 'snake',
@@ -103,7 +116,8 @@
     isPlaying: boolean,
     onPlayToggle: (mode?: 'original' | 'resynthesized') => void,
     onAudioUploaded: (bytes: Uint8Array) => void,
-    onBackToConverter: () => void
+    onBackToConverter: () => void,
+    onTransportToSynth?: (config: any) => void
   } = $props();
 
   let canvas: HTMLCanvasElement;
@@ -121,6 +135,42 @@
   let selectedTool = $state<'select' | 'region_select' | 'gaussian_brush' | 'low_pass' | 'high_pass' | 'differential_probe' | 'tree_nn_ridges'>('region_select');
   let probeResult = $state<WasmHigherOrderPointResult | null>(null);
   let probePoint = $state<{ x: number, y: number, time_s: number, freq_hz: number } | null>(null);
+
+  // ----------------------------------------------------
+  // Cursor Analítico Holomorfo E(t, y) = a(t, y) + i φ(t, y)
+  // ----------------------------------------------------
+  export interface HolomorphicPointProbe {
+    t_sec: number;
+    f_hz: number;
+    E_re: number;
+    E_im: number;
+    magnitude: number;
+    log_amplitude: number;
+    log_amplitude_db: number;
+    phase_rad: number;
+    phase_deg: number;
+    phi_t: number;
+    f_phi_hz: number;
+    f_a_hz: number;
+    cr_residual_hz: number;
+    a_t: number;
+    a_y: number;
+    phi_y: number;
+    a_tt: number;
+    phi_tt: number;
+    f_dot_hz_per_sec: number;
+    eta: number;
+    eta_prime: number;
+    laplacian_residual: number;
+    is_ridge_candidate: boolean;
+    ridge_velocity: number;
+  }
+
+  let holomorphicProbe = $state<HolomorphicPointProbe | null>(null);
+  let holomorphicCursorPoint = $state<{ x: number, y: number, time_s: number, freq_hz: number } | null>(null);
+  let pinnedHolomorphicProbe = $state<HolomorphicPointProbe | null>(null);
+  let isInspectorMinimized = $state(false);
+  let holoProbeThrottleTimer: any = null;
 
   // ----------------------------------------------------
   // Estrutura de Cristas Vetoriais da TreeNN (Fase 2)
@@ -324,6 +374,253 @@
     }, 350);
   }
 
+  // ----------------------------------------------------
+  // DDSP & TreeNN Studio State (E00-E18 Curriculum)
+  // ----------------------------------------------------
+  let ddspActiveTab = $state<'tree' | 'harmonics' | 'adsr' | 'spectral' | 'modulation' | 'noise_effects'>('tree');
+  let isDdspSynthesizing = $state(false);
+  let ddspAudioPlayer = $state<HTMLAudioElement | null>(null);
+  let isDdspPlaying = $state(false);
+  let ddspStatusMessage = $state<string | null>(null);
+  let selectedDdspPreset = $state('vocal_formant');
+
+  let ddspConfig = $state({
+    f0: 220.0,
+    duration_s: 2.0,
+    sample_rate: 44100.0,
+    amplitude: 0.8,
+    adsr: {
+      attack_s: 0.03,
+      decay_s: 0.15,
+      sustain: 0.70,
+      release_s: 0.25,
+      curve: 'cubic_smooth' as 'linear' | 'exponential' | 'cubic_smooth',
+    },
+    harmonics: {
+      amplitudes: [1.0, 0.55, 0.30, 0.18, 0.10, 0.06, 0.03, 0.02, 0.015, 0.01, 0.008, 0.005],
+      phases: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      inharmonicity_b: 0.0,
+      roll_off_alpha: 1.1,
+    },
+    spectral_envelope: {
+      gauge_weights: [0.0, 0.0, 0.0, 0.0] as [number, number, number, number],
+      formants: [
+        { center_hz: 700.0, bandwidth_hz: 110.0, gain_db: 3.5 },
+        { center_hz: 1220.0, bandwidth_hz: 140.0, gain_db: 0.5 },
+        { center_hz: 2600.0, bandwidth_hz: 180.0, gain_db: -3.0 },
+      ],
+    },
+    lfo: {
+      enabled: true,
+      rate_hz: 5.5,
+      depth_cents: 25.0,
+      phase_rad: 0.0,
+      waveform: 'sine' as 'sine' | 'triangle' | 'saw' | 'square',
+    },
+    fm: {
+      enabled: false,
+      ratio: 1.414,
+      index: 0.6,
+      phase_rad: 0.0,
+    },
+    am: {
+      enabled: false,
+      rate_hz: 4.5,
+      depth: 0.35,
+      phase_rad: 0.0,
+    },
+    noise: {
+      enabled: false,
+      level_db: -36.0,
+      alpha: 1.0,
+      knee_hz: 1500.0,
+      mix: 0.05,
+    },
+    effects: {
+      filter_enabled: false,
+      filter_type: 'lowpass' as 'lowpass' | 'highpass' | 'bandpass' | 'notch',
+      filter_cutoff_hz: 3500.0,
+      filter_resonance_q: 1.0,
+      delay_enabled: false,
+      delay_time_ms: 150.0,
+      delay_feedback: 0.35,
+      delay_mix: 0.20,
+      reverb_enabled: false,
+      reverb_decay_s: 1.2,
+      reverb_mix: 0.15,
+    },
+    tree: {
+      enabled: true,
+      nodes: [
+        { id: 'node-root', label: 'Raiz Portadora (F0)', freq_hz: 220.0, amplitude: 1.0, phase_rad: 0.0, color: '#00f2fe' },
+        { id: 'node-mod1', label: 'Modulador 1 (Sub)', freq_hz: 110.0, amplitude: 0.5, phase_rad: 0.0, color: '#38ef7d' },
+        { id: 'node-vib', label: 'Vibrato LFO', freq_hz: 5.5, amplitude: 0.2, phase_rad: 0.0, color: '#f59e0b' }
+      ],
+      edges: [
+        { parent_id: 'node-root', child_id: 'node-mod1', beta: 0.6 },
+        { parent_id: 'node-root', child_id: 'node-vib', beta: 0.35 }
+      ]
+    }
+  });
+
+  // Sincronização reativa entre a crista selecionada e o modelo DDSP
+  $effect(() => {
+    if (currentTreeRidge) {
+      ddspConfig.f0 = currentTreeRidge.carrierFreqHz;
+      ddspConfig.lfo.depth_cents = currentTreeRidge.beta * 40.0;
+      ddspConfig.lfo.rate_hz = currentTreeRidge.childFreqHz;
+    }
+  });
+
+  function previewDdspAudio() {
+    try {
+      if (isDdspPlaying && ddspAudioPlayer) {
+        ddspAudioPlayer.pause();
+        isDdspPlaying = false;
+        ddspStatusMessage = '⏹️ Parado';
+        return;
+      }
+      isDdspSynthesizing = true;
+      ddspStatusMessage = '⚡ Sintetizando via Rust WASM...';
+      if (currentTreeRidge) {
+        ddspConfig.f0 = currentTreeRidge.carrierFreqHz;
+        ddspConfig.lfo.depth_cents = currentTreeRidge.beta * 40.0;
+        ddspConfig.lfo.rate_hz = currentTreeRidge.childFreqHz;
+      }
+      const jsonStr = JSON.stringify(ddspConfig);
+      const wavBytes = wasm_ddsp_synthesize_wav(jsonStr);
+      const blob = new Blob([wavBytes as any], { type: 'audio/wav' });
+      const url = URL.createObjectURL(blob);
+      if (ddspAudioPlayer) {
+        ddspAudioPlayer.pause();
+      }
+      ddspAudioPlayer = new Audio(url);
+      ddspAudioPlayer.play().catch(e => console.warn('Autoplay bloqueado:', e));
+      isDdspPlaying = true;
+      ddspAudioPlayer.onended = () => { isDdspPlaying = false; };
+      ddspStatusMessage = `🔊 Reproduzindo (${(wavBytes.length / 1024).toFixed(1)} kB)`;
+      setTimeout(() => { if (ddspStatusMessage?.startsWith('🔊')) ddspStatusMessage = null; }, 3500);
+    } catch (err: any) {
+      console.error('Erro na síntese DDSP:', err);
+      ddspStatusMessage = `❌ Erro: ${err.message || String(err)}`;
+    } finally {
+      isDdspSynthesizing = false;
+    }
+  }
+
+  function exportDdspWav() {
+    try {
+      if (currentTreeRidge) {
+        ddspConfig.f0 = currentTreeRidge.carrierFreqHz;
+        ddspConfig.lfo.depth_cents = currentTreeRidge.beta * 40.0;
+        ddspConfig.lfo.rate_hz = currentTreeRidge.childFreqHz;
+      }
+      const jsonStr = JSON.stringify(ddspConfig);
+      const wavBytes = wasm_ddsp_synthesize_wav(jsonStr);
+      const blob = new Blob([wavBytes as any], { type: 'audio/wav' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ddsp-${selectedDdspPreset}-${Math.round(ddspConfig.f0)}hz.wav`;
+      a.click();
+      URL.revokeObjectURL(url);
+      ddspStatusMessage = '💾 WAV exportado com sucesso!';
+      setTimeout(() => { if (ddspStatusMessage?.startsWith('💾')) ddspStatusMessage = null; }, 2500);
+    } catch (err: any) {
+      console.error('Erro ao exportar WAV DDSP:', err);
+      ddspStatusMessage = `❌ Erro exportação: ${err.message || String(err)}`;
+    }
+  }
+
+  function loadDdspPreset(name: string) {
+    try {
+      selectedDdspPreset = name;
+      const jsonStr = wasm_ddsp_get_preset(name);
+      const parsed = JSON.parse(jsonStr);
+      ddspConfig = parsed;
+      if (activeTreeRidges[0]) {
+        activeTreeRidges[0].carrierFreqHz = parsed.f0;
+        activeTreeRidges[0].childFreqHz = parsed.lfo.rate_hz;
+        activeTreeRidges[0].beta = parsed.lfo.depth_cents / 40.0;
+      }
+      ddspStatusMessage = `✅ Preset [${name}] carregado`;
+      setTimeout(() => { if (ddspStatusMessage?.startsWith('✅')) ddspStatusMessage = null; }, 3000);
+    } catch (err: any) {
+      console.error('Erro ao carregar preset DDSP:', err);
+    }
+  }
+
+  function extractDdspFromAudio() {
+    if (!originalBytes) {
+      ddspStatusMessage = '❌ Carregue um áudio primeiro';
+      return;
+    }
+    try {
+      ddspStatusMessage = '🪄 Extraindo parâmetros analíticos E00-E18...';
+      const f0Hint = currentTreeRidge ? currentTreeRidge.carrierFreqHz : 220.0;
+      const jsonResult = wasm_ddsp_analyze_audio(originalBytes, f0Hint);
+      const parsed = JSON.parse(jsonResult);
+      ddspConfig = parsed;
+      if (activeTreeRidges[0]) {
+        activeTreeRidges[0].carrierFreqHz = parsed.f0;
+        activeTreeRidges[0].childFreqHz = parsed.lfo.rate_hz;
+        activeTreeRidges[0].beta = parsed.lfo.depth_cents / 40.0;
+      }
+      ddspStatusMessage = `✅ F0=${parsed.f0.toFixed(1)}Hz | B=${parsed.harmonics.inharmonicity_b.toExponential(2)} | ADSR extraído`;
+      setTimeout(() => { if (ddspStatusMessage?.startsWith('✅')) ddspStatusMessage = null; }, 4000);
+    } catch (err: any) {
+      console.error('Erro ao extrair parâmetros DDSP:', err);
+      ddspStatusMessage = `❌ Erro na extração: ${err.message || String(err)}`;
+    }
+  }
+
+  function renderDdspToSpectrogram() {
+    try {
+      if (currentTreeRidge) {
+        ddspConfig.f0 = currentTreeRidge.carrierFreqHz;
+        ddspConfig.lfo.depth_cents = currentTreeRidge.beta * 40.0;
+        ddspConfig.lfo.rate_hz = currentTreeRidge.childFreqHz;
+      }
+      const jsonStr = JSON.stringify(ddspConfig);
+      const wavBytes = wasm_ddsp_synthesize_wav(jsonStr);
+      if (onAudioUploaded) {
+        onAudioUploaded(wavBytes);
+        ddspStatusMessage = '🎨 Áudio DDSP renderizado no espectrograma!';
+        setTimeout(() => { if (ddspStatusMessage?.startsWith('🎨')) ddspStatusMessage = null; }, 3000);
+      }
+    } catch (err: any) {
+      console.error('Erro ao renderizar DDSP no espectrograma:', err);
+    }
+  }
+
+  function computeAdsrSvgPath(adsr: typeof ddspConfig.adsr, width = 320, height = 45): string {
+    const total = adsr.attack_s + adsr.decay_s + 0.35 + adsr.release_s;
+    const aX = (adsr.attack_s / total) * width;
+    const dX = ((adsr.attack_s + adsr.decay_s) / total) * width;
+    const sX = ((adsr.attack_s + adsr.decay_s + 0.35) / total) * width;
+    const rX = width;
+    const sY = height * (1.0 - adsr.sustain);
+
+    return `M 0 ${height} C ${aX * 0.4} ${height * 0.15}, ${aX * 0.8} 0, ${aX} 0 C ${aX + (dX - aX) * 0.5} ${sY * 0.5}, ${dX * 0.9} ${sY}, ${dX} ${sY} L ${sX} ${sY} C ${sX + (rX - sX) * 0.5} ${sY + (height - sY) * 0.5}, ${rX * 0.9} ${height}, ${rX} ${height}`;
+  }
+
+  function computeSpectralSvgPath(spectral: typeof ddspConfig.spectral_envelope, width = 320, height = 45): string {
+    const pts: string[] = [];
+    const steps = 32;
+    const w = spectral.gauge_weights;
+    for (let i = 0; i <= steps; i++) {
+      const u = -2.0 + (i / steps) * 4.0;
+      const u2 = u * u;
+      const u3 = u2 * u;
+      const denom = 1.0 + 0.5 * u2;
+      const db = w[0] * u2 + w[1] * u3 + w[2] * (u2 / denom) + w[3] * (u3 / denom);
+      const px = (i / steps) * width;
+      const py = Math.max(0, Math.min(height, height * 0.5 - (db / 20.0) * (height * 0.45)));
+      pts.push(`${i === 0 ? 'M' : 'L'} ${px.toFixed(1)} ${py.toFixed(1)}`);
+    }
+    return pts.join(' ');
+  }
+
   function executeProbeAnalysis(clientX: number, clientY: number) {
     if (!canvas || !originalBytes) return;
     const rect = canvas.getBoundingClientRect();
@@ -357,6 +654,73 @@
     } catch (err) {
       console.error("❌ Probe analysis error:", err);
     }
+  }
+
+  function updateHolomorphicProbe(clientX: number, clientY: number) {
+    if (!canvas || !originalBytes) return;
+    const rect = canvas.getBoundingClientRect();
+    if (
+      clientX < rect.left || clientX > rect.right ||
+      clientY < rect.top || clientY > rect.bottom
+    ) {
+      return;
+    }
+
+    const xRatio = Math.max(0.0, Math.min(1.0, (clientX - rect.left) / rect.width));
+    const yRatio = Math.max(0.0, Math.min(1.0, 1.0 - (clientY - rect.top) / rect.height));
+
+    const totalDuration = originalAudio?.duration && !isNaN(originalAudio.duration) ? originalAudio.duration : 1.0;
+    const normT = viewStart + xRatio * (viewEnd - viewStart);
+    const time_s = normT * totalDuration;
+
+    let freq_hz = fmin;
+    if (frequencyScale === 'linear') {
+      freq_hz = fmin + yRatio * (fmax - fmin);
+    } else if (frequencyScale === 'mel') {
+      const melMin = 2595.0 * Math.log10(1.0 + fmin / 700.0);
+      const melMax = 2595.0 * Math.log10(1.0 + fmax / 700.0);
+      const melVal = melMin + yRatio * (melMax - melMin);
+      freq_hz = 700.0 * (Math.pow(10.0, melVal / 2595.0) - 1.0);
+    } else if (frequencyScale === 'bark') {
+      const barkMin = 26.81 * (fmin / (1960.0 + fmin)) - 0.53;
+      const barkMax = 26.81 * (fmax / (1960.0 + fmax)) - 0.53;
+      const barkVal = barkMin + yRatio * (barkMax - barkMin);
+      freq_hz = (1960.0 * (barkVal + 0.53)) / (26.28 - barkVal);
+    } else {
+      // CQT Cauchy
+      const logMin = Math.log2(Math.max(1, fmin));
+      const logMax = Math.log2(Math.max(fmin + 1, fmax));
+      freq_hz = Math.pow(2, logMin + yRatio * (logMax - logMin));
+    }
+    freq_hz = Math.max(fmin, Math.min(fmax, freq_hz));
+
+    holomorphicCursorPoint = {
+      x: clientX - rect.left,
+      y: clientY - rect.top,
+      time_s,
+      freq_hz
+    };
+
+    if (holoProbeThrottleTimer) return;
+    holoProbeThrottleTimer = setTimeout(() => {
+      holoProbeThrottleTimer = null;
+      try {
+        const scaleStr = frequencyScale === 'log' ? 'cqt' : frequencyScale;
+        const jsonStr = wasm_probe_holomorphic_analytic_point(
+          originalBytes!,
+          time_s,
+          freq_hz,
+          scaleStr,
+          2.0
+        );
+        const parsed = JSON.parse(jsonStr);
+        if (parsed && typeof parsed.f_phi_hz === 'number') {
+          holomorphicProbe = parsed;
+        }
+      } catch (err) {
+        console.warn('Erro ao sondar ponto analítico holomorfo:', err);
+      }
+    }, 25);
   }
   let brushSize = $state(50);
   let brushStrength = $state(0.5);
@@ -1052,6 +1416,9 @@
   }
 
   function handleMouseDown(e: MouseEvent) {
+    if (algorithmType === 'holomorphic' && holomorphicProbe) {
+      pinnedHolomorphicProbe = { ...holomorphicProbe };
+    }
     if (selectedTool === 'differential_probe') {
       executeProbeAnalysis(e.clientX, e.clientY);
       return;
@@ -1073,6 +1440,10 @@
   }
 
   function handleMouseMove(e: MouseEvent) {
+    if (algorithmType === 'holomorphic') {
+      updateHolomorphicProbe(e.clientX, e.clientY);
+    }
+
     if (isDraggingHandle && canvas) {
       const rect = canvas.getBoundingClientRect();
       const deltaY = e.clientY - isDraggingHandle.startY;
@@ -1536,6 +1907,113 @@
       </div>
     {/if}
 
+    <!-- Cursor Analítico Holomorfo (Crosshairs e HUD Inspector) -->
+    {#if algorithmType === 'holomorphic' && holomorphicCursorPoint}
+      <div class="holo-crosshair-v" style="left: {holomorphicCursorPoint.x}px;"></div>
+      <div class="holo-crosshair-h" style="top: {holomorphicCursorPoint.y}px;"></div>
+    {/if}
+
+    {#if algorithmType === 'holomorphic' && (holomorphicProbe || pinnedHolomorphicProbe)}
+      {@const p = pinnedHolomorphicProbe || holomorphicProbe!}
+      <div 
+        class="holomorphic-inspector-card"
+        class:pinned={pinnedHolomorphicProbe !== null}
+        style="right: 1.25rem; top: 5.5rem;"
+      >
+        <div class="holo-header">
+          <div class="holo-title-group">
+            <span class="holo-icon">🔬</span>
+            <span class="holo-title">Cursor Analítico Holomorfo</span>
+            {#if pinnedHolomorphicProbe}
+              <span class="badge-pinned">📌 FIXADO</span>
+            {:else}
+              <span class="badge-live">⚡ VIVO</span>
+            {/if}
+          </div>
+          <div class="holo-header-actions">
+            {#if pinnedHolomorphicProbe}
+              <button class="holo-unpin-btn" onclick={() => pinnedHolomorphicProbe = null} title="Desafixar ponto">🔓 Desafixar</button>
+            {/if}
+            <button class="holo-close-btn" onclick={() => { holomorphicProbe = null; pinnedHolomorphicProbe = null; }}>✕</button>
+          </div>
+        </div>
+
+        <div class="holo-body">
+          <div class="holo-row highlight-coord">
+            <span class="lbl">Cursor (t, f):</span>
+            <span class="val font-mono">{p.t_sec.toFixed(3)}s | {p.f_hz.toFixed(1)} Hz</span>
+          </div>
+
+          <div class="holo-row">
+            <span class="lbl">Campo E(t, y):</span>
+            <span class="val font-mono">
+              {p.E_re >= 0 ? '+' : ''}{p.E_re.toFixed(3)} {p.E_im >= 0 ? '+' : '-'}{Math.abs(p.E_im).toFixed(3)}i (|E| = {p.magnitude.toFixed(3)})
+            </span>
+          </div>
+
+          <div class="holo-row">
+            <span class="lbl">Potencial a = ln|E|:</span>
+            <span class="val font-mono">{p.log_amplitude.toFixed(3)} ({p.log_amplitude_db.toFixed(1)} dB)</span>
+          </div>
+
+          <div class="holo-row">
+            <span class="lbl">Fase φ(t, y):</span>
+            <span class="val font-mono">{p.phase_rad.toFixed(3)} rad ({p.phase_deg.toFixed(1)}°)</span>
+          </div>
+
+          <div class="holo-divider"></div>
+          <div class="holo-section-lbl">⚡ DINÂMICA TEMPORAL & CAUCHY-RIEMANN</div>
+
+          <div class="holo-row highlight-freq">
+            <span class="lbl">Freq de Fase f_φ (φ_t / 2π):</span>
+            <span class="val font-mono cyan">{p.f_phi_hz.toFixed(2)} Hz</span>
+          </div>
+
+          <div class="holo-row">
+            <span class="lbl">Freq Amplitude f_a (-a_y / 2πη'):</span>
+            <span class="val font-mono">{p.f_a_hz.toFixed(2)} Hz</span>
+          </div>
+
+          <div class="holo-row {p.cr_residual_hz < 5.0 ? 'cr-valid' : 'cr-warn'}">
+            <span class="lbl">Resíduo Cauchy-Riemann Δf:</span>
+            <span class="val font-mono">{p.cr_residual_hz.toFixed(3)} Hz</span>
+          </div>
+
+          <div class="holo-row">
+            <span class="lbl">Crescimento a_t (φ_y / η'):</span>
+            <span class="val font-mono {p.a_t >= 0 ? 'growth' : 'decay'}">{p.a_t.toFixed(2)} s⁻¹</span>
+          </div>
+
+          <div class="holo-row">
+            <span class="lbl">Chirp Rate φ_tt / 2π:</span>
+            <span class="val font-mono">{p.f_dot_hz_per_sec.toFixed(1)} Hz/s</span>
+          </div>
+
+          <div class="holo-row">
+            <span class="lbl">Resíduo Laplaciano H_a:</span>
+            <span class="val font-mono">{p.laplacian_residual.toFixed(2)}</span>
+          </div>
+
+          <div class="holo-divider"></div>
+          <div class="holo-row status-box {p.is_ridge_candidate ? 'ridge-detected' : ''}">
+            <span class="lbl">Status Transversal:</span>
+            {#if p.is_ridge_candidate}
+              <span class="val emerald">🌿 Crista a_y ≈ 0 (Velocidade ẏ_r = {p.ridge_velocity.toFixed(2)})</span>
+            {:else}
+              <span class="val muted">Gradiente regular fora da crista</span>
+            {/if}
+          </div>
+
+          {#if pinnedHolomorphicProbe}
+            <div class="taylor-box">
+              <span class="taylor-title">📐 Parábola Local de Taylor:</span>
+              <code>f(t) = {p.f_hz.toFixed(1)} + {p.f_dot_hz_per_sec.toFixed(1)}·(t - {p.t_sec.toFixed(2)})</code>
+            </div>
+          {/if}
+        </div>
+      </div>
+    {/if}
+
     <!-- Interactive Vector Ridge Overlay (TreeNN Oscillatory Neurons) -->
     {#if selectedTool === 'tree_nn_ridges'}
       <svg 
@@ -1586,14 +2064,14 @@
         {/each}
       </svg>
 
-      <!-- Floating TreeNN Oscillatory Neuron Inspector HUD -->
+      <!-- Floating TreeNN & DDSP Neural Studio HUD -->
       {#if currentTreeRidge}
         <div 
           class="tree-nn-hud-card" 
-          style="left: 240px; top: 80px;"
+          style="left: 240px; top: 70px;"
         >
           <div class="tree-nn-header">
-            <span class="tree-nn-title">🌳 Nó Oscilatório (TreeNN)</span>
+            <span class="tree-nn-title">🌳 DDSP & TreeNN Studio</span>
             <div class="tree-nn-actions">
               <button class="add-ridge-btn" onclick={() => addHarmonicRidge()} title="Adicionar harmônico à árvore">➕ Harmônico</button>
               <button class="close-hud-btn" onclick={() => selectedTool = 'select'}>✕</button>
@@ -1601,74 +2079,484 @@
           </div>
 
           <div class="tree-nn-body">
-            <!-- Ridge Selector Tabs -->
-            <div class="ridge-pill-tabs">
-              {#each activeTreeRidges as r}
-                <button 
-                  class="ridge-tab-btn" 
-                  class:active={r.id === selectedRidgeId}
-                  style="border-color: {r.color}; color: {r.id === selectedRidgeId ? '#fff' : r.color}; background: {r.id === selectedRidgeId ? r.color + '33' : 'transparent'};"
-                  onclick={() => selectedRidgeId = r.id}
-                >
-                  {r.label}
-                </button>
-              {/each}
+            <!-- Preset & Actions Toolbar -->
+            <div class="ddsp-preset-row">
+              <span class="preset-label">Preset:</span>
+              <select class="ddsp-preset-select" bind:value={selectedDdspPreset} onchange={() => loadDdspPreset(selectedDdspPreset)}>
+                <option value="vocal_formant">🗣️ Vocal Formant (A3)</option>
+                <option value="fm_bell">🔔 FM Bell & Inharmonicity</option>
+                <option value="stiff_piano">🎹 Stiff Piano String</option>
+                <option value="vibrato_strings">🎻 Vibrato Strings Ensemble</option>
+                <option value="analog_bass">🎸 Analog Resonant Bass</option>
+                <option value="treenn_3node">🌳 TreeNN 3-Node Topology</option>
+              </select>
             </div>
 
-            <div class="tree-nn-control-group">
-              <div class="control-row">
-                <label for="carrier-freq-slider">Portadora (f_v):</label>
-                <span class="val font-mono">{currentTreeRidge.carrierFreqHz.toFixed(1)} Hz</span>
-              </div>
-              <input 
-                id="carrier-freq-slider"
-                type="range" 
-                min={fmin} 
-                max={fmax} 
-                step="1" 
-                bind:value={currentTreeRidge.carrierFreqHz} 
-                class="tree-slider carrier-slider" 
-              />
-            </div>
-
-            <div class="tree-nn-control-group">
-              <div class="control-row">
-                <label for="vibrato-beta-slider">Acoplamento Vibrato (β):</label>
-                <span class="val font-mono">{currentTreeRidge.beta.toFixed(2)}</span>
-              </div>
-              <input 
-                id="vibrato-beta-slider"
-                type="range" 
-                min="0.0" 
-                max="2.0" 
-                step="0.02" 
-                bind:value={currentTreeRidge.beta} 
-                class="tree-slider vibrato-slider" 
-              />
-            </div>
-
-            <div class="tree-nn-control-group">
-              <div class="control-row">
-                <label for="child-freq-slider">Velocidade Vibrato (f_child):</label>
-                <span class="val font-mono">{currentTreeRidge.childFreqHz.toFixed(1)} Hz</span>
-              </div>
-              <input 
-                id="child-freq-slider"
-                type="range" 
-                min="1.0" 
-                max="15.0" 
-                step="0.2" 
-                bind:value={currentTreeRidge.childFreqHz} 
-                class="tree-slider child-slider" 
-              />
-            </div>
-
-            <div class="tree-nn-footer-actions">
-              <button class="lbfgs-btn" onclick={triggerLbfgsRefinement} title="Executa refinamento hierárquico L-BFGS">
-                ⚡ Otimização L-BFGS
+            <div class="ddsp-action-toolbar">
+              <button 
+                class="ddsp-btn play-btn" 
+                class:active-play={isDdspPlaying}
+                onclick={previewDdspAudio} 
+                disabled={isDdspSynthesizing}
+                title="Sintetiza via Rust WASM e reproduz em tempo real"
+              >
+                {#if isDdspPlaying}⏹️ Parar{:else}🔊 Ouvir DDSP{/if}
               </button>
-              <span class="lbfgs-status font-mono">{lbfgsStatusText}</span>
+              <button 
+                class="ddsp-btn extract-btn" 
+                onclick={extractDdspFromAudio} 
+                title="Extrai parâmetros analíticos E00-E18 a partir do áudio carregado"
+              >
+                🪄 Extrair do Áudio
+              </button>
+              <button 
+                class="ddsp-btn export-btn" 
+                onclick={exportDdspWav} 
+                title="Exporta áudio sintetizado em arquivo WAV 16-bit"
+              >
+                💾 WAV
+              </button>
+              <button 
+                class="ddsp-btn render-btn" 
+                onclick={renderDdspToSpectrogram} 
+                title="Renderiza o áudio gerado diretamente no espectrograma"
+              >
+                🎨 Renderizar
+              </button>
+              <button 
+                class="ddsp-btn studio-btn" 
+                onclick={() => onTransportToSynth ? onTransportToSynth(ddspConfig) : (window.location.hash = '#/synth')} 
+                title="Abre o estúdio completo DDSP Studio para edição detalhada e transporte"
+              >
+                🚀 Studio
+              </button>
             </div>
+
+            {#if ddspStatusMessage}
+              <div class="ddsp-status-banner font-mono">{ddspStatusMessage}</div>
+            {/if}
+
+            <!-- Subtabs Navigation -->
+            <div class="ddsp-subtabs">
+              <button class="ddsp-subtab-btn" class:active={ddspActiveTab === 'tree'} onclick={() => ddspActiveTab = 'tree'}>🌳 Cristas</button>
+              <button class="ddsp-subtab-btn" class:active={ddspActiveTab === 'harmonics'} onclick={() => ddspActiveTab = 'harmonics'}>🎼 Harmônicos</button>
+              <button class="ddsp-subtab-btn" class:active={ddspActiveTab === 'adsr'} onclick={() => ddspActiveTab = 'adsr'}>📈 ADSR</button>
+              <button class="ddsp-subtab-btn" class:active={ddspActiveTab === 'spectral'} onclick={() => ddspActiveTab = 'spectral'}>🗣️ Formantes</button>
+              <button class="ddsp-subtab-btn" class:active={ddspActiveTab === 'modulation'} onclick={() => ddspActiveTab = 'modulation'}>📻 FM / AM</button>
+              <button class="ddsp-subtab-btn" class:active={ddspActiveTab === 'noise_effects'} onclick={() => ddspActiveTab = 'noise_effects'}>🌪️ Efeitos</button>
+            </div>
+
+            <!-- TAB 1: TreeNN & Cristas Vetoriais -->
+            {#if ddspActiveTab === 'tree'}
+              <div class="ridge-pill-tabs">
+                {#each activeTreeRidges as r}
+                  <button 
+                    class="ridge-tab-btn" 
+                    class:active={r.id === selectedRidgeId}
+                    style="border-color: {r.color}; color: {r.id === selectedRidgeId ? '#fff' : r.color}; background: {r.id === selectedRidgeId ? r.color + '33' : 'transparent'};"
+                    onclick={() => selectedRidgeId = r.id}
+                  >
+                    {r.label}
+                  </button>
+                {/each}
+              </div>
+
+              <div class="tree-nn-control-group">
+                <div class="control-row">
+                  <label for="carrier-freq-slider">Portadora (f_v):</label>
+                  <span class="val font-mono">{currentTreeRidge.carrierFreqHz.toFixed(1)} Hz</span>
+                </div>
+                <input 
+                  id="carrier-freq-slider"
+                  type="range" 
+                  min={fmin} 
+                  max={fmax} 
+                  step="1" 
+                  bind:value={currentTreeRidge.carrierFreqHz} 
+                  class="tree-slider carrier-slider" 
+                />
+              </div>
+
+              <div class="tree-nn-control-group">
+                <div class="control-row">
+                  <label for="vibrato-beta-slider">Acoplamento Vibrato (β):</label>
+                  <span class="val font-mono">{currentTreeRidge.beta.toFixed(2)}</span>
+                </div>
+                <input 
+                  id="vibrato-beta-slider"
+                  type="range" 
+                  min="0.0" 
+                  max="2.0" 
+                  step="0.02" 
+                  bind:value={currentTreeRidge.beta} 
+                  class="tree-slider vibrato-slider" 
+                />
+              </div>
+
+              <div class="tree-nn-control-group">
+                <div class="control-row">
+                  <label for="child-freq-slider">Velocidade Vibrato (f_child):</label>
+                  <span class="val font-mono">{currentTreeRidge.childFreqHz.toFixed(1)} Hz</span>
+                </div>
+                <input 
+                  id="child-freq-slider"
+                  type="range" 
+                  min="1.0" 
+                  max="15.0" 
+                  step="0.2" 
+                  bind:value={currentTreeRidge.childFreqHz} 
+                  class="tree-slider child-slider" 
+                />
+              </div>
+
+              <div class="tree-topology-summary">
+                <span class="subheading">Grafo de Modulação Causal (TreeNN):</span>
+                <div class="edge-pill-list">
+                  {#each ddspConfig.tree.edges as edge}
+                    <span class="edge-badge font-mono">{edge.child_id} → {edge.parent_id} (β={edge.beta.toFixed(2)})</span>
+                  {/each}
+                </div>
+              </div>
+
+              <div class="tree-nn-footer-actions">
+                <button class="lbfgs-btn" onclick={triggerLbfgsRefinement} title="Executa refinamento hierárquico L-BFGS">
+                  ⚡ Otimização L-BFGS
+                </button>
+                <span class="lbfgs-status font-mono">{lbfgsStatusText}</span>
+              </div>
+            {/if}
+
+            <!-- TAB 2: Harmônicos & Inarmonicidade B (E06, E08) -->
+            {#if ddspActiveTab === 'harmonics'}
+              <div class="ddsp-tab-content">
+                <div class="tree-nn-control-group">
+                  <div class="control-row">
+                    <span>Rigidez de Corda (Inarmonicidade B):</span>
+                    <span class="val font-mono">{ddspConfig.harmonics.inharmonicity_b.toExponential(2)}</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0.0" 
+                    max="0.005" 
+                    step="0.0001" 
+                    bind:value={ddspConfig.harmonics.inharmonicity_b} 
+                    class="tree-slider" 
+                  />
+                  <span class="hint-text font-mono">f_k = k · f₀ · √(1 + B · k²)</span>
+                </div>
+
+                <div class="tree-nn-control-group">
+                  <div class="control-row">
+                    <span>Roll-off Espectral (α):</span>
+                    <span class="val font-mono">{ddspConfig.harmonics.roll_off_alpha.toFixed(2)}</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0.3" 
+                    max="3.0" 
+                    step="0.05" 
+                    bind:value={ddspConfig.harmonics.roll_off_alpha} 
+                    oninput={() => {
+                      for (let k = 1; k < ddspConfig.harmonics.amplitudes.length; k++) {
+                        ddspConfig.harmonics.amplitudes[k] = Math.pow(k + 1, -ddspConfig.harmonics.roll_off_alpha);
+                      }
+                    }}
+                    class="tree-slider" 
+                  />
+                </div>
+
+                <div class="harmonic-bars-grid">
+                  <span class="subheading">Amplitudes Harmônicas (H₁..H₁₂):</span>
+                  <div class="bars-container">
+                    {#each ddspConfig.harmonics.amplitudes.slice(0, 10) as amp, idx}
+                      <div class="harmonic-bar-col">
+                        <span class="h-label font-mono">H{idx + 1}</span>
+                        <input 
+                          type="range" 
+                          min="0.0" 
+                          max="1.0" 
+                          step="0.01" 
+                          disabled={idx === 0}
+                          bind:value={ddspConfig.harmonics.amplitudes[idx]} 
+                          class="vertical-slider"
+                          title={`H${idx + 1}: ${amp.toFixed(2)}`}
+                        />
+                        <span class="h-val font-mono">{amp.toFixed(2)}</span>
+                      </div>
+                    {/each}
+                  </div>
+                </div>
+              </div>
+            {/if}
+
+            <!-- TAB 3: Envelope ADSR C1 Contínuo (E05) -->
+            {#if ddspActiveTab === 'adsr'}
+              <div class="ddsp-tab-content">
+                <div class="adsr-preview-box">
+                  <svg class="adsr-svg-curve" viewBox="0 0 320 45">
+                    <path 
+                      d={computeAdsrSvgPath(ddspConfig.adsr)} 
+                      fill="rgba(56, 189, 248, 0.15)" 
+                      stroke="#38bdf8" 
+                      stroke-width="2" 
+                    />
+                  </svg>
+                </div>
+
+                <div class="tree-nn-control-group">
+                  <div class="control-row">
+                    <span>Ataque (τ_A):</span>
+                    <span class="val font-mono">{(ddspConfig.adsr.attack_s * 1000).toFixed(0)} ms</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0.005" 
+                    max="0.5" 
+                    step="0.005" 
+                    bind:value={ddspConfig.adsr.attack_s} 
+                    class="tree-slider" 
+                  />
+                </div>
+
+                <div class="tree-nn-control-group">
+                  <div class="control-row">
+                    <span>Decay (τ_D):</span>
+                    <span class="val font-mono">{(ddspConfig.adsr.decay_s * 1000).toFixed(0)} ms</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0.01" 
+                    max="0.8" 
+                    step="0.01" 
+                    bind:value={ddspConfig.adsr.decay_s} 
+                    class="tree-slider" 
+                  />
+                </div>
+
+                <div class="tree-nn-control-group">
+                  <div class="control-row">
+                    <span>Sustain (S):</span>
+                    <span class="val font-mono">{ddspConfig.adsr.sustain.toFixed(2)}</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0.0" 
+                    max="1.0" 
+                    step="0.02" 
+                    bind:value={ddspConfig.adsr.sustain} 
+                    class="tree-slider" 
+                  />
+                </div>
+
+                <div class="tree-nn-control-group">
+                  <div class="control-row">
+                    <span>Release (τ_R):</span>
+                    <span class="val font-mono">{(ddspConfig.adsr.release_s * 1000).toFixed(0)} ms</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0.02" 
+                    max="1.0" 
+                    step="0.02" 
+                    bind:value={ddspConfig.adsr.release_s} 
+                    class="tree-slider" 
+                  />
+                </div>
+              </div>
+            {/if}
+
+            <!-- TAB 4: Formantes & Gauge Spectral Envelope (E07) -->
+            {#if ddspActiveTab === 'spectral'}
+              <div class="ddsp-tab-content">
+                <div class="spectral-preview-box">
+                  <svg class="spectral-svg-curve" viewBox="0 0 320 45">
+                    <line x1="160" y1="0" x2="160" y2="45" stroke="#ef4444" stroke-dasharray="2 2" stroke-width="1" />
+                    <text x="163" y="10" fill="#ef4444" font-size="8" font-family="monospace">440Hz (0dB)</text>
+                    <path 
+                      d={computeSpectralSvgPath(ddspConfig.spectral_envelope)} 
+                      fill="none" 
+                      stroke="#a855f7" 
+                      stroke-width="2" 
+                    />
+                  </svg>
+                </div>
+
+                <div class="tree-nn-control-group">
+                  <div class="control-row">
+                    <span>Curvatura sob Gauge (w₀):</span>
+                    <span class="val font-mono">{ddspConfig.spectral_envelope.gauge_weights[0].toFixed(2)}</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="-4.0" 
+                    max="4.0" 
+                    step="0.1" 
+                    bind:value={ddspConfig.spectral_envelope.gauge_weights[0]} 
+                    class="tree-slider" 
+                  />
+                  <span class="hint-text font-mono">Gauge: S(440)=0 dB, dS/du(440)=0 dB/oct</span>
+                </div>
+
+                <span class="subheading" style="margin-top: 0.3rem;">Filtros de Formantes Acústicos:</span>
+                {#each ddspConfig.spectral_envelope.formants as formant, fIdx}
+                  <div class="formant-row">
+                    <span class="f-badge font-mono">F{fIdx + 1}</span>
+                    <input 
+                      type="range" 
+                      min="200" 
+                      max="4000" 
+                      step="20" 
+                      bind:value={formant.center_hz} 
+                      class="tree-slider compact-slider" 
+                      title="Frequência Central"
+                    />
+                    <span class="val font-mono">{formant.center_hz.toFixed(0)}Hz</span>
+                    <input 
+                      type="range" 
+                      min="-12" 
+                      max="12" 
+                      step="1" 
+                      bind:value={formant.gain_db} 
+                      class="tree-slider compact-slider" 
+                      title="Ganho (dB)"
+                    />
+                    <span class="val font-mono">{formant.gain_db.toFixed(0)}dB</span>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+
+            <!-- TAB 5: Modulação FM & AM (E10, E12) -->
+            {#if ddspActiveTab === 'modulation'}
+              <div class="ddsp-tab-content">
+                <!-- Modulação FM -->
+                <div class="module-card">
+                  <div class="module-header">
+                    <label class="checkbox-control">
+                      <input type="checkbox" bind:checked={ddspConfig.fm.enabled} />
+                      <span class="font-bold">Modulação de Frequência (FM)</span>
+                    </label>
+                  </div>
+                  {#if ddspConfig.fm.enabled}
+                    <div class="tree-nn-control-group">
+                      <div class="control-row">
+                        <span>Razão Portadora/Moduladora (fm/fc):</span>
+                        <span class="val font-mono">{ddspConfig.fm.ratio.toFixed(3)}</span>
+                      </div>
+                      <input type="range" min="0.25" max="6.0" step="0.05" bind:value={ddspConfig.fm.ratio} class="tree-slider" />
+                    </div>
+                    <div class="tree-nn-control-group">
+                      <div class="control-row">
+                        <span>Índice de Modulação (β):</span>
+                        <span class="val font-mono">{ddspConfig.fm.index.toFixed(2)}</span>
+                      </div>
+                      <input type="range" min="0.0" max="4.0" step="0.05" bind:value={ddspConfig.fm.index} class="tree-slider" />
+                    </div>
+                  {/if}
+                </div>
+
+                <!-- Modulação AM (Tremolo) -->
+                <div class="module-card">
+                  <div class="module-header">
+                    <label class="checkbox-control">
+                      <input type="checkbox" bind:checked={ddspConfig.am.enabled} />
+                      <span class="font-bold">Modulação de Amplitude (AM)</span>
+                    </label>
+                  </div>
+                  {#if ddspConfig.am.enabled}
+                    <div class="tree-nn-control-group">
+                      <div class="control-row">
+                        <span>Taxa de Tremolo (fam):</span>
+                        <span class="val font-mono">{ddspConfig.am.rate_hz.toFixed(1)} Hz</span>
+                      </div>
+                      <input type="range" min="0.5" max="20.0" step="0.2" bind:value={ddspConfig.am.rate_hz} class="tree-slider" />
+                    </div>
+                    <div class="tree-nn-control-group">
+                      <div class="control-row">
+                        <span>Profundidade (m):</span>
+                        <span class="val font-mono">{(ddspConfig.am.depth * 100).toFixed(0)}%</span>
+                      </div>
+                      <input type="range" min="0.0" max="1.0" step="0.02" bind:value={ddspConfig.am.depth} class="tree-slider" />
+                    </div>
+                  {/if}
+                </div>
+              </div>
+            {/if}
+
+            <!-- TAB 6: Ruído & Efeitos Não-Locais (E13, E14) -->
+            {#if ddspActiveTab === 'noise_effects'}
+              <div class="ddsp-tab-content">
+                <!-- Ruído Fractal -->
+                <div class="module-card">
+                  <div class="module-header">
+                    <label class="checkbox-control">
+                      <input type="checkbox" bind:checked={ddspConfig.noise.enabled} />
+                      <span class="font-bold">Ruído Estocástico Fractal (E13)</span>
+                    </label>
+                  </div>
+                  {#if ddspConfig.noise.enabled}
+                    <div class="tree-nn-control-group">
+                      <div class="control-row">
+                        <span>Tilt Espectral (α): {ddspConfig.noise.alpha < 0.3 ? 'Branco' : ddspConfig.noise.alpha < 1.3 ? 'Rosa (1/f)' : 'Marrom (1/f²)'}</span>
+                        <span class="val font-mono">{ddspConfig.noise.alpha.toFixed(2)}</span>
+                      </div>
+                      <input type="range" min="0.0" max="2.0" step="0.05" bind:value={ddspConfig.noise.alpha} class="tree-slider" />
+                    </div>
+                    <div class="tree-nn-control-group">
+                      <div class="control-row">
+                        <span>Mix de Ruído:</span>
+                        <span class="val font-mono">{(ddspConfig.noise.mix * 100).toFixed(0)}%</span>
+                      </div>
+                      <input type="range" min="0.0" max="0.4" step="0.01" bind:value={ddspConfig.noise.mix} class="tree-slider" />
+                    </div>
+                  {/if}
+                </div>
+
+                <!-- Efeitos Acústicos -->
+                <div class="module-card">
+                  <div class="module-header">
+                    <label class="checkbox-control">
+                      <input type="checkbox" bind:checked={ddspConfig.effects.filter_enabled} />
+                      <span class="font-bold">Filtro SVF ({ddspConfig.effects.filter_type})</span>
+                    </label>
+                  </div>
+                  {#if ddspConfig.effects.filter_enabled}
+                    <div class="tree-nn-control-group">
+                      <div class="control-row">
+                        <span>Corte (fc):</span>
+                        <span class="val font-mono">{ddspConfig.effects.filter_cutoff_hz.toFixed(0)} Hz</span>
+                      </div>
+                      <input type="range" min="100" max="10000" step="50" bind:value={ddspConfig.effects.filter_cutoff_hz} class="tree-slider" />
+                    </div>
+                  {/if}
+                </div>
+
+                <div class="module-card">
+                  <div class="module-header">
+                    <label class="checkbox-control">
+                      <input type="checkbox" bind:checked={ddspConfig.effects.reverb_enabled} />
+                      <span class="font-bold">Reverb Schroeder</span>
+                    </label>
+                  </div>
+                  {#if ddspConfig.effects.reverb_enabled}
+                    <div class="tree-nn-control-group">
+                      <div class="control-row">
+                        <span>Decay T60:</span>
+                        <span class="val font-mono">{ddspConfig.effects.reverb_decay_s.toFixed(1)} s</span>
+                      </div>
+                      <input type="range" min="0.2" max="3.5" step="0.1" bind:value={ddspConfig.effects.reverb_decay_s} class="tree-slider" />
+                    </div>
+                    <div class="tree-nn-control-group">
+                      <div class="control-row">
+                        <span>Mix Reverb:</span>
+                        <span class="val font-mono">{(ddspConfig.effects.reverb_mix * 100).toFixed(0)}%</span>
+                      </div>
+                      <input type="range" min="0.0" max="0.6" step="0.02" bind:value={ddspConfig.effects.reverb_mix} class="tree-slider" />
+                    </div>
+                  {/if}
+                </div>
+              </div>
+            {/if}
           </div>
         </div>
       {/if}
@@ -1733,6 +2621,12 @@
       <button class="back-btn" onclick={onBackToConverter}>
         ⬅️ 1. Converter
       </button>
+
+      <div class="vertical-divider"></div>
+
+      <button class="back-btn" onclick={() => onTransportToSynth ? onTransportToSynth(ddspConfig) : (window.location.hash = '#/synth')} title="Abrir Estúdio Paramétrico DDSP & TreeNN">
+        🌳 3. DDSP Studio
+      </button>
       
       <div class="vertical-divider"></div>
       
@@ -1756,10 +2650,99 @@
       </button>
     </div>
 
+    <!-- Holomorphic Fundamental Field Controls Bar (When algorithmType === 'holomorphic') -->
+    {#if algorithmType === 'holomorphic'}
+      <div class="hud-panel holomorphic-subbar" style="right: {rightDockExpanded ? '19.25rem' : '1.25rem'};">
+        <div class="holo-subbar-label">
+          <span class="holo-subbar-icon">🌌</span>
+          <strong>Campo E(t, y)</strong>
+        </div>
+
+        <div class="holo-btn-strip">
+          <button 
+            class="holo-mode-btn"
+            class:active={holomorphicFieldMode === 'log_amplitude'} 
+            onclick={() => { holomorphicFieldMode = 'log_amplitude'; onAdaptiveInteract(); }}
+            title="Potencial Log-Amplitude a(t, y) = ln|E| com luminância monotônica e cristas a_y = 0"
+          >
+            🌌 Potencial a
+          </button>
+
+          <button 
+            class="holo-mode-btn"
+            class:active={holomorphicFieldMode === 'phase'} 
+            onclick={() => { holomorphicFieldMode = 'phase'; onAdaptiveInteract(); }}
+            title="Fase Cíclica φ(t, y) mod 2π com contornos φ = 2πk"
+          >
+            🔄 Fase φ
+          </button>
+
+          <button 
+            class="holo-mode-btn"
+            class:active={holomorphicFieldMode === 'phase_frequency'} 
+            onclick={() => { holomorphicFieldMode = 'phase_frequency'; onAdaptiveInteract(); }}
+            title="Frequência Instantânea de Fase f_φ = φ_t / 2π"
+          >
+            ⚡ Freq f_φ
+          </button>
+
+          <button 
+            class="holo-mode-btn"
+            class:active={holomorphicFieldMode === 'envelope_growth'} 
+            onclick={() => { holomorphicFieldMode = 'envelope_growth'; onAdaptiveInteract(); }}
+            title="Taxa de Crescimento Temporal do Envelope g(t, y) = a_t = φ_y / η'"
+          >
+            📈 Crescimento a_t
+          </button>
+
+          <button 
+            class="holo-mode-btn"
+            class:active={holomorphicFieldMode === 'cr_residual'} 
+            onclick={() => { holomorphicFieldMode = 'cr_residual'; onAdaptiveInteract(); }}
+            title="Resíduo de Cauchy-Riemann Δf = |f_φ - f_a| (Diagnóstico de Holomorfia)"
+          >
+            ⚖️ Resíduo CR
+          </button>
+
+          <button 
+            class="holo-mode-btn"
+            class:active={holomorphicFieldMode === 'harmonicity_residual'} 
+            onclick={() => { holomorphicFieldMode = 'harmonicity_residual'; onAdaptiveInteract(); }}
+            title="Resíduo Harmônico Laplaciano H_a = a_tt + a_yy/(η')² - η'' a_y/(η')³"
+          >
+            🌐 Laplaciano H_a
+          </button>
+        </div>
+
+        <div class="vertical-divider"></div>
+
+        <label class="holo-checkbox-label" title="Exibe isolinhas analíticas de amplitude (12dB) ou fase (2πk)">
+          <input type="checkbox" bind:checked={showContours} onchange={onAdaptiveInteract} />
+          Isolinhas
+        </label>
+
+        <label class="holo-checkbox-label" title="Exibe candidatas a cristas transversais (a_y = 0, a_yy < 0) em verde esmeralda sólido">
+          <input type="checkbox" bind:checked={showRidgeCandidates} onchange={onAdaptiveInteract} />
+          Cristas a_y=0
+        </label>
+      </div>
+    {/if}
+
     <!-- Left Quick Tools Toolbox Sidebar -->
     <div class="hud-panel left-sidebar">
       <h3>Tools</h3>
-      
+
+      <button 
+        class:active={algorithmType === 'holomorphic'} 
+        onclick={() => {
+          algorithmType = 'holomorphic';
+          onAdaptiveInteract();
+        }}
+        title="Visualização Fundamental do Campo Holomorfo E(t, y) = a(t, y) + i φ(t, y)"
+      >
+        🌌 Campo Holomorfo
+      </button>
+
       <button class:active={selectedTool === 'select'} onclick={() => selectedTool = 'select'}>
         ✋ Mover & Zoom
       </button>
@@ -1849,7 +2832,8 @@
                   <span class="badge-jet">UNIVERSAL</span>
                 </div>
                 <p class="experimental-desc">
-                  Embutimento analítico: <code>F_λ(z) = C ∫ x̂(f) ((f+λ)/(f₀+λ))^(2πq) e^(2πifz) df</code> com <code>z = t + i·η(y)</code>.
+                  Embutimento analítico: <code>E(t, y) = F(t + i·η(y)) = exp(a + i·ϕ)</code>.
+                  Leis de Cauchy-Riemann: <code>a_y = -η'·ϕ_t</code> e <code>ϕ_y = η'·a_t</code>.
                 </p>
                 <div class="input-control">
                   <label for="holo-scale-select">Escala Perceptual:</label>
@@ -1859,6 +2843,29 @@
                     <option value="log">CQT Cauchy (λ = 0 - Log-Frequência)</option>
                     <option value="linear">Linear (STFT Clássica)</option>
                   </select>
+                </div>
+
+                <div class="input-control">
+                  <label for="holo-field-select">Campo Visual:</label>
+                  <select id="holo-field-select" bind:value={holomorphicFieldMode} onchange={() => onAdaptiveInteract()}>
+                    <option value="log_amplitude">🌌 Potencial a(t, y) = ln|E|</option>
+                    <option value="phase">🔄 Fase φ(t, y) mod 2π</option>
+                    <option value="phase_frequency">⚡ Frequência de Fase f_φ (φ_t / 2π)</option>
+                    <option value="envelope_growth">📈 Crescimento Envelope a_t (φ_y / η')</option>
+                    <option value="cr_residual">⚖️ Resíduo Cauchy-Riemann |f_φ - f_a|</option>
+                    <option value="harmonicity_residual">🌐 Resíduo Harmônico Laplaciano H_a</option>
+                  </select>
+                </div>
+
+                <div class="input-control checkbox-row">
+                  <label class="check-inline">
+                    <input type="checkbox" bind:checked={showContours} onchange={() => onAdaptiveInteract()} />
+                    Isolinhas analíticas (12dB / 2πk)
+                  </label>
+                  <label class="check-inline">
+                    <input type="checkbox" bind:checked={showRidgeCandidates} onchange={() => onAdaptiveInteract()} />
+                    Cristas transversais (a_y = 0, a_yy &lt; 0)
+                  </label>
                 </div>
               </div>
             {/if}
@@ -3335,6 +4342,281 @@
     text-transform: uppercase;
   }
 
+  /* Holomorphic Crosshair Lines (No Transparency, Sharp 1px) */
+  .holo-crosshair-v {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: #38bdf8;
+    pointer-events: none;
+    z-index: 40;
+    box-shadow: 0 0 4px #0284c7;
+  }
+
+  .holo-crosshair-h {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: #38bdf8;
+    pointer-events: none;
+    z-index: 40;
+    box-shadow: 0 0 4px #0284c7;
+  }
+
+  /* Holomorphic Top Mode Switcher Subbar */
+  .holomorphic-subbar {
+    top: 3.5rem;
+    height: 2.3rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0 0.8rem;
+    background: rgba(15, 23, 42, 0.96);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    border-radius: 6px;
+    z-index: 45;
+  }
+
+  .holo-subbar-label {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.72rem;
+    color: #e2e8f0;
+    font-weight: 700;
+  }
+
+  .holo-btn-strip {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .holo-mode-btn {
+    background: rgba(30, 41, 59, 0.8);
+    color: #94a3b8;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 0.25rem 0.55rem;
+    border-radius: 4px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .holo-mode-btn:hover {
+    background: rgba(56, 189, 248, 0.15);
+    color: #38bdf8;
+    border-color: rgba(56, 189, 248, 0.4);
+  }
+
+  .holo-mode-btn.active {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.25), rgba(14, 165, 233, 0.4));
+    color: #38bdf8;
+    border-color: #38bdf8;
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.3);
+  }
+
+  .holo-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.68rem;
+    color: #cbd5e1;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  /* Holomorphic Analytical Cursor Inspector HUD Card */
+  .holomorphic-inspector-card {
+    position: absolute;
+    width: 320px;
+    background: rgba(15, 23, 42, 0.98);
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7), 0 0 16px rgba(56, 189, 248, 0.15);
+    border-radius: 8px;
+    z-index: 55;
+    user-select: none;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+
+  .holomorphic-inspector-card.pinned {
+    border-color: #eab308;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7), 0 0 20px rgba(234, 179, 8, 0.2);
+  }
+
+  .holo-header {
+    background: rgba(30, 41, 59, 0.7);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 0.4rem 0.65rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .holo-title-group {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .holo-title {
+    font-size: 0.72rem;
+    font-weight: 800;
+    color: #38bdf8;
+    letter-spacing: 0.02em;
+  }
+
+  .badge-live {
+    background: rgba(16, 185, 129, 0.2);
+    color: #34d399;
+    border: 1px solid rgba(52, 211, 153, 0.35);
+    font-size: 0.58rem;
+    font-weight: 800;
+    padding: 0.05rem 0.3rem;
+    border-radius: 3px;
+  }
+
+  .badge-pinned {
+    background: rgba(234, 179, 8, 0.2);
+    color: #facc15;
+    border: 1px solid rgba(250, 204, 21, 0.4);
+    font-size: 0.58rem;
+    font-weight: 800;
+    padding: 0.05rem 0.3rem;
+    border-radius: 3px;
+  }
+
+  .holo-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .holo-unpin-btn {
+    background: rgba(234, 179, 8, 0.15);
+    color: #facc15;
+    border: 1px solid rgba(250, 204, 21, 0.35);
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    font-size: 0.62rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .holo-close-btn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+
+  .holo-close-btn:hover {
+    color: #fff;
+  }
+
+  .holo-body {
+    padding: 0.6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.32rem;
+    font-size: 0.7rem;
+  }
+
+  .holo-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: #94a3b8;
+  }
+
+  .holo-row.highlight-coord {
+    background: rgba(56, 189, 248, 0.1);
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+    color: #f8fafc;
+    font-weight: 700;
+  }
+
+  .holo-row.highlight-freq {
+    background: rgba(14, 165, 233, 0.12);
+    padding: 0.15rem 0.35rem;
+    border-radius: 4px;
+  }
+
+  .holo-row.cr-valid .val {
+    color: #34d399;
+  }
+
+  .holo-row.cr-warn .val {
+    color: #f87171;
+  }
+
+  .holo-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.08);
+    margin: 0.25rem 0;
+  }
+
+  .holo-section-lbl {
+    font-size: 0.6rem;
+    font-weight: 800;
+    color: #64748b;
+    letter-spacing: 0.05em;
+  }
+
+  .val.cyan {
+    color: #38bdf8;
+    font-weight: 700;
+  }
+
+  .val.growth {
+    color: #f59e0b;
+  }
+
+  .val.decay {
+    color: #38bdf8;
+  }
+
+  .val.emerald {
+    color: #10b981;
+    font-weight: 700;
+  }
+
+  .status-box.ridge-detected {
+    background: rgba(16, 185, 129, 0.15);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+  }
+
+  .taylor-box {
+    margin-top: 0.25rem;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    padding: 0.35rem 0.45rem;
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .taylor-title {
+    font-size: 0.62rem;
+    color: #38bdf8;
+    font-weight: 700;
+  }
+
+  .taylor-box code {
+    font-size: 0.65rem;
+    color: #e2e8f0;
+    font-family: monospace;
+  }
+
   /* 2D Spectrogram Minimap & Frustum Overview */
   .minimap-container {
     position: absolute !important;
@@ -3609,18 +4891,274 @@
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
   }
 
-  /* Floating TreeNN HUD Card */
+  /* Floating TreeNN & DDSP Neural Studio HUD Card */
   .tree-nn-hud-card {
     position: absolute;
-    width: 320px;
+    width: 380px;
+    max-height: calc(100vh - 110px);
+    overflow-y: auto;
     background: rgba(15, 23, 42, 0.96);
     border: 1px solid rgba(0, 242, 254, 0.45);
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7), 0 0 16px rgba(0, 242, 254, 0.25);
     border-radius: 8px;
     z-index: 50;
     user-select: none;
+    backdrop-filter: blur(14px);
+    scrollbar-width: thin;
+    scrollbar-color: rgba(56, 189, 248, 0.4) transparent;
+  }
+
+  .ddsp-preset-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: rgba(0, 0, 0, 0.25);
+    padding: 0.35rem 0.5rem;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .preset-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: #94a3b8;
+  }
+
+  .ddsp-preset-select {
+    flex: 1;
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    color: #f8fafc;
+    font-size: 0.68rem;
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .ddsp-action-toolbar {
+    display: grid;
+    grid-template-columns: 1.2fr 1.4fr 0.8fr 1fr;
+    gap: 0.3rem;
+  }
+
+  .ddsp-btn {
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 0.66rem;
+    font-weight: 700;
+    padding: 0.3rem 0.2rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .ddsp-btn.play-btn {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.3), rgba(5, 150, 105, 0.3));
+    border-color: #10b981;
+    color: #34d399;
+  }
+
+  .ddsp-btn.play-btn.active-play {
+    background: #ef4444 !important;
+    border-color: #f87171 !important;
+    color: #ffffff !important;
+  }
+
+  .ddsp-btn.extract-btn {
+    background: linear-gradient(135deg, rgba(168, 85, 247, 0.3), rgba(126, 34, 206, 0.3));
+    border-color: #a855f7;
+    color: #c084fc;
+  }
+
+  .ddsp-btn.export-btn {
+    background: rgba(56, 189, 248, 0.15);
+    border-color: #38bdf8;
+    color: #38bdf8;
+  }
+
+  .ddsp-btn.render-btn {
+    background: rgba(245, 158, 11, 0.15);
+    border-color: #f59e0b;
+    color: #fbbf24;
+  }
+
+  .ddsp-btn:hover {
+    filter: brightness(1.2);
+    transform: translateY(-1px);
+  }
+
+  .ddsp-status-banner {
+    background: rgba(0, 0, 0, 0.5);
+    border-left: 2px solid #38bdf8;
+    padding: 0.25rem 0.45rem;
+    font-size: 0.64rem;
+    color: #e2e8f0;
+    border-radius: 0 4px 4px 0;
+  }
+
+  .ddsp-subtabs {
+    display: flex;
+    gap: 0.25rem;
+    overflow-x: auto;
+    padding-bottom: 0.2rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .ddsp-subtab-btn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 0.65rem;
+    font-weight: 600;
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+  }
+
+  .ddsp-subtab-btn:hover {
+    color: #f8fafc;
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .ddsp-subtab-btn.active {
+    color: #00f2fe;
+    background: rgba(0, 242, 254, 0.15);
+    font-weight: 700;
+  }
+
+  .ddsp-tab-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+
+  .subheading {
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: #cbd5e1;
+  }
+
+  .hint-text {
+    font-size: 0.6rem;
+    color: #64748b;
+  }
+
+  .tree-topology-summary {
+    background: rgba(0, 0, 0, 0.25);
+    padding: 0.35rem 0.5rem;
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .edge-pill-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+
+  .edge-badge {
+    background: rgba(0, 242, 254, 0.12);
+    border: 1px solid rgba(0, 242, 254, 0.3);
+    color: #38bdf8;
+    font-size: 0.6rem;
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+  }
+
+  .harmonic-bars-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .bars-container {
+    display: flex;
+    justify-content: space-between;
+    background: rgba(0, 0, 0, 0.3);
+    padding: 0.4rem 0.2rem;
+    border-radius: 6px;
+    height: 70px;
+  }
+
+  .harmonic-bar-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 28px;
+    gap: 0.15rem;
+  }
+
+  .harmonic-bar-col .h-label {
+    font-size: 0.55rem;
+    color: #94a3b8;
+  }
+
+  .harmonic-bar-col .h-val {
+    font-size: 0.52rem;
+    color: #cbd5e1;
+  }
+
+  .vertical-slider {
+    writing-mode: vertical-lr;
+    direction: rtl;
+    width: 14px;
+    height: 38px;
+    accent-color: #38bdf8;
+    cursor: pointer;
+  }
+
+  .adsr-preview-box, .spectral-preview-box {
+    width: 100%;
+    height: 48px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
     overflow: hidden;
-    backdrop-filter: blur(12px);
+  }
+
+  .adsr-svg-curve, .spectral-svg-curve {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  .formant-row {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+
+  .f-badge {
+    font-size: 0.62rem;
+    color: #c084fc;
+    font-weight: 700;
+    width: 20px;
+  }
+
+  .compact-slider {
+    flex: 1;
+    height: 3px;
+  }
+
+  .module-card {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    padding: 0.4rem 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .module-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
   }
 
   .tree-nn-header {

@@ -6,6 +6,14 @@
 use wasm_bindgen::prelude::*;
 use std::f32::consts::{PI, TAU};
 
+pub mod ddsp_model;
+pub mod ddsp_engine;
+pub mod ddsp_analyzer;
+
+pub use ddsp_model::*;
+pub use ddsp_engine::*;
+pub use ddsp_analyzer::*;
+
 pub use vector_audio_geometry_synth::*;
 
 mod vector_audio_geometry_synth {
@@ -512,3 +520,312 @@ pub fn wasm_generate_ground_truth_preset(preset_name: &str, duration_s: f32, sam
 
     synth.render(duration_s)
 }
+
+// =========================================================================
+// EXPORTAÇÕES WASM PARA DDSP E TREENN
+// =========================================================================
+
+/// Sintetiza áudio a partir de uma configuração DDSP (JSON) e retorna bytes de arquivo WAV 16-bit
+#[wasm_bindgen]
+pub fn wasm_ddsp_synthesize_wav(config_json: &str) -> Result<Vec<u8>, JsValue> {
+    let config: DdspConfig = serde_json::from_str(config_json)
+        .map_err(|e| JsValue::from_str(&format!("Erro ao deserializar DdspConfig JSON: {}", e)))?;
+    let mut synth = DdspSynthesizer::new(config);
+    Ok(synth.render_wav())
+}
+
+/// Sintetiza áudio a partir de uma configuração DDSP (JSON) e retorna amostras PCM float32 [-1.0, 1.0]
+#[wasm_bindgen]
+pub fn wasm_ddsp_synthesize_pcm(config_json: &str) -> Result<Vec<f32>, JsValue> {
+    let config: DdspConfig = serde_json::from_str(config_json)
+        .map_err(|e| JsValue::from_str(&format!("Erro ao deserializar DdspConfig JSON: {}", e)))?;
+    let mut synth = DdspSynthesizer::new(config);
+    Ok(synth.render_pcm())
+}
+
+/// Analisa um arquivo ou fatia WAV de áudio e extrai a configuração DDSP analítica equivalente em JSON
+#[wasm_bindgen]
+pub fn wasm_ddsp_analyze_audio(data: &[u8], f0_hint: f32) -> Result<String, JsValue> {
+    let wav_info = crate::parse_wav_samples(data);
+    if wav_info.samples.is_empty() {
+        return Err(JsValue::from_str("Buffer de áudio vazio ou formato WAV inválido"));
+    }
+    let norm_factor = 32767.0f32;
+    let normalized_samples: Vec<f32> = wav_info.samples.iter().map(|&s| s / norm_factor).collect();
+    let hint = if f0_hint > 10.0 { Some(f0_hint) } else { None };
+    let config = analyze_audio_to_ddsp(&normalized_samples, wav_info.sample_rate as f32, hint);
+
+    serde_json::to_string_pretty(&config)
+        .map_err(|e| JsValue::from_str(&format!("Erro ao serializar DdspConfig para JSON: {}", e)))
+}
+
+/// Retorna a configuração JSON de um preset DDSP pré-definido
+#[wasm_bindgen]
+pub fn wasm_ddsp_get_preset(preset_name: &str) -> Result<String, JsValue> {
+    let mut config = DdspConfig::default();
+
+    match preset_name {
+        "vocal_formant" => {
+            config.f0 = 220.0;
+            config.amplitude = 0.85;
+            config.adsr.attack_s = 0.03;
+            config.adsr.decay_s = 0.12;
+            config.adsr.sustain = 0.75;
+            config.adsr.release_s = 0.25;
+            config.lfo.enabled = true;
+            config.lfo.rate_hz = 5.5;
+            config.lfo.depth_cents = 22.0;
+            config.spectral_envelope.formants = vec![
+                FormantFilter { center_hz: 700.0, bandwidth_hz: 110.0, gain_db: 4.0 },
+                FormantFilter { center_hz: 1220.0, bandwidth_hz: 140.0, gain_db: 1.0 },
+                FormantFilter { center_hz: 2600.0, bandwidth_hz: 180.0, gain_db: -3.0 },
+            ];
+            config.effects.reverb_enabled = true;
+            config.effects.reverb_decay_s = 1.3;
+            config.effects.reverb_mix = 0.18;
+        }
+        "fm_bell" => {
+            config.f0 = 440.0;
+            config.amplitude = 0.9;
+            config.adsr.attack_s = 0.005;
+            config.adsr.decay_s = 1.4;
+            config.adsr.sustain = 0.0;
+            config.adsr.release_s = 0.6;
+            config.fm.enabled = true;
+            config.fm.ratio = 1.414;
+            config.fm.index = 1.8;
+            config.harmonics.inharmonicity_b = 0.0008;
+            config.lfo.enabled = false;
+            config.effects.reverb_enabled = true;
+            config.effects.reverb_decay_s = 1.8;
+            config.effects.reverb_mix = 0.25;
+        }
+        "stiff_piano" => {
+            config.f0 = 130.81; // C3
+            config.amplitude = 0.85;
+            config.adsr.attack_s = 0.005;
+            config.adsr.decay_s = 0.9;
+            config.adsr.sustain = 0.35;
+            config.adsr.release_s = 0.5;
+            config.harmonics.inharmonicity_b = 0.0004; // Rigidez acústica
+            config.harmonics.roll_off_alpha = 1.25;
+            config.lfo.enabled = false;
+        }
+        "vibrato_strings" => {
+            config.f0 = 329.63; // E4
+            config.amplitude = 0.8;
+            config.adsr.attack_s = 0.12;
+            config.adsr.decay_s = 0.25;
+            config.adsr.sustain = 0.82;
+            config.adsr.release_s = 0.40;
+            config.lfo.enabled = true;
+            config.lfo.rate_hz = 5.2;
+            config.lfo.depth_cents = 32.0;
+            config.effects.filter_enabled = true;
+            config.effects.filter_cutoff_hz = 3200.0;
+            config.effects.filter_resonance_q = 1.1;
+            config.effects.reverb_enabled = true;
+            config.effects.reverb_decay_s = 1.6;
+            config.effects.reverb_mix = 0.22;
+        }
+        "analog_bass" => {
+            config.f0 = 65.41; // C2
+            config.amplitude = 0.95;
+            config.adsr.attack_s = 0.01;
+            config.adsr.decay_s = 0.18;
+            config.adsr.sustain = 0.65;
+            config.adsr.release_s = 0.15;
+            config.effects.filter_enabled = true;
+            config.effects.filter_cutoff_hz = 750.0;
+            config.effects.filter_resonance_q = 2.4;
+            config.lfo.enabled = false;
+        }
+        "treenn_3node" => {
+            config.f0 = 220.0;
+            config.tree.enabled = true;
+            config.tree.nodes = vec![
+                TreeNodeConfig {
+                    id: "node-carrier".to_string(),
+                    label: "Portadora Principal".to_string(),
+                    freq_hz: 220.0,
+                    amplitude: 1.0,
+                    phase_rad: 0.0,
+                    color: "#00f2fe".to_string(),
+                },
+                TreeNodeConfig {
+                    id: "node-submod".to_string(),
+                    label: "Sub-Modulador".to_string(),
+                    freq_hz: 110.0,
+                    amplitude: 0.6,
+                    phase_rad: 0.0,
+                    color: "#38ef7d".to_string(),
+                },
+                TreeNodeConfig {
+                    id: "node-lfo".to_string(),
+                    label: "LFO Neural".to_string(),
+                    freq_hz: 5.5,
+                    amplitude: 0.25,
+                    phase_rad: 0.0,
+                    color: "#f59e0b".to_string(),
+                },
+            ];
+            config.tree.edges = vec![
+                TreeEdgeConfig {
+                    parent_id: "node-carrier".to_string(),
+                    child_id: "node-submod".to_string(),
+                    beta: 0.5,
+                },
+                TreeEdgeConfig {
+                    parent_id: "node-carrier".to_string(),
+                    child_id: "node-lfo".to_string(),
+                    beta: 0.35,
+                },
+            ];
+            config.lfo.enabled = false;
+        }
+        _ => {
+            // Default preset
+        }
+    }
+
+    serde_json::to_string_pretty(&config)
+        .map_err(|e| JsValue::from_str(&format!("Erro ao serializar preset para JSON: {}", e)))
+}
+
+/// Retorna a lista de presets DDSP disponíveis com metadados em JSON
+#[wasm_bindgen]
+pub fn wasm_ddsp_list_presets() -> String {
+    let presets = vec![
+        serde_json::json!({
+            "id": "vocal_formant",
+            "name": "Vocal Formant (A3)",
+            "description": "Síntese vocal com formantes acústicos (F1/F2/F3) e vibrato LFO natural."
+        }),
+        serde_json::json!({
+            "id": "fm_bell",
+            "name": "FM Bell & Inharmonicity",
+            "description": "Sino FM com modulação angular beta=1.8 e rigidez inarmônica B=0.0008."
+        }),
+        serde_json::json!({
+            "id": "stiff_piano",
+            "name": "Stiff Piano String",
+            "description": "Corda de piano com dispersão física de parciais e decaimento exponencial."
+        }),
+        serde_json::json!({
+            "id": "vibrato_strings",
+            "name": "Vibrato Strings Ensemble",
+            "description": "Cordas com envelope suave, vibrato de 32 cents, filtro SVF e reverb."
+        }),
+        serde_json::json!({
+            "id": "analog_bass",
+            "name": "Analog Resonant Bass",
+            "description": "Baixo analógico com harmônicos ricos e filtro passa-baixas ressonante."
+        }),
+        serde_json::json!({
+            "id": "treenn_3node",
+            "name": "TreeNN 3-Node Topology",
+            "description": "Grafo causal hierárquico com portadora e 2 nós moduladores acoplados."
+        }),
+    ];
+
+    serde_json::to_string(&presets).unwrap_or_else(|_| "[]".to_string())
+}
+
+#[cfg(test)]
+mod ddsp_tests {
+    use super::*;
+
+    #[test]
+    fn test_ddsp_gauge_spectral_basis_invariants() {
+        // O gauge exige S(440) = 0 dB (ganho linear = 1.0)
+        let weights = [1.5, -0.8, 0.4, -0.2];
+        let gain_440 = evaluate_gauge_spectral_basis(440.0, &weights);
+        assert!((gain_440 - 1.0).abs() < 1e-6, "Gauge S(440) deve ser exatamente 0 dB (ganho 1.0), obteve {}", gain_440);
+
+        // Derivada em 440 Hz deve ser 0 dB/oitava: avaliando vizinhança infinitesimal
+        let delta_u = 1e-4;
+        let f_plus = 440.0 * 2.0f32.powf(delta_u);
+        let f_minus = 440.0 * 2.0f32.powf(-delta_u);
+        let gain_plus = evaluate_gauge_spectral_basis(f_plus, &weights);
+        let gain_minus = evaluate_gauge_spectral_basis(f_minus, &weights);
+        let slope = (gain_plus - gain_minus) / (2.0 * delta_u);
+        assert!(slope.abs() < 1e-3, "Derivada dS/du(440) deve ser 0 dB/oct, obteve slope {}", slope);
+    }
+
+    #[test]
+    fn test_ddsp_adsr_continuity() {
+        let dur = 1.0;
+        let a = 0.05;
+        let d = 0.15;
+        let s = 0.6;
+        let r = 0.2;
+
+        let val_start = evaluate_adsr(0.0, dur, a, d, s, r, EnvCurveKind::CubicSmooth);
+        let val_peak = evaluate_adsr(a, dur, a, d, s, r, EnvCurveKind::CubicSmooth);
+        let val_sus = evaluate_adsr(a + d, dur, a, d, s, r, EnvCurveKind::CubicSmooth);
+        let val_end = evaluate_adsr(dur, dur, a, d, s, r, EnvCurveKind::CubicSmooth);
+
+        assert!((val_start - 0.0).abs() < 1e-3, "ADSR t=0 deve ser 0.0");
+        assert!((val_peak - 1.0).abs() < 1e-3, "ADSR t=a deve ser 1.0");
+        assert!((val_sus - s).abs() < 1e-3, "ADSR t=a+d deve ser sustain ({})", s);
+        assert!((val_end - 0.0).abs() < 1e-3, "ADSR t=dur deve ser 0.0");
+    }
+
+    #[test]
+    fn test_ddsp_synthesizer_pcm_and_wav_generation() {
+        let mut config = DdspConfig::default();
+        config.duration_s = 0.25;
+        config.sample_rate = 12000.0;
+        config.f0 = 220.0;
+
+        let mut synth = DdspSynthesizer::new(config.clone());
+        let pcm = synth.render_pcm();
+        assert_eq!(pcm.len(), 3000);
+        for &sample in &pcm {
+            assert!(sample.is_finite(), "Amostras PCM devem ser finitas");
+            assert!(sample.abs() <= 1.0, "Amostras PCM devem estar em [-1.0, 1.0]");
+        }
+
+        let wav = synth.render_wav();
+        assert!(wav.len() > 44, "Arquivo WAV deve conter cabeçalho RIFF e amostras");
+        assert_eq!(&wav[0..4], b"RIFF");
+        assert_eq!(&wav[8..12], b"WAVE");
+        assert_eq!(&wav[12..16], b"fmt ");
+        assert_eq!(&wav[36..40], b"data");
+    }
+
+    #[test]
+    fn test_ddsp_presets_render_successfully() {
+        let presets = ["vocal_formant", "fm_bell", "stiff_piano", "vibrato_strings", "analog_bass", "treenn_3node"];
+        for preset_name in presets {
+            let json_str = wasm_ddsp_get_preset(preset_name).expect("Preset deve existir");
+            let config: DdspConfig = serde_json::from_str(&json_str).expect("JSON de preset deve ser válido");
+            let mut synth = DdspSynthesizer::new(config);
+            let wav = synth.render_wav();
+            assert!(wav.len() > 1000, "Preset {} deve renderizar arquivo WAV com sucesso", preset_name);
+        }
+    }
+
+    #[test]
+    fn test_ddsp_analyzer_audio_roundtrip() {
+        // Gera tom de teste com f0 = 220 Hz
+        let mut config = DdspConfig::default();
+        config.duration_s = 0.5;
+        config.sample_rate = 12000.0;
+        config.f0 = 220.0;
+        config.harmonics.amplitudes = vec![1.0, 0.5, 0.25, 0.12];
+
+        let mut synth = DdspSynthesizer::new(config);
+        let wav = synth.render_wav();
+
+        let analyzed_json = wasm_ddsp_analyze_audio(&wav, 220.0).expect("Análise deve ser bem-sucedida");
+        let analyzed: DdspConfig = serde_json::from_str(&analyzed_json).expect("Config recuperada deve ser válida");
+
+        let f0_error_cents = 1200.0 * (analyzed.f0 / 220.0).log2().abs();
+        assert!(f0_error_cents < 5.0, "Erro de f0 deve ser menor que 5 cents, foi {} cents", f0_error_cents);
+        assert!(analyzed.harmonics.amplitudes.len() >= 3, "Deve recuperar pelo menos 3 harmônicos");
+        assert!((analyzed.harmonics.amplitudes[0] - 1.0).abs() < 1e-4, "H1 deve ser normalizado em 1.0 por gauge");
+    }
+}
+
+

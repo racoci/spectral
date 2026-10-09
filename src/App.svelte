@@ -2,9 +2,12 @@
   import { onMount, onDestroy, untrack } from 'svelte';
   import AudioConverter from './lib/AudioConverter.svelte';
   import WebGlEditor from './lib/WebGlEditor.svelte';
+  import DdspStudio from './lib/DdspStudio.svelte';
   import init, { 
     wasm_generate_complex_reassigned_ycbcr_spectrogram,
     wasm_generate_holomorphic_exploration_spectrogram,
+    wasm_render_holomorphic_field,
+    wasm_probe_holomorphic_analytic_point,
     wasm_get_spectrogram_dimensions,
     WasmSpectrogramStreamer,
     wasm_cache_base_quadruplets,
@@ -33,7 +36,10 @@
   let progressiveSessionId = 0;
   let refinementProgress = $state<number | null>(null);
   let mirroredDensity = $state<Float32Array | null>(null);
-  let currentView = $derived<'converter' | 'editor'>(currentHash === '#/converter' ? 'converter' : 'editor');
+  let sharedDdspConfig = $state<any>(null);
+  let currentView = $derived<'converter' | 'editor' | 'synth'>(
+    currentHash === '#/converter' ? 'converter' : (currentHash === '#/synth' ? 'synth' : 'editor')
+  );
 
   // Advanced DSP Configurations (Pure Gaussian-Hermite Pipeline)
   const windowType = 'gaussian';
@@ -41,7 +47,10 @@
   let zeroPadding = $state<number>(2);
   let fmin = $state<number>(20);
   let fmax = $state<number>(20000);
-  let algorithmType = $state<'reassignment' | 'log' | 'cqt' | 'holomorphic' | 'higher_order' | 'sliding_jet'>('reassignment');
+  let algorithmType = $state<'reassignment' | 'log' | 'cqt' | 'holomorphic' | 'higher_order' | 'sliding_jet'>('holomorphic');
+  let holomorphicFieldMode = $state<'log_amplitude' | 'phase' | 'phase_frequency' | 'envelope_growth' | 'cr_residual' | 'harmonicity_residual'>('log_amplitude');
+  let showContours = $state<boolean>(true);
+  let showRidgeCandidates = $state<boolean>(true);
   let higherOrderO = $state<number>(2);
   let higherOrderVisualMode = $state<'ridge' | 'anisotropy' | 'curvature' | 'vector_reassign'>('ridge');
   let paletteType = $state<'ycbcr' | 'snake'>('ycbcr');
@@ -247,24 +256,25 @@
       const targetViewStart = wasmViewStart;
       const targetViewEnd = wasmViewEnd;
 
-      // Executa nova versão holomorfa isolada ou mantém 100% intacta a versão anterior:
+      // Executa nova versão holomorfa analítica ou mantém a versão anterior:
       let rawGrid: Uint8Array;
       if (algorithmType === 'holomorphic') {
         const approxW = gridW > 0 ? gridW : 1000;
         const c_start = Math.floor(targetViewStart * approxW);
         const c_end = Math.ceil(targetViewEnd * approxW);
-        rawGrid = wasm_generate_holomorphic_exploration_spectrogram(
+        const scaleStr = frequencyScale === 'log' ? 'cqt' : frequencyScale;
+        rawGrid = wasm_render_holomorphic_field(
           originalBytes,
           selectedHeight,
           fmin,
           fmax,
-          frequencyScale,
-          paletteType,
+          scaleStr,
+          holomorphicFieldMode,
+          showContours,
+          showRidgeCandidates,
           c_start,
           c_end,
-          2.0,
-          enableTimeReassignment || enableFreqReassignment,
-          true
+          2.0
         );
       } else {
         rawGrid = wasm_generate_complex_reassigned_ycbcr_spectrogram(
@@ -360,8 +370,11 @@
     const _pointRadius = pointRadius;
     const _scale = frequencyScale;
     const _resK = horizontalResolutionK;
+    const _holoMode = holomorphicFieldMode;
+    const _holoContours = showContours;
+    const _holoRidge = showRidgeCandidates;
     
-    if (_bytes && _loaded && _winType && _winSize && _zeroPadding && _fmin && _fmax && _algo && _pal && _height && _scale && _resK !== undefined && _ho_o !== undefined && _ho_m !== undefined) {
+    if (_bytes && _loaded && _winType && _winSize && _zeroPadding && _fmin && _fmax && _algo && _pal && _height && _scale && _resK !== undefined && _ho_o !== undefined && _ho_m !== undefined && _holoMode !== undefined && _holoContours !== undefined && _holoRidge !== undefined) {
       untrack(() => {
         regenerateSpectrogram();
       });
@@ -535,13 +548,19 @@
   }
 
   // Switch to route helpers
-  function navigateTo(view: 'converter' | 'editor') {
+  function navigateTo(view: 'converter' | 'editor' | 'synth') {
     if (view === 'editor' && !rgbaGrid) return;
-    window.location.hash = view === 'editor' ? '#/editor' : '#/converter';
+    if (view === 'synth') {
+      window.location.hash = '#/synth';
+    } else if (view === 'editor') {
+      window.location.hash = '#/editor';
+    } else {
+      window.location.hash = '#/converter';
+    }
   }
 </script>
 
-<main class="app-container" class:full-screen-layout={currentView === 'editor'}>
+<main class="app-container" class:full-screen-layout={currentView === 'editor' || currentView === 'synth'}>
   
   {#if currentView === 'converter'}
     <header class="app-header">
@@ -553,6 +572,7 @@
         <div class="view-toggles" style="margin-left: auto;">
           <button class="active" onclick={() => navigateTo('converter')}>1. Converter</button>
           <button onclick={() => navigateTo('editor')} disabled={!rgbaGrid}>2. WebGL Editor</button>
+          <button onclick={() => navigateTo('synth')}>3. DDSP Studio</button>
         </div>
       </div>
       <p class="tagline">
@@ -589,6 +609,9 @@
       bind:fmin={fmin}
       bind:fmax={fmax}
       bind:algorithmType={algorithmType}
+      bind:holomorphicFieldMode={holomorphicFieldMode}
+      bind:showContours={showContours}
+      bind:showRidgeCandidates={showRidgeCandidates}
       bind:higherOrderO={higherOrderO}
       bind:higherOrderVisualMode={higherOrderVisualMode}
       bind:paletteType={paletteType}
@@ -617,6 +640,15 @@
       onPlayToggle={triggerAudioPlayback}
       onAudioUploaded={handleDirectAudioUpload}
       onBackToConverter={() => navigateTo('converter')}
+      onTransportToSynth={(cfg) => { sharedDdspConfig = cfg; navigateTo('synth'); }}
+    />
+  {:else if currentView === 'synth'}
+    <!-- In synth view, the DdspStudio provides the full parametric studio environment -->
+    <DdspStudio 
+      originalBytes={originalBytes}
+      initialConfig={sharedDdspConfig}
+      onNavigate={navigateTo}
+      onTransportToEditor={(wav) => handleDirectAudioUpload(wav)}
     />
   {/if}
 

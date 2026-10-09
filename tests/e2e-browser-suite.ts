@@ -403,6 +403,169 @@ async function runE2EBrowserSuite() {
     await page.screenshot({ path: screen6Path, fullPage: true });
     console.log(`  ✅ Screenshot 6 salva em: ${screen6Path}`);
 
+    // 9. FASE 7: Teste do Novo DDSP & TreeNN Studio (Rota #/synth) e Transporte Bidirecional
+    console.log('\n--------------------------------------------------------------------------------');
+    console.log('📸 STAGE 7: Teste do DDSP & TreeNN Studio e Transporte Bidirecional...');
+    console.log('--------------------------------------------------------------------------------');
+
+    // Navega para #/synth
+    console.log('  Navegando para rota [#/synth] (DDSP Studio)...');
+    await page.evaluate(() => {
+      window.location.hash = '#/synth';
+    });
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
+    // Validação da interface do DDSP Studio
+    const studioAudit = await page.evaluate(() => {
+      const container = document.querySelector('.ddsp-studio-container');
+      const nodes = document.querySelectorAll('.tree-node-item');
+      const tabs = document.querySelectorAll('.tab-btn');
+      const osc = document.querySelector('canvas.display-canvas');
+      return {
+        hasContainer: container !== null,
+        nodeCount: nodes.length,
+        tabCount: tabs.length,
+        hasOsc: osc !== null
+      };
+    });
+
+    console.log(`  Container DDSP Studio: ${studioAudit.hasContainer ? 'PRESENTE ✅' : 'AUSENTE ❌'}`);
+    console.log(`  Nós da TreeNN Renderizados: ${studioAudit.nodeCount}`);
+    console.log(`  Sub-Abas de Parâmetros: ${studioAudit.tabCount}`);
+    console.log(`  Osciloscópio / Display Canvas: ${studioAudit.hasOsc ? 'PRESENTE ✅' : 'AUSENTE ❌'}`);
+
+    if (!studioAudit.hasContainer) {
+      throw new Error('O container do DDSP Studio não foi renderizado!');
+    }
+
+    // Troca para o preset FM Bell e sintetiza
+    console.log('  Selecionando preset [fm_bell] e sintetizando...');
+    await page.evaluate(() => {
+      const sel = document.querySelector('#studio-preset-select') as HTMLSelectElement;
+      if (sel) {
+        sel.value = 'fm_bell';
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    // Captura de Tela 7: DDSP Studio Ativo com Preset FM Bell
+    const screen7Path = path.join(SCREENSHOT_DIR, '07_ddsp_studio_active.png');
+    await page.screenshot({ path: screen7Path, fullPage: true });
+    console.log(`  ✅ Screenshot 7 salva em: ${screen7Path}`);
+
+    // Testa transporte de volta para o WebGL Editor
+    console.log('  Disparando transporte via [🚀 Para o WebGL Editor]...');
+    await page.evaluate(() => {
+      const btn = document.querySelector('button.transport-btn') as HTMLButtonElement;
+      if (btn) btn.click();
+    });
+    await new Promise(resolve => setTimeout(resolve, 2500));
+
+    // Verifica que voltou para o editor com o novo áudio sintetizado
+    const returnedToEditor = await page.evaluate(() => {
+      return window.location.hash === '#/editor' && document.querySelector('.canvas-container canvas') !== null;
+    });
+    console.log(`  Retorno ao WebGL Editor com áudio sintetizado: ${returnedToEditor ? 'SUCESSO ✅' : 'FALHA ❌'}`);
+    if (!returnedToEditor) {
+      throw new Error('Falha ao transportar áudio gerado pelo DDSP para o WebGL Editor!');
+    }
+
+    // Captura de Tela 7b: Espectrograma atualizado a partir do áudio transportado
+    const screen7bPath = path.join(SCREENSHOT_DIR, '07b_editor_after_ddsp_transport.png');
+    await page.screenshot({ path: screen7bPath, fullPage: true });
+    console.log(`  ✅ Screenshot 7b salva em: ${screen7bPath}`);
+
+    // --------------------------------------------------------------------------------
+    // 10. STAGE 8: Validação dos Modos do Campo Holomorfo e do Cursor Analítico
+    // --------------------------------------------------------------------------------
+    console.log('\n--------------------------------------------------------------------------------');
+    console.log('📸 STAGE 8: Validação do Campo Holomorfo E(t, y) e Cursor Analítico...');
+    console.log('--------------------------------------------------------------------------------');
+
+    // Seleciona explicitamente o modo Campo Holomorfo se não estiver ativo
+    await page.evaluate(() => {
+      const algoSelect = document.querySelector('#algorithm-select') as HTMLSelectElement;
+      if (algoSelect && algoSelect.value !== 'holomorphic') {
+        algoSelect.value = 'holomorphic';
+        algoSelect.dispatchEvent(new Event('change'));
+      }
+    });
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    // Verifica presença da barra de modos holomorfos
+    const subbarExists = await page.evaluate(() => document.querySelector('.holomorphic-subbar') !== null);
+    console.log(`  Barra de Modos Holomorfos presente: ${subbarExists ? 'SIM ✅' : 'NÃO ❌'}`);
+    if (!subbarExists) {
+      throw new Error('Barra .holomorphic-subbar não encontrada no DOM!');
+    }
+
+    // Alterna modos de campo via botões da subbar
+    console.log('  Alternando para modo [🔄 Fase φ]...');
+    await page.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll('.holo-mode-btn')) as HTMLButtonElement[];
+      const phaseBtn = btns.find(b => b.textContent?.includes('Fase'));
+      if (phaseBtn) phaseBtn.click();
+    });
+    await new Promise(resolve => setTimeout(resolve, 600));
+
+    console.log('  Alternando para modo [⚡ Freq f_φ]...');
+    await page.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll('.holo-mode-btn')) as HTMLButtonElement[];
+      const freqBtn = btns.find(b => b.textContent?.includes('Freq'));
+      if (freqBtn) freqBtn.click();
+    });
+    await new Promise(resolve => setTimeout(resolve, 600));
+
+    console.log('  Alternando para modo [⚖️ Resíduo CR]...');
+    await page.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll('.holo-mode-btn')) as HTMLButtonElement[];
+      const crBtn = btns.find(b => b.textContent?.includes('CR'));
+      if (crBtn) crBtn.click();
+    });
+    await new Promise(resolve => setTimeout(resolve, 600));
+
+    // Retorna para Potencial a(t, y)
+    console.log('  Retornando para modo [🌌 Potencial a]...');
+    await page.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll('.holo-mode-btn')) as HTMLButtonElement[];
+      const potBtn = btns.find(b => b.textContent?.includes('Potencial'));
+      if (potBtn) potBtn.click();
+    });
+    await new Promise(resolve => setTimeout(resolve, 600));
+
+    // Simula movimento do mouse sobre o canvas para disparar o cursor analítico
+    console.log('  Disparando Cursor Analítico Holomorfo sobre o canvas...');
+    const canvasBox = await page.evaluate(() => {
+      const c = document.querySelector('.canvas-container canvas') as HTMLCanvasElement;
+      if (!c) return null;
+      const rect = c.getBoundingClientRect();
+      return { x: rect.left + rect.width * 0.45, y: rect.top + rect.height * 0.5 };
+    });
+
+    if (canvasBox) {
+      await page.mouse.move(canvasBox.x, canvasBox.y);
+      await new Promise(resolve => setTimeout(resolve, 300));
+      // Clica para fixar o ponto e ativar a parábola de Taylor
+      await page.mouse.click(canvasBox.x, canvasBox.y);
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    // Verifica que o painel do cursor analítico holomorfo está renderizado
+    const inspectorCardExists = await page.evaluate(() => {
+      const card = document.querySelector('.holomorphic-inspector-card');
+      return card !== null && card.textContent?.includes('Cursor Analítico Holomorfo');
+    });
+    console.log(`  Painel do Cursor Analítico Holomorfo renderizado: ${inspectorCardExists ? 'SIM ✅' : 'NÃO ❌'}`);
+    if (!inspectorCardExists) {
+      throw new Error('Painel .holomorphic-inspector-card não foi exibido pelo cursor analítico!');
+    }
+
+    // Captura de Tela 8: Campo Holomorfo e Cursor Analítico com Invariantes de Cauchy-Riemann
+    const screen8Path = path.join(SCREENSHOT_DIR, '08_holomorphic_field_analytic_inspector.png');
+    await page.screenshot({ path: screen8Path, fullPage: true });
+    console.log(`  ✅ Screenshot 8 salva em: ${screen8Path}`);
+
     // Validação de Ausência de Erros no Console
     console.log('\n--------------------------------------------------------------------------------');
     console.log('🔍 ANÁLISE DE DIAGNÓSTICOS DO NAVEGADOR:');
@@ -419,7 +582,7 @@ async function runE2EBrowserSuite() {
     console.log('\n--------------------------------------------------------------------------------');
     console.log('🖼️ AUDITORIA DE ARQUIVOS DE SCREENSHOT:');
     console.log('--------------------------------------------------------------------------------');
-    const files = [screen1Path, screen2Path, screen2bPath, screen3Path, screen3bPath, screen4Path, screen4bPath, screen5Path, screen6Path];
+    const files = [screen1Path, screen2Path, screen2bPath, screen3Path, screen3bPath, screen4Path, screen4bPath, screen5Path, screen6Path, screen7Path, screen7bPath, screen8Path];
     for (const f of files) {
       const stat = fs.statSync(f);
       console.log(`  ${path.basename(f)}: ${stat.size} bytes (Arquivo PNG válido) ✅`);
