@@ -566,6 +566,82 @@ async function runE2EBrowserSuite() {
     await page.screenshot({ path: screen8Path, fullPage: true });
     console.log(`  ✅ Screenshot 8 salva em: ${screen8Path}`);
 
+    // --------------------------------------------------------------------------------
+    // 11. STAGE 9: Navegação e Validação da Nova UI STN Synth (#/stn)
+    // --------------------------------------------------------------------------------
+    console.log('\n--------------------------------------------------------------------------------');
+    console.log('📸 STAGE 9: Navegação e Validação da Nova UI STN Synth (Sines + Transients + Noise)...');
+    console.log('--------------------------------------------------------------------------------');
+
+    // Navega para a rota #/stn
+    console.log('  Navegando para rota #/stn...');
+    await page.evaluate(() => {
+      window.location.hash = '#/stn';
+    });
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    // Valida que o container STN Synth foi montado
+    const stnBrand = await page.evaluate(() => {
+      const b = document.querySelector('.stn-app .brand strong');
+      return b ? b.textContent : null;
+    });
+    console.log(`  Marca STN detectada: ${stnBrand ? 'SUCESSO ✅ (' + stnBrand + ')' : 'FALHA ❌'}`);
+    if (!stnBrand || !stnBrand.includes('STN Synth')) {
+      throw new Error('A UI STN Synth não foi montada na rota #/stn!');
+    }
+
+    // Valida presença dos três componentes S/T/N
+    const componentsDetected = await page.evaluate(() => {
+      const heads = Array.from(document.querySelectorAll('.accent-head')).map(h => h.textContent?.trim());
+      return {
+        hasS: heads.some(t => t?.includes('SENOIDES')),
+        hasT: heads.some(t => t?.includes('TRANSIENTES')),
+        hasN: heads.some(t => t?.includes('RUÍDO'))
+      };
+    });
+    console.log(`  Painéis S/T/N detectados: S=${componentsDetected.hasS}, T=${componentsDetected.hasT}, N=${componentsDetected.hasN} ✅`);
+    if (!componentsDetected.hasS || !componentsDetected.hasT || !componentsDetected.hasN) {
+      throw new Error('Um ou mais painéis fundamentais (S, T, N) estão ausentes no STN Synth!');
+    }
+
+    // Aplica o preset "pluck"
+    console.log('  Aplicando preset "Cordas percutidas (pluck)"...');
+    await page.evaluate(() => {
+      const sel = document.querySelector('#preset-selector') as HTMLSelectElement;
+      if (sel) {
+        sel.value = 'pluck';
+        sel.dispatchEvent(new Event('change'));
+      }
+    });
+    await new Promise(resolve => setTimeout(resolve, 600));
+
+    // Clica no botão Renderizar
+    console.log('  Acionando botão "Renderizar"...');
+    await page.evaluate(() => {
+      const btn = document.querySelector('.action-btn') as HTMLButtonElement;
+      if (btn) btn.click();
+    });
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Captura de Tela 9: Nova UI do STN Synth
+    const screen9Path = path.join(SCREENSHOT_DIR, '09_stn_synth_studio.png');
+    await page.screenshot({ path: screen9Path, fullPage: true });
+    console.log(`  ✅ Screenshot 9 salva em: ${screen9Path}`);
+
+    // Testa transporte para o WebGL Editor via botão da topbar
+    console.log('  Testando transporte de áudio do STN Synth para o WebGL Editor...');
+    await page.evaluate(() => {
+      const transportBtn = Array.from(document.querySelectorAll('.nav button')).find(b => b.textContent?.includes('Editor 2D')) as HTMLButtonElement;
+      if (transportBtn) transportBtn.click();
+    });
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    const returnedToEditorFromStn = await page.evaluate(() => window.location.hash.includes('editor'));
+    console.log(`  Retorno ao WebGL Editor: ${returnedToEditorFromStn ? 'SUCESSO ✅' : 'FALHA ❌'}`);
+    if (!returnedToEditorFromStn) {
+      throw new Error('Falha ao retornar ao editor a partir do STN Synth!');
+    }
+
     // Validação de Ausência de Erros no Console
     console.log('\n--------------------------------------------------------------------------------');
     console.log('🔍 ANÁLISE DE DIAGNÓSTICOS DO NAVEGADOR:');
@@ -582,7 +658,7 @@ async function runE2EBrowserSuite() {
     console.log('\n--------------------------------------------------------------------------------');
     console.log('🖼️ AUDITORIA DE ARQUIVOS DE SCREENSHOT:');
     console.log('--------------------------------------------------------------------------------');
-    const files = [screen1Path, screen2Path, screen2bPath, screen3Path, screen3bPath, screen4Path, screen4bPath, screen5Path, screen6Path, screen7Path, screen7bPath, screen8Path];
+    const files = [screen1Path, screen2Path, screen2bPath, screen3Path, screen3bPath, screen4Path, screen4bPath, screen5Path, screen6Path, screen7Path, screen7bPath, screen8Path, screen9Path];
     for (const f of files) {
       const stat = fs.statSync(f);
       console.log(`  ${path.basename(f)}: ${stat.size} bytes (Arquivo PNG válido) ✅`);

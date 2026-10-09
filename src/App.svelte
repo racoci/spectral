@@ -3,6 +3,7 @@
   import AudioConverter from './lib/AudioConverter.svelte';
   import WebGlEditor from './lib/WebGlEditor.svelte';
   import DdspStudio from './lib/DdspStudio.svelte';
+  import StnStudio from './lib/StnStudio.svelte';
   import init, { 
     wasm_generate_complex_reassigned_ycbcr_spectrogram,
     wasm_generate_holomorphic_exploration_spectrogram,
@@ -37,8 +38,8 @@
   let refinementProgress = $state<number | null>(null);
   let mirroredDensity = $state<Float32Array | null>(null);
   let sharedDdspConfig = $state<any>(null);
-  let currentView = $derived<'converter' | 'editor' | 'synth'>(
-    currentHash === '#/converter' ? 'converter' : (currentHash === '#/synth' ? 'synth' : 'editor')
+  let currentView = $derived<'converter' | 'editor' | 'synth' | 'stn'>(
+    currentHash === '#/converter' ? 'converter' : (currentHash === '#/synth' ? 'synth' : (currentHash === '#/stn' ? 'stn' : 'editor'))
   );
 
   // Advanced DSP Configurations (Pure Gaussian-Hermite Pipeline)
@@ -548,9 +549,11 @@
   }
 
   // Switch to route helpers
-  function navigateTo(view: 'converter' | 'editor' | 'synth') {
+  function navigateTo(view: 'converter' | 'editor' | 'synth' | 'stn') {
     if (view === 'editor' && !rgbaGrid) return;
-    if (view === 'synth') {
+    if (view === 'stn') {
+      window.location.hash = '#/stn';
+    } else if (view === 'synth') {
       window.location.hash = '#/synth';
     } else if (view === 'editor') {
       window.location.hash = '#/editor';
@@ -560,7 +563,7 @@
   }
 </script>
 
-<main class="app-container" class:full-screen-layout={currentView === 'editor' || currentView === 'synth'}>
+<main class="app-container" class:full-screen-layout={currentView === 'editor' || currentView === 'synth' || currentView === 'stn'}>
   
   {#if currentView === 'converter'}
     <header class="app-header">
@@ -573,6 +576,7 @@
           <button class="active" onclick={() => navigateTo('converter')}>1. Converter</button>
           <button onclick={() => navigateTo('editor')} disabled={!rgbaGrid}>2. WebGL Editor</button>
           <button onclick={() => navigateTo('synth')}>3. DDSP Studio</button>
+          <button onclick={() => navigateTo('stn')}>4. STN Synth</button>
         </div>
       </div>
       <p class="tagline">
@@ -641,12 +645,20 @@
       onAudioUploaded={handleDirectAudioUpload}
       onBackToConverter={() => navigateTo('converter')}
       onTransportToSynth={(cfg) => { sharedDdspConfig = cfg; navigateTo('synth'); }}
+      onTransportToStn={() => navigateTo('stn')}
     />
   {:else if currentView === 'synth'}
     <!-- In synth view, the DdspStudio provides the full parametric studio environment -->
     <DdspStudio 
       originalBytes={originalBytes}
       initialConfig={sharedDdspConfig}
+      onNavigate={navigateTo}
+      onTransportToEditor={(wav) => handleDirectAudioUpload(wav)}
+    />
+  {:else if currentView === 'stn'}
+    <!-- STN Synth: Sines + Transients + Noise Studio Environment -->
+    <StnStudio 
+      originalBytes={originalBytes}
       onNavigate={navigateTo}
       onTransportToEditor={(wav) => handleDirectAudioUpload(wav)}
     />

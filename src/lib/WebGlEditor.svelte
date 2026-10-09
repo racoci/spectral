@@ -71,7 +71,8 @@
     onPlayToggle,
     onAudioUploaded,
     onBackToConverter,
-    onTransportToSynth = () => {} 
+    onTransportToSynth = () => {},
+    onTransportToStn = () => {} 
   }: { 
     rgbaGrid: Uint8Array | null, 
     originalBytes?: Uint8Array | null,
@@ -117,7 +118,8 @@
     onPlayToggle: (mode?: 'original' | 'resynthesized') => void,
     onAudioUploaded: (bytes: Uint8Array) => void,
     onBackToConverter: () => void,
-    onTransportToSynth?: (config: any) => void
+    onTransportToSynth?: (config: any) => void,
+    onTransportToStn?: () => void
   } = $props();
 
   let canvas: HTMLCanvasElement;
@@ -2626,6 +2628,10 @@
 
       <button class="back-btn" onclick={() => onTransportToSynth ? onTransportToSynth(ddspConfig) : (window.location.hash = '#/synth')} title="Abrir Estúdio Paramétrico DDSP & TreeNN">
         🌳 3. DDSP Studio
+      </button>
+
+      <button class="back-btn" onclick={() => onTransportToStn ? onTransportToStn() : (window.location.hash = '#/stn')} title="Abrir STN Synth (Senoides + Transientes + Ruído)">
+        ∿ 4. STN Synth
       </button>
       
       <div class="vertical-divider"></div>
