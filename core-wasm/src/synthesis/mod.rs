@@ -9,10 +9,14 @@ use std::f32::consts::{PI, TAU};
 pub mod ddsp_model;
 pub mod ddsp_engine;
 pub mod ddsp_analyzer;
+pub mod stn_model;
+pub mod stn_engine;
 
 pub use ddsp_model::*;
 pub use ddsp_engine::*;
 pub use ddsp_analyzer::*;
+pub use stn_model::*;
+pub use stn_engine::*;
 
 pub use vector_audio_geometry_synth::*;
 
@@ -729,6 +733,100 @@ pub fn wasm_ddsp_list_presets() -> String {
     ];
 
     serde_json::to_string(&presets).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// Síntese STN gerando arquivo WAV 16-bit estéreo completo
+#[wasm_bindgen]
+pub fn wasm_stn_synthesize_wav(config_json: &str) -> Result<Vec<u8>, JsValue> {
+    let cfg: StnConfig = serde_json::from_str(config_json)
+        .map_err(|e| JsValue::from_str(&format!("Erro ao deserializar StnConfig JSON: {}", e)))?;
+    let (left, right) = synthesize_stn_pcm(&cfg);
+    Ok(encode_stn_wav(&left, &right, cfg.sample_rate as u32))
+}
+
+/// Síntese STN retornando amostras PCM float32 intercaladas (L, R, L, R...)
+#[wasm_bindgen]
+pub fn wasm_stn_synthesize_pcm(config_json: &str) -> Result<Vec<f32>, JsValue> {
+    let cfg: StnConfig = serde_json::from_str(config_json)
+        .map_err(|e| JsValue::from_str(&format!("Erro ao deserializar StnConfig JSON: {}", e)))?;
+    let (left, right) = synthesize_stn_pcm(&cfg);
+    let n = left.len().min(right.len());
+    let mut interleaved = Vec::with_capacity(n * 2);
+    for i in 0..n {
+        interleaved.push(left[i]);
+        interleaved.push(right[i]);
+    }
+    Ok(interleaved)
+}
+
+/// Renderiza o espectrograma real com reatribuição (Reassignment) do modelo STN em alta velocidade em Rust
+#[wasm_bindgen]
+pub fn wasm_stn_render_spectrogram(
+    config_json: &str,
+    width: usize,
+    height: usize,
+    fmin: f32,
+    fmax: f32,
+    view_mode: &str,
+    palette: &str,
+) -> Result<Vec<u8>, JsValue> {
+    let cfg: StnConfig = serde_json::from_str(config_json)
+        .map_err(|e| JsValue::from_str(&format!("Erro ao deserializar StnConfig JSON: {}", e)))?;
+    Ok(render_stn_spectrogram_rgba(&cfg, width, height, fmin, fmax, view_mode, palette))
+}
+
+/// Retorna configuração JSON de presets canônicos do STN Synth
+#[wasm_bindgen]
+pub fn wasm_stn_get_preset(preset_name: &str) -> Result<String, JsValue> {
+    let mut cfg = StnConfig::default();
+    match preset_name {
+        "voice" => {
+            cfg.sines = vec![
+                StnSinePartial { id: 1, enabled: true, f_hz: 145.0, db: -6.0, phase_rad: 0.0, start_s: 0.0, end_s: 2.0, interp: "Cúbica".to_string(), fade_in_ms: 10.0, fade_out_ms: 20.0, vibrato_hz: 0.8, vib_rate_hz: 5.5, inharmonicity: 0.0, bandwidth_hz: 0.0 },
+                StnSinePartial { id: 2, enabled: true, f_hz: 290.0, db: -11.0, phase_rad: 0.2, start_s: 0.0, end_s: 2.0, interp: "Cúbica".to_string(), fade_in_ms: 10.0, fade_out_ms: 20.0, vibrato_hz: 1.6, vib_rate_hz: 5.5, inharmonicity: 0.0, bandwidth_hz: 0.0 },
+                StnSinePartial { id: 3, enabled: true, f_hz: 435.0, db: -15.0, phase_rad: 1.0, start_s: 0.0, end_s: 2.0, interp: "Cúbica".to_string(), fade_in_ms: 10.0, fade_out_ms: 20.0, vibrato_hz: 2.4, vib_rate_hz: 5.5, inharmonicity: 0.0, bandwidth_hz: 0.0 },
+                StnSinePartial { id: 4, enabled: true, f_hz: 580.0, db: -19.0, phase_rad: -0.4, start_s: 0.1, end_s: 1.8, interp: "Cúbica".to_string(), fade_in_ms: 10.0, fade_out_ms: 20.0, vibrato_hz: 3.2, vib_rate_hz: 5.5, inharmonicity: 0.0, bandwidth_hz: 0.0 },
+            ];
+            cfg.events = vec![
+                StnTransientEvent { id: 1, enabled: true, start_s: 0.22, dur_ms: 25.0, db: -9.0, type_repr: "noise".to_string(), window: "Hann".to_string(), decay: "Exponencial".to_string() }
+            ];
+            cfg.n_gain_db = -18.0;
+            cfg.noise.bands_db = vec![-12.0, -8.0, -6.0, -3.0, -1.0, -4.0, -12.0, -24.0];
+        }
+        "pluck" => {
+            cfg.sines = vec![
+                StnSinePartial { id: 1, enabled: true, f_hz: 220.0, db: -4.0, phase_rad: 0.0, start_s: 0.0, end_s: 2.0, interp: "Cúbica".to_string(), fade_in_ms: 2.0, fade_out_ms: 300.0, vibrato_hz: 0.0, vib_rate_hz: 5.0, inharmonicity: 0.0012, bandwidth_hz: 0.0 },
+                StnSinePartial { id: 2, enabled: true, f_hz: 441.0, db: -9.0, phase_rad: 0.4, start_s: 0.0, end_s: 2.0, interp: "Cúbica".to_string(), fade_in_ms: 2.0, fade_out_ms: 250.0, vibrato_hz: 0.0, vib_rate_hz: 5.0, inharmonicity: 0.0012, bandwidth_hz: 0.0 },
+                StnSinePartial { id: 3, enabled: true, f_hz: 663.0, db: -13.0, phase_rad: 1.2, start_s: 0.0, end_s: 2.0, interp: "Cúbica".to_string(), fade_in_ms: 2.0, fade_out_ms: 200.0, vibrato_hz: 0.0, vib_rate_hz: 5.0, inharmonicity: 0.0012, bandwidth_hz: 0.0 },
+            ];
+            cfg.events = vec![
+                StnTransientEvent { id: 1, enabled: true, start_s: 0.02, dur_ms: 45.0, db: 0.0, type_repr: "pcm".to_string(), window: "Hann".to_string(), decay: "Impulso curto".to_string() }
+            ];
+            cfg.n_gain_db = -32.0;
+        }
+        "drums" => {
+            cfg.sines = Vec::new();
+            cfg.events = vec![
+                StnTransientEvent { id: 1, enabled: true, start_s: 0.1, dur_ms: 60.0, db: 0.0, type_repr: "pcm".to_string(), window: "Hann".to_string(), decay: "Exponencial".to_string() },
+                StnTransientEvent { id: 2, enabled: true, start_s: 0.6, dur_ms: 35.0, db: -3.0, type_repr: "pcm".to_string(), window: "Hann".to_string(), decay: "Impulso curto".to_string() },
+                StnTransientEvent { id: 3, enabled: true, start_s: 1.1, dur_ms: 90.0, db: -5.0, type_repr: "noise".to_string(), window: "Hann".to_string(), decay: "Exponencial".to_string() },
+            ];
+            cfg.n_gain_db = -9.0;
+            cfg.noise.bands_db = vec![0.0, -3.0, -6.0, -8.0, -12.0, -18.0, -24.0, -30.0];
+        }
+        "tone" => {
+            cfg.sines = vec![
+                StnSinePartial { id: 1, enabled: true, f_hz: 440.0, db: -3.0, phase_rad: 0.0, start_s: 0.0, end_s: 2.0, interp: "Cúbica".to_string(), fade_in_ms: 5.0, fade_out_ms: 5.0, vibrato_hz: 0.0, vib_rate_hz: 5.0, inharmonicity: 0.0, bandwidth_hz: 0.0 },
+                StnSinePartial { id: 2, enabled: true, f_hz: 880.0, db: -9.0, phase_rad: 0.0, start_s: 0.0, end_s: 2.0, interp: "Cúbica".to_string(), fade_in_ms: 5.0, fade_out_ms: 5.0, vibrato_hz: 0.0, vib_rate_hz: 5.0, inharmonicity: 0.0, bandwidth_hz: 0.0 },
+                StnSinePartial { id: 3, enabled: true, f_hz: 1320.0, db: -15.0, phase_rad: 0.0, start_s: 0.0, end_s: 2.0, interp: "Cúbica".to_string(), fade_in_ms: 5.0, fade_out_ms: 5.0, vibrato_hz: 0.0, vib_rate_hz: 5.0, inharmonicity: 0.0, bandwidth_hz: 0.0 },
+            ];
+            cfg.events = Vec::new();
+            cfg.n_gain_db = -45.0;
+        }
+        _ => {}
+    }
+    serde_json::to_string(&cfg)
+        .map_err(|e| JsValue::from_str(&format!("Erro ao serializar StnConfig: {}", e)))
 }
 
 #[cfg(test)]
