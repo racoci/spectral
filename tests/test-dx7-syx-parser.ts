@@ -33,10 +33,10 @@ function createSyntheticDx7Bank(): Uint8Array {
       buffer[opOffset + 5] = 80; // L2
       buffer[opOffset + 6] = 0;  // L3
       buffer[opOffset + 7] = 0;  // L4
-      buffer[opOffset + 11] = 1; // Frequency Coarse (Ratio 1.0)
-      buffer[opOffset + 12] = 0; // Frequency Fine
-      buffer[opOffset + 13] = 0; // Detune (centered at 7)
-      buffer[opOffset + 16] = 99; // Output Level (99 = max)
+      buffer[opOffset + 13] = 99; // Output Level (99 = max)
+      buffer[opOffset + 14] = (1 << 1); // Mode=0 (Ratio), Frequency Coarse=1
+      buffer[opOffset + 15] = 0; // Frequency Fine
+      buffer[opOffset + 16] = (7 << 3); // Detune=0 (stored as 7)
     }
 
     // Parâmetros globais (offset + 102 até offset + 127)
@@ -45,7 +45,7 @@ function createSyntheticDx7Bank(): Uint8Array {
     buffer[offset + 116] = 24; // Transpose (24 = C3 normal)
     
     // Nome do patch: 10 caracteres ASCII (ex: "TUB BELLS ")
-    const name = `TEST_VOX_${v.toString().padStart(2, '0')}`;
+    const name = `TEST_VOX${v.toString().padStart(2, '0')}`;
     for (let i = 0; i < 10; i++) {
       buffer[offset + 118 + i] = name.charCodeAt(i) || 32;
     }
@@ -69,7 +69,7 @@ const patches = parseDx7Syx(syntheticBank);
 
 assert.strictEqual(patches.length, 32, 'Deveria extrair exatamente 32 patches do banco .syx');
 const firstPatch = patches[0];
-assert.strictEqual(firstPatch.name.trim(), 'TEST_VOX_00', 'Nome do primeiro patch deve ser TEST_VOX_00');
+assert.strictEqual(firstPatch.name.trim(), 'TEST_VOX00', 'Nome do primeiro patch deve ser TEST_VOX00');
 assert.strictEqual(firstPatch.algorithm, 5, 'Algoritmo deve ser 5');
 assert.strictEqual(firstPatch.feedback, 6, 'Feedback deve ser 6');
 assert.strictEqual(firstPatch.operators.length, 6, 'Cada patch deve possuir 6 operadores');
@@ -80,5 +80,18 @@ assert.strictEqual(op1.rates[0], 95, 'Taxa 1 do envelope do operador deve ser 95
 assert.strictEqual(op1.levels[0], 99, 'Nível 1 do envelope do operador deve ser 99');
 assert.strictEqual(op1.freqCoarse, 1, 'Frequency coarse deve ser 1');
 assert.strictEqual(op1.outputLevel, 99, 'Output level deve ser 99');
+
+// 3. Testa conversões de unidades DX7
+import { dx7RateToSeconds, dx7LevelToLinear } from '../src/lib/synth/dx7_parser';
+assert(dx7RateToSeconds(99) <= 0.005, 'Taxa 99 deve ser um ataque quase instantâneo (< 5ms)');
+assert(dx7RateToSeconds(0) >= 30.0, 'Taxa 0 deve ser extremamente lenta (> 30s)');
+assert.strictEqual(dx7LevelToLinear(99), 1.0, 'Nível 99 deve ser ganho linear 1.0');
+assert.strictEqual(dx7LevelToLinear(0), 0.0, 'Nível 0 deve ser ganho linear 0.0');
+
+// 4. Testa single voice dump de 128 bytes
+const singleVoice = syntheticBank.slice(6, 6 + 128);
+const singlePatches = parseDx7Syx(singleVoice);
+assert.strictEqual(singlePatches.length, 1, 'Deveria extrair exatamente 1 patch do dump individual');
+assert.strictEqual(singlePatches[0].name.trim(), 'TEST_VOX00', 'Nome do patch individual deve bater com o banco');
 
 console.log('✅ Testes de parsing DX7 .syx passaram com sucesso!');

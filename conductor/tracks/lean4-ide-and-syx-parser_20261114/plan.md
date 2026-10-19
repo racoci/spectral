@@ -6,11 +6,11 @@
   - Validar extração dos 155 parâmetros brutos: envelopes de 4 taxas e 4 níveis dos 6 operadores, razões harmônicas, algoritmo de roteamento (1 a 32) e feedback.
   - Teste automatizado: `npx tsx tests/test-dx7-syx-parser.ts`
   - Documentação: `documentation/lean_synth_ide/dx7_syx_specification.md`
-- [~] Task 1.2: Implementar o parser binário DX7 `.syx` em TypeScript puro (Green Phase)
+- [x] Task 1.2: Implementar o parser binário DX7 `.syx` em TypeScript puro (Green Phase) [dx7_parser.ts implemented]
   - Implementar decodificação dos bytes de System Exclusive, normalização dos parâmetros para ponto flutuante [0.0, 1.0] e conversão das curvas de taxa/nível Yamaha em milissegundos e decibéis.
   - Teste automatizado: `npx tsx tests/test-dx7-syx-parser.ts`
   - Documentação: `documentation/lean_synth_ide/dx7_syx_specification.md`
-- [ ] Task 1.3: Escrever testes automatizados de ida e volta (Roundtrip) para o emissor da AST Lean 4 (Red Phase)
+- [~] Task 1.3: Escrever testes automatizados de ida e volta (Roundtrip) para o emissor da AST Lean 4 (Red Phase)
   - Definir testes que validam a tradução do modelo de parâmetros em código-fonte Lean 4 estruturado, tipado e legível.
   - Validar simetria operacional: `parseLeanAst(emitLeanCode(patch)) == patch` com erro numérico zero.
   - Teste automatizado: `npx tsx tests/test-lean-ast-roundtrip.ts`
