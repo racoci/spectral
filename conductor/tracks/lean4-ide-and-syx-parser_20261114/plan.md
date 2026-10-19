@@ -19,7 +19,12 @@
   - Implementar o emissor de código Lean 4 formatado com tipagem de registros (`structure Dx7Patch`, `structure Operator`, `inductive FmAlgorithm`) e parser reverso que extrai os nós do código com mapeamento de intervalos `[from, to]`.
   - Teste automatizado: `npx tsx tests/test-lean-ast-roundtrip.ts`
   - Documentação: `documentation/lean_synth_ide/lean4_synth_grammar.md`
-- [x] Task 1.5: Verificação da Fase 1 e Checkpoint (Referente ao `workflow.md`) [Phase 1 tests passed 100%]
+- [x] Task 1.5: Implementar motor de áudio FM, testes de limites e geração E2E de WAVs em diretório ignorado [test-dx7-audio-e2e.ts passed 100%]
+  - Testar limites extremos: Algoritmo 1 vs 32, Feedback 0 vs 7, OutputLevel 0 vs 99, FreqCoarse 0 vs 31 e corrupção de buffer.
+  - Sintetizar e gravar exemplos reais em `tests/test-outputs/` (dx7_tubular_bells.wav, dx7_epiano_1.wav, dx7_slap_bass.wav, dx7_boundary_algo32_additive.wav, dx7_boundary_feedback7_chaos.wav).
+  - Teste automatizado: `npx tsx tests/test-dx7-audio-e2e.ts`
+  - Documentação: `documentation/lean_synth_ide/dx7_audio_engine.md`
+- [x] Task 1.6: Verificação da Fase 1 e Checkpoint (Referente ao `workflow.md`) [Phase 1 tests passed 100%]
 
 ## Fase 2: Protocolo Semântico de Widgets & Adaptador CodeMirror 6
 - [ ] Task 2.1: Escrever testes automatizados para o protocolo de descritores semânticos (Red Phase)
