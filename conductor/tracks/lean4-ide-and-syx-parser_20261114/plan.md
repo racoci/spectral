@@ -27,23 +27,23 @@
 - [x] Task 1.6: Verificação da Fase 1 e Checkpoint (Referente ao `workflow.md`) [Phase 1 tests passed 100%]
 
 ## Fase 2: Protocolo Semântico de Widgets & Adaptador CodeMirror 6
-- [ ] Task 2.1: Escrever testes automatizados para o protocolo de descritores semânticos (Red Phase)
+- [x] Task 2.1: Escrever testes automatizados para o protocolo de descritores semânticos (Red Phase) [test-semantic-widget-protocol.ts passed]
   - Testar schema JSON estrito de `WidgetDescriptor`, descarte de respostas obsoletas via contador de `revision` e rastreamento estável de `nodeId`.
   - Teste automatizado: `npx tsx tests/test-semantic-widget-protocol.ts`
   - Documentação: `documentation/lean_synth_ide/semantic_widget_protocol.md`
-- [ ] Task 2.2: Implementar o núcleo do protocolo semântico em TypeScript (Green Phase)
+- [x] Task 2.2: Implementar o núcleo do protocolo semântico em TypeScript (Green Phase) [types.ts implemented]
   - Criar `src/lib/widgets/types.ts` e despachante de eventos semânticos com invalidação reativa e suporte a cancelamento de requisições pendentes.
   - Teste automatizado: `npx tsx tests/test-semantic-widget-protocol.ts`
   - Documentação: `documentation/lean_synth_ide/semantic_widget_protocol.md`
-- [ ] Task 2.3: Escrever testes de ciclo de vida e higiene de memória no CodeMirror 6 (Red Phase)
+- [x] Task 2.3: Escrever testes de ciclo de vida e higiene de memória no CodeMirror 6 (Red Phase) [test-codemirror-svelte-lifecycle.ts passed]
   - Testar montagem (`mount`) e desmontagem (`unmount`) do Svelte 5 via `SemanticBlockWidget`, invariante de texto puro (`view.state.doc.toString()` idêntico ao código sem lixo DOM) e estabilidade do método `eq()`.
   - Teste automatizado: `npx tsx tests/test-codemirror-svelte-lifecycle.ts`
   - Documentação: `documentation/lean_synth_ide/codemirror_svelte_adapter.md`
-- [ ] Task 2.4: Implementar a extensão `SemanticBlockWidget` para CodeMirror 6 e Svelte 5 (Green Phase)
+- [x] Task 2.4: Implementar a extensão `SemanticBlockWidget` para CodeMirror 6 e Svelte 5 (Green Phase) [SemanticBlockWidget.ts implemented]
   - Criar o plugin do CodeMirror 6 com decorações de bloco, integração limpa com o ciclo de vida do Svelte 5 e atalho de teclado / botão para cópia de texto 100% puro.
   - Teste automatizado: `npx tsx tests/test-codemirror-svelte-lifecycle.ts`
   - Documentação: `documentation/lean_synth_ide/codemirror_svelte_adapter.md`
-- [ ] Task 2.5: Verificação da Fase 2 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 2.5: Verificação da Fase 2 e Checkpoint (Referente ao `workflow.md`) [Phase 2 tests passed 100%]
 
 ## Fase 3: Widgets Interativos em Svelte 5 & Sincronização Cirúrgica
 - [ ] Task 3.1: Escrever testes de integração para sincronização bidirecional (Red Phase)

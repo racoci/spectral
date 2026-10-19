@@ -14,11 +14,15 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
-    "test:integration": "npx tsx tests/validate-wav.ts && npx tsx tests/spectrogram-structure.test.ts && npx tsx tests/test-ddsp-suite.ts && npx tsx tests/test-holomorphic-field-suite.ts && npx tsx tests/test-stn-synth-suite.ts && npx tsx tests/test-dx7-audio-e2e.ts",
+    "test:integration": "npx tsx tests/validate-wav.ts && npx tsx tests/spectrogram-structure.test.ts && npx tsx tests/test-ddsp-suite.ts && npx tsx tests/test-holomorphic-field-suite.ts && npx tsx tests/test-stn-synth-suite.ts && npx tsx tests/test-dx7-audio-e2e.ts && npx tsx tests/test-semantic-widget-protocol.ts && npx tsx tests/test-codemirror-svelte-lifecycle.ts",
     "test:e2e": "npx tsx tests/e2e-browser-suite.ts",
     "spectral": "npx tsx bin/spectral.ts"
   },
   "devDependencies": {
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.15",
     "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "@tsconfig/svelte": "^5.0.8",
     "@types/node": "^24.13.3",
