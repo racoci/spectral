@@ -1,12 +1,12 @@
 # Implementation Plan - MVP: Lean 4 IDE Validation and DX7 Syx Parser
 
 ## Fase 1: Ingestão de Presets DX7 (.syx) & Emissor de AST Lean 4
-- [ ] Task 1.1: Escrever testes automatizados que falham para o parser binário de `.syx` do DX7 (Red Phase)
+- [x] Task 1.1: Escrever testes automatizados que falham para o parser binário de `.syx` do DX7 (Red Phase) [failing test created]
   - Desenvolver casos de teste para carregar bancos binários `.syx` (128 bytes por patch individual ou 4096 bytes para bancos com 32 patches).
   - Validar extração dos 155 parâmetros brutos: envelopes de 4 taxas e 4 níveis dos 6 operadores, razões harmônicas, algoritmo de roteamento (1 a 32) e feedback.
   - Teste automatizado: `npx tsx tests/test-dx7-syx-parser.ts`
   - Documentação: `documentation/lean_synth_ide/dx7_syx_specification.md`
-- [ ] Task 1.2: Implementar o parser binário DX7 `.syx` em TypeScript puro (Green Phase)
+- [~] Task 1.2: Implementar o parser binário DX7 `.syx` em TypeScript puro (Green Phase)
   - Implementar decodificação dos bytes de System Exclusive, normalização dos parâmetros para ponto flutuante [0.0, 1.0] e conversão das curvas de taxa/nível Yamaha em milissegundos e decibéis.
   - Teste automatizado: `npx tsx tests/test-dx7-syx-parser.ts`
   - Documentação: `documentation/lean_synth_ide/dx7_syx_specification.md`
