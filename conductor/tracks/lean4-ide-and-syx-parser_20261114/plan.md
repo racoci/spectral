@@ -46,28 +46,28 @@
 - [x] Task 2.5: Verificação da Fase 2 e Checkpoint (Referente ao `workflow.md`) [Phase 2 tests passed 100%]
 
 ## Fase 3: Widgets Interativos em Svelte 5 & Sincronização Cirúrgica
-- [ ] Task 3.1: Escrever testes de integração para sincronização bidirecional (Red Phase)
+- [x] Task 3.1: Escrever testes de integração para sincronização bidirecional (Red Phase) [test-bidirectional-sync.ts passed]
   - Testar se alteração no texto Lean 4 atualiza o estado do widget imediatamente.
   - Testar se arraste no widget despacha transação cirúrgica no CodeMirror (`view.dispatch`) alterando estritamente os caracteres no intervalo `[from, to]` sem reformatar o arquivo.
   - Teste automatizado: `npx tsx tests/test-bidirectional-sync.ts`
   - Documentação: `documentation/lean_synth_ide/bidirectional_synchronization.md`
-- [ ] Task 3.2: Implementar o hospedeiro `WidgetHost.svelte` e registro de componentes (Green Phase)
+- [x] Task 3.2: Implementar o hospedeiro `WidgetHost.svelte` e registro de componentes (Green Phase) [WidgetHost.svelte & registry.ts implemented]
   - Montar arquitetura desacoplada onde a IDE descobre o componente a partir de `descriptor.kind`.
   - Teste automatizado: `npx tsx tests/test-bidirectional-sync.ts`
   - Documentação: `documentation/lean_synth_ide/bidirectional_synchronization.md`
-- [ ] Task 3.3: Implementar `OperatorMatrixWidget.svelte` (Matriz FM dos 6 Operadores)
+- [x] Task 3.3: Implementar `OperatorMatrixWidget.svelte` (Matriz FM dos 6 Operadores) [OperatorMatrixWidget.svelte implemented]
   - Visualização gráfica interativa da topologia do algoritmo DX7 selecionado (quem é portadora, quem modula quem) com botões de alternância.
   - Teste automatizado: `npm run check && npx tsx tests/test-bidirectional-sync.ts`
   - Documentação: `documentation/lean_synth_ide/widgets_specification.md`
-- [ ] Task 3.4: Implementar `EnvelopeStageWidget.svelte` (Curva de Envelope Multietapas Arrastável)
+- [x] Task 3.4: Implementar `EnvelopeStageWidget.svelte` (Curva de Envelope Multietapas Arrastável) [EnvelopeStageWidget.svelte implemented]
   - Gráfico canvas/SVG interativo permitindo arrastar os 4 nós de taxa e nível de envelope com atualização contínua no código Lean 4.
   - Teste automatizado: `npm run check && npx tsx tests/test-bidirectional-sync.ts`
   - Documentação: `documentation/lean_synth_ide/widgets_specification.md`
-- [ ] Task 3.5: Implementar `ParameterKnobWidget.svelte` (Controles Numéricos e Frequências)
+- [x] Task 3.5: Implementar `ParameterKnobWidget.svelte` (Controles Numéricos e Frequências) [ParameterKnobWidget.svelte implemented]
   - Knobs rotativos e sliders estilizados para razão harmônica, detune e sensibilidade à velocidade.
   - Teste automatizado: `npm run check && npx tsx tests/test-bidirectional-sync.ts`
   - Documentação: `documentation/lean_synth_ide/widgets_specification.md`
-- [ ] Task 3.6: Verificação da Fase 3 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 3.6: Verificação da Fase 3 e Checkpoint (Referente ao `workflow.md`) [Phase 3 tests passed 100%]
 
 ## Fase 4: Integração Sonora, Interface Geral e Mitigação de Riscos
 - [ ] Task 4.1: Escrever testes para o motor de síntese sonora FM WebAudio/WASM (Red Phase)
