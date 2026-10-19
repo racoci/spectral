@@ -10,12 +10,12 @@
   - Implementar decodificação dos bytes de System Exclusive, normalização dos parâmetros para ponto flutuante [0.0, 1.0] e conversão das curvas de taxa/nível Yamaha em milissegundos e decibéis.
   - Teste automatizado: `npx tsx tests/test-dx7-syx-parser.ts`
   - Documentação: `documentation/lean_synth_ide/dx7_syx_specification.md`
-- [~] Task 1.3: Escrever testes automatizados de ida e volta (Roundtrip) para o emissor da AST Lean 4 (Red Phase)
+- [x] Task 1.3: Escrever testes automatizados de ida e volta (Roundtrip) para o emissor da AST Lean 4 (Red Phase) [failing test created]
   - Definir testes que validam a tradução do modelo de parâmetros em código-fonte Lean 4 estruturado, tipado e legível.
   - Validar simetria operacional: `parseLeanAst(emitLeanCode(patch)) == patch` com erro numérico zero.
   - Teste automatizado: `npx tsx tests/test-lean-ast-roundtrip.ts`
   - Documentação: `documentation/lean_synth_ide/lean4_synth_grammar.md`
-- [ ] Task 1.4: Implementar o gerador e parser de AST da DSL do Lean 4 (Green Phase)
+- [~] Task 1.4: Implementar o gerador e parser de AST da DSL do Lean 4 (Green Phase)
   - Implementar o emissor de código Lean 4 formatado com tipagem de registros (`structure Dx7Patch`, `structure Operator`, `inductive FmAlgorithm`) e parser reverso que extrai os nós do código com mapeamento de intervalos `[from, to]`.
   - Teste automatizado: `npx tsx tests/test-lean-ast-roundtrip.ts`
   - Documentação: `documentation/lean_synth_ide/lean4_synth_grammar.md`
