@@ -15,11 +15,11 @@
   - Validar simetria operacional: `parseLeanAst(emitLeanCode(patch)) == patch` com erro numérico zero.
   - Teste automatizado: `npx tsx tests/test-lean-ast-roundtrip.ts`
   - Documentação: `documentation/lean_synth_ide/lean4_synth_grammar.md`
-- [~] Task 1.4: Implementar o gerador e parser de AST da DSL do Lean 4 (Green Phase)
+- [x] Task 1.4: Implementar o gerador e parser de AST da DSL do Lean 4 (Green Phase) [lean_ast_codec.ts implemented]
   - Implementar o emissor de código Lean 4 formatado com tipagem de registros (`structure Dx7Patch`, `structure Operator`, `inductive FmAlgorithm`) e parser reverso que extrai os nós do código com mapeamento de intervalos `[from, to]`.
   - Teste automatizado: `npx tsx tests/test-lean-ast-roundtrip.ts`
   - Documentação: `documentation/lean_synth_ide/lean4_synth_grammar.md`
-- [ ] Task 1.5: Verificação da Fase 1 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 1.5: Verificação da Fase 1 e Checkpoint (Referente ao `workflow.md`) [Phase 1 tests passed 100%]
 
 ## Fase 2: Protocolo Semântico de Widgets & Adaptador CodeMirror 6
 - [ ] Task 2.1: Escrever testes automatizados para o protocolo de descritores semânticos (Red Phase)
