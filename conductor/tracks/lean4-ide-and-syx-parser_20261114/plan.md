@@ -70,19 +70,19 @@
 - [x] Task 3.6: Verificação da Fase 3 e Checkpoint (Referente ao `workflow.md`) [Phase 3 tests passed 100%]
 
 ## Fase 4: Integração Sonora, Interface Geral e Mitigação de Riscos
-- [ ] Task 4.1: Escrever testes para o motor de síntese sonora FM WebAudio/WASM (Red Phase)
+- [x] Task 4.1: Escrever testes para o motor de síntese sonora FM WebAudio/WASM (Red Phase) [test-fm-audio-synthesis.ts passed]
   - Validar que o grafo Lean 4 sintetiza áudio PCM estéreo 48kHz sem travamentos ou cortes.
   - Teste automatizado: `npx tsx tests/test-fm-audio-synthesis.ts`
   - Documentação: `documentation/lean_synth_ide/fm_synthesis_engine.md`
-- [ ] Task 4.2: Implementar o motor de síntese sonora e botão de audição (Green Phase)
+- [x] Task 4.2: Implementar o motor de síntese sonora e botão de audição (Green Phase) [dx7_audio_engine.ts implemented]
   - Renderizador FM polifônico leve acionado por teclado virtual ou trigger ao editar parâmetros.
   - Teste automatizado: `npx tsx tests/test-fm-audio-synthesis.ts`
   - Documentação: `documentation/lean_synth_ide/fm_synthesis_engine.md`
-- [ ] Task 4.3: Montar a interface completa `LeanSynthStudio.svelte` e integrar à navegação do app
+- [x] Task 4.3: Montar a interface completa `LeanSynthStudio.svelte` e integrar à navegação do app [LeanSynthStudio.svelte integrated in App.svelte]
   - Adicionar a aba "5. Lean IDE" em `src/App.svelte` com catálogo de presets reais (Tubular Bells, E-Piano, Clavinet, Slap Bass) e visualização split (código à esquerda, widgets integrados e barra de transporte superior).
   - Teste automatizado: `npm run build && npm run check`
   - Documentação: `documentation/lean_synth_ide/README.md`
-- [ ] Task 4.4: Mitigação de Riscos Futuros e Handoff para Backend Slang / TorchLean (Meta-Task Obrigatória)
+- [x] Task 4.4: Mitigação de Riscos Futuros e Handoff para Backend Slang / TorchLean (Meta-Task Obrigatória) [GPU_BACKEND_HANDOFF.md documented]
   - Documentar e estruturar a arquitetura de transição do executor WebAudio/CPU para shaders Slang na GPU e modelos de gradiente TorchLean, mitigando o gargalo de latência e dimensionalidade.
   - Documentação: `documentation/lean_synth_ide/GPU_BACKEND_HANDOFF.md`
-- [ ] Task 4.5: Verificação da Fase 4 e Checkpoint Final (Referente ao `workflow.md`)
+- [x] Task 4.5: Verificação da Fase 4 e Checkpoint Final (Referente ao `workflow.md`) [All phases verified 100%]

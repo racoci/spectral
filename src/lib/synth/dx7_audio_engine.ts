@@ -353,6 +353,12 @@ export function synthesizeDx7Patch(patch: Dx7Patch, options?: SynthOptions): Flo
     }
   }
 
+  // Escala master de intensidade/dinâmica proporcional à velocidade
+  const masterVelGain = Math.max(0.05, velocity);
+  for (let i = 0; i < totalSamples; i++) {
+    output[i] *= masterVelGain;
+  }
+
   return output;
 }
 
@@ -436,4 +442,59 @@ export function encodeWav16Mono(samples: Float32Array, sampleRate: number): Uint
   }
 
   return buffer;
+}
+
+/**
+ * Converte número de nota MIDI (0..127) para frequência fundamental em Hz.
+ */
+export function midiToFrequency(midiNote: number): number {
+  return 440.0 * Math.pow(2.0, (midiNote - 69) / 12.0);
+}
+
+/**
+ * Sintetiza múltiplas notas simultaneamente (polifonia) com mixagem proporcional e anti-clipping.
+ */
+export function synthesizePolyphonicChord(
+  patch: Dx7Patch,
+  midiNotes: number[],
+  options?: SynthOptions
+): Float32Array {
+  const sampleRate = options?.sampleRate || 48000;
+  const duration = options?.duration || 1.5;
+  const totalSamples = Math.floor(sampleRate * duration);
+  const mix = new Float32Array(totalSamples);
+
+  if (midiNotes.length === 0) {
+    return mix;
+  }
+
+  const headRoomScale = 1.0 / Math.sqrt(midiNotes.length);
+
+  for (const midi of midiNotes) {
+    const f0 = midiToFrequency(midi);
+    const voiceSamples = synthesizeDx7Patch(patch, {
+      ...options,
+      fundamentalHz: f0
+    });
+
+    const count = Math.min(totalSamples, voiceSamples.length);
+    for (let i = 0; i < count; i++) {
+      mix[i] += voiceSamples[i] * headRoomScale;
+    }
+  }
+
+  // Normalização de pico se exceder 0.95
+  let peak = 1e-9;
+  for (let i = 0; i < totalSamples; i++) {
+    const a = Math.abs(mix[i]);
+    if (a > peak) peak = a;
+  }
+  if (peak > 0.95) {
+    const s = 0.95 / peak;
+    for (let i = 0; i < totalSamples; i++) {
+      mix[i] *= s;
+    }
+  }
+
+  return mix;
 }

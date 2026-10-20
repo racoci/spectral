@@ -1,6 +1,6 @@
 ---
 title: "MVP: Lean 4 IDE Validation and DX7 Syx Parser"
-status: new
+status: completed
 ---
 
 # Track Handshake

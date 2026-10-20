@@ -4,6 +4,7 @@
   import WebGlEditor from './lib/WebGlEditor.svelte';
   import DdspStudio from './lib/DdspStudio.svelte';
   import StnStudio from './lib/StnStudio.svelte';
+  import LeanSynthStudio from './lib/LeanSynthStudio.svelte';
   import init, { 
     wasm_generate_complex_reassigned_ycbcr_spectrogram,
     wasm_generate_holomorphic_exploration_spectrogram,
@@ -38,8 +39,8 @@
   let refinementProgress = $state<number | null>(null);
   let mirroredDensity = $state<Float32Array | null>(null);
   let sharedDdspConfig = $state<any>(null);
-  let currentView = $derived<'converter' | 'editor' | 'synth' | 'stn'>(
-    currentHash === '#/converter' ? 'converter' : (currentHash === '#/synth' ? 'synth' : (currentHash === '#/stn' ? 'stn' : 'editor'))
+  let currentView = $derived<'converter' | 'editor' | 'synth' | 'stn' | 'lean'>(
+    currentHash === '#/converter' ? 'converter' : (currentHash === '#/synth' ? 'synth' : (currentHash === '#/stn' ? 'stn' : (currentHash === '#/lean' ? 'lean' : 'editor')))
   );
 
   // Advanced DSP Configurations (Pure Gaussian-Hermite Pipeline)
@@ -549,9 +550,11 @@
   }
 
   // Switch to route helpers
-  function navigateTo(view: 'converter' | 'editor' | 'synth' | 'stn') {
+  function navigateTo(view: 'converter' | 'editor' | 'synth' | 'stn' | 'lean') {
     if (view === 'editor' && !rgbaGrid) return;
-    if (view === 'stn') {
+    if (view === 'lean') {
+      window.location.hash = '#/lean';
+    } else if (view === 'stn') {
       window.location.hash = '#/stn';
     } else if (view === 'synth') {
       window.location.hash = '#/synth';
@@ -563,7 +566,7 @@
   }
 </script>
 
-<main class="app-container" class:full-screen-layout={currentView === 'editor' || currentView === 'synth' || currentView === 'stn'}>
+<main class="app-container" class:full-screen-layout={currentView === 'editor' || currentView === 'synth' || currentView === 'stn' || currentView === 'lean'}>
   
   {#if currentView === 'converter'}
     <header class="app-header">
@@ -577,6 +580,7 @@
           <button onclick={() => navigateTo('editor')} disabled={!rgbaGrid}>2. WebGL Editor</button>
           <button onclick={() => navigateTo('synth')}>3. DDSP Studio</button>
           <button onclick={() => navigateTo('stn')}>4. STN Synth</button>
+          <button onclick={() => navigateTo('lean')}>5. Lean IDE</button>
         </div>
       </div>
       <p class="tagline">
@@ -659,6 +663,12 @@
     <!-- STN Synth: Sines + Transients + Noise Studio Environment -->
     <StnStudio 
       originalBytes={originalBytes}
+      onNavigate={navigateTo}
+      onTransportToEditor={(wav) => handleDirectAudioUpload(wav)}
+    />
+  {:else if currentView === 'lean'}
+    <!-- Lean 4 Synth IDE: Dual Code & Semantic Widgets Environment -->
+    <LeanSynthStudio 
       onNavigate={navigateTo}
       onTransportToEditor={(wav) => handleDirectAudioUpload(wav)}
     />
