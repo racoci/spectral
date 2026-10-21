@@ -9,11 +9,11 @@
   - Implementar cálculo das derivadas de ordens 0 a 8, avaliação direcional $q_n(\theta) = D^n f(p)[u(\theta), \dots, u(\theta)]$, e decomposição espectral de autovalores/autovetores da Hessiana.
   - Teste automatizado: `npx tsx tests/test-scalar-field-math.ts`
   - Documentação: `documentation/scalar_field_ide/taylor_jet_mathematics.md`
-- [~] Task 1.3: Escrever testes de ida e volta (Roundtrip) para o codec de serialização da AST Lean 4 de campos escalares (Red Phase)
+- [x] Task 1.3: Escrever testes de ida e volta (Roundtrip) para o codec de serialização da AST Lean 4 de campos escalares (Red Phase) [failing test created]
   - Testar `emitLeanScalarField(field)` e `parseLeanScalarField(code)` garantindo 100% de simetria e localização de limites `[from, to]` para cada parâmetro escalar.
   - Teste automatizado: `npx tsx tests/test-scalar-field-lean-codec.ts`
   - Documentação: `documentation/scalar_field_ide/lean4_scalar_field_grammar.md`
-- [ ] Task 1.4: Implementar o gerador e parser de AST Lean 4 para `ScalarField2D` (Green Phase)
+- [~] Task 1.4: Implementar o gerador e parser de AST Lean 4 para `ScalarField2D` (Green Phase)
   - Criar `src/lib/synth/scalar_field_codec.ts` com suporte à gramática Lean 4 tipada (`structure ScalarField2D`, `structure TaylorJet`).
   - Teste automatizado: `npx tsx tests/test-scalar-field-lean-codec.ts`
   - Documentação: `documentation/scalar_field_ide/lean4_scalar_field_grammar.md`
