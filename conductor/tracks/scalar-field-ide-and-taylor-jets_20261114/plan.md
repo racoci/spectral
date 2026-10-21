@@ -20,11 +20,11 @@
 - [x] Task 1.5: Verificação da Fase 1 e Checkpoint (Referente ao `workflow.md`) [Phase 1 tests passed 100%]
 
 ## Fase 2: Renderizador Híbrido WebGL 2 & Alças Polares Interativas (Ordens 0 a 8)
-- [ ] Task 2.1: Escrever testes automatizados para os shaders WebGL 2 e geração de isolinhas (Red Phase)
+- [x] Task 2.1: Escrever testes automatizados para os shaders WebGL 2 e geração de isolinhas (Red Phase) [failing test created]
   - Testar compilação dos shaders GLSL 3.0 ES para avaliação de campos escalares 2D e cálculo de curvas de nível contínuas sem artefatos de amostragem.
   - Teste automatizado: `npx tsx tests/test-scalar-field-webgl.ts`
   - Documentação: `documentation/scalar_field_ide/webgl_scalar_field_shader.md`
-- [ ] Task 2.2: Implementar o renderizador WebGL 2 de campo escalar e isolinhas (Green Phase)
+- [~] Task 2.2: Implementar o renderizador WebGL 2 de campo escalar e isolinhas (Green Phase)
   - Criar `src/lib/scalar_field/ScalarFieldGlRenderer.ts` com paletas (Cinza, Viridis, Magma, Inferno), controle de zoom/pan e renderização a 60 FPS.
   - Teste automatizado: `npx tsx tests/test-scalar-field-webgl.ts`
   - Documentação: `documentation/scalar_field_ide/webgl_scalar_field_shader.md`
