@@ -6,6 +6,7 @@
   import StnStudio from './lib/StnStudio.svelte';
   import LeanSynthStudio from './lib/LeanSynthStudio.svelte';
   import ScalarFieldStudio from './lib/ScalarFieldStudio.svelte';
+  import GlobalTopbar from './lib/ui/GlobalTopbar.svelte';
   import init, { 
     wasm_generate_complex_reassigned_ycbcr_spectrogram,
     wasm_generate_holomorphic_exploration_spectrogram,
@@ -570,6 +571,12 @@
 </script>
 
 <main class="app-container" class:full-screen-layout={currentView === 'editor' || currentView === 'synth' || currentView === 'stn' || currentView === 'lean' || currentView === 'field'}>
+  <GlobalTopbar 
+    currentView={currentView}
+    isAudioPlaying={isPlaying}
+    hasAudioLoaded={!!rgbaGrid}
+    onNavigate={navigateTo}
+  />
   
   {#if currentView === 'converter'}
     <header class="app-header">
@@ -577,15 +584,6 @@
         <span class="icon-brand">🎨🔊</span>
         <h1>Spectral</h1>
         <span class="badge-tag">Lossless Sandbox v0.1</span>
-        
-        <div class="view-toggles" style="margin-left: auto;">
-          <button class="active" onclick={() => navigateTo('converter')}>1. Converter</button>
-          <button onclick={() => navigateTo('editor')} disabled={!rgbaGrid}>2. WebGL Editor</button>
-          <button onclick={() => navigateTo('synth')}>3. DDSP Studio</button>
-          <button onclick={() => navigateTo('stn')}>4. STN Synth</button>
-          <button onclick={() => navigateTo('lean')}>5. Lean IDE</button>
-          <button onclick={() => navigateTo('field')}>6. Field IDE</button>
-        </div>
       </div>
       <p class="tagline">
         Conversão bit-a-bit perfeitamente reversível de áudio em imagens

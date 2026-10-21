@@ -22,16 +22,16 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
   - Testar mapeamento de teclas `Alt+1` a `Alt+6` para atualização de hash (`#/converter` até `#/field`) e detecção de nós de áudio ativos.
   - Teste automatizado: `npx tsx tests/test-topbar-navigation.ts`
   - Documentação: `documentation/ui_design_system/topbar_navigation.md`
-- [~] Task 2.2: Implementar o componente `GlobalTopbar.svelte` e integrar a `src/App.svelte` (Green Phase)
+- [x] Task 2.2: Implementar o componente `GlobalTopbar.svelte` e integrar a `src/App.svelte` (Green Phase) [GlobalTopbar.svelte & App.svelte integrated]
   - Criar `src/lib/ui/GlobalTopbar.svelte` com ícones SVG estilizados, badges de ferramenta e listener de atalhos globais.
   - Teste automatizado: `npx tsx tests/test-topbar-navigation.ts`
   - Documentação: `documentation/ui_design_system/topbar_navigation.md`
-- [ ] Task 2.3: Verificação da Fase 2 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 2.3: Verificação da Fase 2 e Checkpoint (Referente ao `workflow.md`) [Phase 2 tests passed 100%]
 
 ---
 
 ## Fase 3: Responsividade Adaptativa com `ResizeObserver` e Integração nos 6 Estúdios (TDD)
-- [ ] Task 3.1: Escrever testes automatizados para redimensionamento de canvas e clamp de HUD (Red Phase)
+- [~] Task 3.1: Escrever testes automatizados para redimensionamento de canvas e clamp de HUD (Red Phase)
   - Testar sincronização de buffer `width/height` vs `clientWidth/clientHeight` e função de clamp com margens de segurança na viewport.
   - Teste automatizado: `npx tsx tests/test-canvas-responsiveness.ts`
   - Documentação: `documentation/ui_design_system/canvas_responsiveness.md`
