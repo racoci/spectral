@@ -642,6 +642,97 @@ async function runE2EBrowserSuite() {
       throw new Error('Falha ao retornar ao editor a partir do STN Synth!');
     }
 
+    // --------------------------------------------------------------------------------
+    // 12. FASE 5: Navegação e Auditoria Visual do Lean 4 Synth IDE
+    // --------------------------------------------------------------------------------
+    console.log('\n--------------------------------------------------------------------------------');
+    console.log('📸 STAGE 10: Navegação para a rota do Lean 4 Synth IDE (#/lean)...');
+    console.log('--------------------------------------------------------------------------------');
+    await page.goto(`${serverUrl}/#/lean`, { waitUntil: 'load', timeout: 20000 });
+    await page.waitForSelector('.mini-keyboard', { timeout: 15000 });
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
+    // Captura de Tela 10: Lean 4 Synth IDE
+    const screen10Path = path.join(SCREENSHOT_DIR, '10_lean_synth_ide.png');
+    await page.screenshot({ path: screen10Path, fullPage: true });
+    console.log(`  ✅ Screenshot 10 salva em: ${screen10Path}`);
+
+    // --------------------------------------------------------------------------------
+    // 13. FASE 6: Navegação e Auditoria Visual do Scalar Field & Taylor Jets IDE
+    // --------------------------------------------------------------------------------
+    console.log('\n--------------------------------------------------------------------------------');
+    console.log('📸 STAGE 11: Navegação para a rota do Scalar Field IDE (#/field)...');
+    console.log('--------------------------------------------------------------------------------');
+    await page.goto(`${serverUrl}/#/field`, { waitUntil: 'load', timeout: 20000 });
+    await page.waitForSelector('.canvas-stack-container', { timeout: 15000 });
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Captura de Tela 11: Scalar Field IDE (Visão Geral com Ponto de Sela)
+    const screen11Path = path.join(SCREENSHOT_DIR, '11_scalar_field_studio.png');
+    await page.screenshot({ path: screen11Path, fullPage: true });
+    console.log(`  ✅ Screenshot 11 salva em: ${screen11Path}`);
+
+    // STAGE 12: Interação com Alças Polares e Mudança de Paleta / Função Base
+    console.log('\n--------------------------------------------------------------------------------');
+    console.log('📸 STAGE 12: Interação com Seletores e Alças Polares de Taylor...');
+    console.log('--------------------------------------------------------------------------------');
+    await page.evaluate(() => {
+      const selects = document.querySelectorAll('select');
+      if (selects.length >= 2) {
+        selects[0].value = 'waves';
+        selects[0].dispatchEvent(new Event('change'));
+        selects[1].value = 'viridis';
+        selects[1].dispatchEvent(new Event('change'));
+      }
+    });
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    const overlayElement = await page.$('.overlay-canvas');
+    if (overlayElement) {
+      const box = await overlayElement.boundingBox();
+      if (box) {
+        await page.mouse.click(box.x + box.width * 0.45, box.y + box.height * 0.55);
+      }
+    }
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Captura de Tela 12: Alças Polares e Função Ondas Viridis
+    const screen12Path = path.join(SCREENSHOT_DIR, '12_scalar_field_polar_handles.png');
+    await page.screenshot({ path: screen12Path, fullPage: true });
+    console.log(`  ✅ Screenshot 12 salva em: ${screen12Path}`);
+
+    // STAGE 13: Brush Espacial e Visualização Cinemática
+    console.log('\n--------------------------------------------------------------------------------');
+    console.log('📸 STAGE 13: Ativação da ferramenta Brush Espacial e Validação Cinemática...');
+    console.log('--------------------------------------------------------------------------------');
+    await page.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll('.pill-group button'));
+      const brushBtn = btns.find(b => b.textContent?.includes('Brush'));
+      if (brushBtn) (brushBtn as HTMLButtonElement).click();
+    });
+    await new Promise(resolve => setTimeout(resolve, 600));
+
+    if (overlayElement) {
+      const box = await overlayElement.boundingBox();
+      if (box) {
+        const startX = box.x + box.width * 0.25;
+        const startY = box.y + box.height * 0.35;
+        await page.mouse.move(startX, startY);
+        await page.mouse.down();
+        for (let step = 0; step < 10; step++) {
+          await page.mouse.move(startX + step * 25, startY + Math.sin(step) * 20);
+          await new Promise(r => setTimeout(r, 40));
+        }
+        await page.mouse.up();
+      }
+    }
+    await new Promise(resolve => setTimeout(resolve, 1200));
+
+    // Captura de Tela 13: Brush Espacial e Gráfico Cinemático de q(t)
+    const screen13Path = path.join(SCREENSHOT_DIR, '13_scalar_field_brush_kinematics.png');
+    await page.screenshot({ path: screen13Path, fullPage: true });
+    console.log(`  ✅ Screenshot 13 salva em: ${screen13Path}`);
+
     // Validação de Ausência de Erros no Console
     console.log('\n--------------------------------------------------------------------------------');
     console.log('🔍 ANÁLISE DE DIAGNÓSTICOS DO NAVEGADOR:');
@@ -658,7 +749,12 @@ async function runE2EBrowserSuite() {
     console.log('\n--------------------------------------------------------------------------------');
     console.log('🖼️ AUDITORIA DE ARQUIVOS DE SCREENSHOT:');
     console.log('--------------------------------------------------------------------------------');
-    const files = [screen1Path, screen2Path, screen2bPath, screen3Path, screen3bPath, screen4Path, screen4bPath, screen5Path, screen6Path, screen7Path, screen7bPath, screen8Path, screen9Path];
+    const files = [
+      screen1Path, screen2Path, screen2bPath, screen3Path, screen3bPath,
+      screen4Path, screen4bPath, screen5Path, screen6Path, screen7Path,
+      screen7bPath, screen8Path, screen9Path, screen10Path, screen11Path,
+      screen12Path, screen13Path
+    ];
     for (const f of files) {
       const stat = fs.statSync(f);
       console.log(`  ${path.basename(f)}: ${stat.size} bytes (Arquivo PNG válido) ✅`);
