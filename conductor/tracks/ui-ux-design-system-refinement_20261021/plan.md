@@ -5,11 +5,11 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
 ---
 
 ## Fase 1: Tokens Globais, Design System Base e Componentes Atômicos em `src/lib/ui/` (TDD)
-- [ ] Task 1.1: Escrever testes automatizados que falham para os componentes atômicos compartilhados (Red Phase)
+- [x] Task 1.1: Escrever testes automatizados que falham para os componentes atômicos compartilhados (Red Phase) [failing test created]
   - Testar `Knob`, `PillTabs`, `PanelCard`, `Splitter` e `SmartTooltip` verificando contratos de propriedades, dispatch de eventos de valor e cálculo de limites.
   - Teste automatizado: `npx tsx tests/test-ui-atomic-components.ts`
   - Documentação: `documentation/ui_design_system/atomic_components.md`
-- [ ] Task 1.2: Implementar os tokens semânticos em `src/app.css` e os componentes atômicos em `src/lib/ui/` (Green Phase)
+- [~] Task 1.2: Implementar os tokens semânticos em `src/app.css` e os componentes atômicos em `src/lib/ui/` (Green Phase)
   - Criar `Knob.svelte`, `PillTabs.svelte`, `PanelCard.svelte`, `Splitter.svelte` e `SmartTooltip.svelte` com tipagem estrita e reatividade Svelte 5 (Runes).
   - Teste automatizado: `npx tsx tests/test-ui-atomic-components.ts`
   - Documentação: `documentation/ui_design_system/atomic_components.md`
