@@ -39,11 +39,11 @@
 - [x] Task 2.5: Verificação da Fase 2 e Checkpoint (Referente ao `workflow.md`) [Phase 2 tests passed 100%]
 
 ## Fase 3: Brushes Espaciais, Trajetórias r(t) e Validação Cinemática
-- [~] Task 3.1: Escrever testes automatizados para operadores de brush e filtro inercial (Red Phase)
+- [x] Task 3.1: Escrever testes automatizados para operadores de brush e filtro inercial (Red Phase) [failing test created]
   - Testar operadores *Add*, *Sub*, *Smooth* (Laplaciano $\nabla^2 f$) e *Equipotential Snap*, além do amortecimento inercial $p_{t+1} = p_t + \alpha (m_t - p_t)$.
   - Teste automatizado: `npx tsx tests/test-brush-operators.ts`
   - Documentação: `documentation/scalar_field_ide/brush_operators_specification.md`
-- [ ] Task 3.2: Implementar os operadores de brush e deformação espacial contínua (Green Phase)
+- [~] Task 3.2: Implementar os operadores de brush e deformação espacial contínua (Green Phase)
   - Criar `src/lib/scalar_field/BrushEngine.ts` com aplicação de deformação em grade e suavização de trajetórias.
   - Teste automatizado: `npx tsx tests/test-brush-operators.ts`
   - Documentação: `documentation/scalar_field_ide/brush_operators_specification.md`
