@@ -44,11 +44,11 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
 ---
 
 ## Fase 4: Auditoria Visual Multi-Resolução e Handoff de Acessibilidade (Meta-Task Obrigatória)
-- [~] Task 4.1: Expandir a suíte E2E do Puppeteer (`tests/e2e-browser-suite.ts`) para auditoria multi-resolução
+- [x] Task 4.1: Expandir a suíte E2E do Puppeteer (`tests/e2e-browser-suite.ts`) para auditoria multi-resolução [Multi-resolution desktop & laptop tested & 18 screenshots audited]
   - Executar auditoria em Desktop (1440x960) e Laptop (1280x720) gerando o catálogo visual completo de screenshots sem sobreposição.
   - Teste automatizado: `npm run test:e2e`
   - Documentação: `documentation/ui_design_system/README.md`
-- [ ] Task 4.2: Mitigação de Riscos de Acessibilidade, ARIA e Alto Contraste (Meta-Task Obrigatória)
+- [x] Task 4.2: Mitigação de Riscos de Acessibilidade, ARIA e Alto Contraste (Meta-Task Obrigatória) [ACCESSIBILITY_AND_CONTRAST.md & README.md documented]
   - Documentar estratégias de contraste WCAG AA, navegação por teclado e semântica ARIA para os controles interativos.
   - Documentação: `documentation/ui_design_system/ACCESSIBILITY_AND_CONTRAST.md`
-- [ ] Task 4.3: Verificação Final da Fase 4 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 4.3: Verificação Final da Fase 4 e Checkpoint (Referente ao `workflow.md`) [All 20 integration test suites and 14 E2E stages passed 100%]

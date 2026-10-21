@@ -733,6 +733,20 @@ async function runE2EBrowserSuite() {
     await page.screenshot({ path: screen13Path, fullPage: true });
     console.log(`  ✅ Screenshot 13 salva em: ${screen13Path}`);
 
+    // --------------------------------------------------------------------------------
+    // 14. FASE 7: Auditoria de Responsividade em Resolução Laptop (1280x720)
+    // --------------------------------------------------------------------------------
+    console.log('\n--------------------------------------------------------------------------------');
+    console.log('📸 STAGE 14: Auditoria em Resolução Laptop (1280x720)...');
+    console.log('--------------------------------------------------------------------------------');
+    await page.setViewport({ width: 1280, height: 720, devicePixelRatio: 1 });
+    await new Promise(resolve => setTimeout(resolve, 1200));
+
+    // Captura de Tela 14: Responsividade em 1280x720 no Scalar Field Studio
+    const screen14Path = path.join(SCREENSHOT_DIR, '14_laptop_1280x720_field_ide.png');
+    await page.screenshot({ path: screen14Path, fullPage: true });
+    console.log(`  ✅ Screenshot 14 salva em: ${screen14Path}`);
+
     // Validação de Ausência de Erros no Console
     console.log('\n--------------------------------------------------------------------------------');
     console.log('🔍 ANÁLISE DE DIAGNÓSTICOS DO NAVEGADOR:');
@@ -753,7 +767,7 @@ async function runE2EBrowserSuite() {
       screen1Path, screen2Path, screen2bPath, screen3Path, screen3bPath,
       screen4Path, screen4bPath, screen5Path, screen6Path, screen7Path,
       screen7bPath, screen8Path, screen9Path, screen10Path, screen11Path,
-      screen12Path, screen13Path
+      screen12Path, screen13Path, screen14Path
     ];
     for (const f of files) {
       const stat = fs.statSync(f);
