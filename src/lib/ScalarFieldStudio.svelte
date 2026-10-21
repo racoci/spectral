@@ -51,6 +51,8 @@
   } from './scalar_field/ScalarFieldAudioEngine';
 
   import KinematicProfileViewer from './scalar_field/KinematicProfileViewer.svelte';
+  import Splitter from './ui/Splitter.svelte';
+  import { computeCanvasDimensions, computeClampedHud } from './ui/canvas_helpers';
 
   interface Props {
     onNavigate?: (view: 'converter' | 'editor' | 'synth' | 'stn' | 'lean' | 'field') => void;
@@ -111,10 +113,12 @@
   // Elementos do DOM e Instâncias
   let glCanvas = $state<HTMLCanvasElement | null>(null);
   let overlayCanvas = $state<HTMLCanvasElement | null>(null);
+  let canvasStackContainer = $state<HTMLDivElement | null>(null);
   let editorContainer = $state<HTMLDivElement | null>(null);
   let editorView: EditorView | null = null;
   let glRenderer: ScalarFieldGlRenderer | null = null;
   let handlesManager: PolarHandlesManager | null = null;
+  let resizeObserver: ResizeObserver | null = null;
   let pointerFilter = new InertialPointerFilter();
 
   let audioCtx: AudioContext | null = null;
@@ -234,11 +238,12 @@
     const py = e.clientY - rect.top;
     const wld = screenToWorld(px, py, overlayCanvas.width, overlayCanvas.height, fieldModel.domain);
 
-    // Atualiza HUD no cursor
+    // Atualiza HUD no cursor com clamping inteligente
     const curVal = evaluateBaseFunction(fieldModel.baseFunction.type, wld.x, wld.y, fieldModel.baseFunction.gain, fieldModel.baseFunction.bias);
+    const clampedPos = computeClampedHud(px, py, 140, 56, rect.width, rect.height, 8);
     cursorHud.visible = true;
-    cursorHud.screenX = px;
-    cursorHud.screenY = py;
+    cursorHud.screenX = clampedPos.x;
+    cursorHud.screenY = clampedPos.y;
     cursorHud.worldX = wld.x;
     cursorHud.worldY = wld.y;
     cursorHud.val = curVal;
@@ -448,10 +453,28 @@
     if (overlayCanvas) {
       handlesManager = new PolarHandlesManager(overlayCanvas.width, overlayCanvas.height, fieldModel.domain);
     }
+    if (canvasStackContainer) {
+      resizeObserver = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const cw = Math.floor(entry.contentRect.width);
+          const ch = Math.floor(entry.contentRect.height);
+          if (cw > 10 && ch > 10 && glCanvas && overlayCanvas && handlesManager) {
+            glCanvas.width = cw;
+            glCanvas.height = ch;
+            overlayCanvas.width = cw;
+            overlayCanvas.height = ch;
+            handlesManager.updateDimensions(cw, ch, fieldModel.domain);
+            renderAllViews();
+          }
+        }
+      });
+      resizeObserver.observe(canvasStackContainer);
+    }
     renderAllViews();
   });
 
   onDestroy(() => {
+    if (resizeObserver) resizeObserver.disconnect();
     if (editorView) editorView.destroy();
     if (glRenderer) glRenderer.destroy();
     if (audioCtx) audioCtx.close();
@@ -562,7 +585,7 @@
     </section>
 
     <!-- SPLITTER -->
-    <div class="splitter" title="Arrastar para ajustar largura"></div>
+    <Splitter bind:size={splitWidth} minFirst={280} minSecond={350} />
 
     <!-- PAINEL DIREITO: CANVAS HÍBRIDO (WEBGL 2 + OVERLAY 2D) -->
     <section class="canvas-pane">
@@ -571,7 +594,7 @@
         <span class="badge">Ordem Ativa: {selectedOrder}</span>
       </div>
 
-      <div class="canvas-stack-container">
+      <div class="canvas-stack-container" bind:this={canvasStackContainer}>
         <!-- Canvas 1: Fundo WebGL 2 (Campo + Isolinhas a 60 FPS) -->
         <canvas bind:this={glCanvas} width={800} height={460} class="gl-canvas"></canvas>
 
@@ -586,9 +609,9 @@
           onpointerup={handlePointerUp}
         ></canvas>
 
-        <!-- HUD Dinâmico no Cursor -->
+        <!-- HUD Dinâmico no Cursor com Clamping Inteligente -->
         {#if cursorHud.visible}
-          <div class="cursor-hud" style="left: {cursorHud.screenX + 15}px; top: {cursorHud.screenY + 15}px;">
+          <div class="cursor-hud" style="left: {cursorHud.screenX}px; top: {cursorHud.screenY}px;">
             <div>Pos: ({cursorHud.worldX.toFixed(2)}, {cursorHud.worldY.toFixed(2)})</div>
             <div>f(x,y): <strong>{cursorHud.val.toFixed(3)}</strong></div>
             <div>Gradiente: ||∇f|| = {cursorHud.gradMag.toFixed(2)}</div>

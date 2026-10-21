@@ -17,6 +17,7 @@
     parseLeanCode, 
     locateLeanParameterRange 
   } from './synth/lean_ast_codec';
+  import Splitter from './ui/Splitter.svelte';
   import { 
     synthesizeDx7Patch, 
     synthesizePolyphonicChord, 
@@ -476,7 +477,7 @@
     </section>
 
     <!-- SPLITTER DRAG HANDLE -->
-    <div class="splitter" onmousedown={startResize} title="Arrastar para ajustar largura"></div>
+    <Splitter bind:size={leftPaneWidth} minFirst={280} minSecond={350} />
 
     <!-- PAINEL DIREITO: WIDGETS SEMÂNTICOS SVELTE 5 -->
     <section class="widgets-pane">

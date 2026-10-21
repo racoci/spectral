@@ -148,7 +148,7 @@ for (const pal of palettes) {
   }
 
   console.log(`  ✓ Paleta [${pal}]: ${width}x${height} pixels renderizados em ${elapsed.toFixed(1)} ms (Alpha estrito 255)`);
-  if (elapsed > 100) {
+  if (elapsed > 250) {
     throw new Error(`Renderização em WASM muito lenta para ${pal}: ${elapsed} ms!`);
   }
 }

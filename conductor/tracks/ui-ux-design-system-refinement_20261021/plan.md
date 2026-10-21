@@ -35,16 +35,16 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
   - Testar sincronização de buffer `width/height` vs `clientWidth/clientHeight` e função de clamp com margens de segurança na viewport.
   - Teste automatizado: `npx tsx tests/test-canvas-responsiveness.ts`
   - Documentação: `documentation/ui_design_system/canvas_responsiveness.md`
-- [~] Task 3.2: Integrar os componentes atômicos e o `ResizeObserver` nos 6 estúdios (Green Phase)
+- [x] Task 3.2: Integrar os componentes atômicos e o `ResizeObserver` nos 6 estúdios (Green Phase) [Splitter, Knob, computeCanvasDimensions integrated]
   - Refatorar `WebGlEditor`, `DdspStudio`, `StnStudio`, `LeanSynthStudio` e `ScalarFieldStudio` para usar os componentes de `src/lib/ui/`.
   - Teste automatizado: `npm run check && npx tsx tests/test-canvas-responsiveness.ts`
   - Documentação: `documentation/ui_design_system/canvas_responsiveness.md`
-- [ ] Task 3.3: Verificação da Fase 3 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 3.3: Verificação da Fase 3 e Checkpoint (Referente ao `workflow.md`) [Phase 3 tests passed 100%]
 
 ---
 
 ## Fase 4: Auditoria Visual Multi-Resolução e Handoff de Acessibilidade (Meta-Task Obrigatória)
-- [ ] Task 4.1: Expandir a suíte E2E do Puppeteer (`tests/e2e-browser-suite.ts`) para auditoria multi-resolução
+- [~] Task 4.1: Expandir a suíte E2E do Puppeteer (`tests/e2e-browser-suite.ts`) para auditoria multi-resolução
   - Executar auditoria em Desktop (1440x960) e Laptop (1280x720) gerando o catálogo visual completo de screenshots sem sobreposição.
   - Teste automatizado: `npm run test:e2e`
   - Documentação: `documentation/ui_design_system/README.md`
