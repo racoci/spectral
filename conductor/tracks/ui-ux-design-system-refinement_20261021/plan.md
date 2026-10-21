@@ -18,11 +18,11 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
 ---
 
 ## Fase 2: Topbar Global Avançada, Atalhos de Teclado e Indicador de Áudio (TDD)
-- [~] Task 2.1: Escrever testes automatizados que falham para o roteador com atalhos `Alt+1..6` e indicador de áudio (Red Phase)
+- [x] Task 2.1: Escrever testes automatizados que falham para o roteador com atalhos `Alt+1..6` e indicador de áudio (Red Phase) [failing test created]
   - Testar mapeamento de teclas `Alt+1` a `Alt+6` para atualização de hash (`#/converter` até `#/field`) e detecção de nós de áudio ativos.
   - Teste automatizado: `npx tsx tests/test-topbar-navigation.ts`
   - Documentação: `documentation/ui_design_system/topbar_navigation.md`
-- [ ] Task 2.2: Implementar o componente `GlobalTopbar.svelte` e integrar a `src/App.svelte` (Green Phase)
+- [~] Task 2.2: Implementar o componente `GlobalTopbar.svelte` e integrar a `src/App.svelte` (Green Phase)
   - Criar `src/lib/ui/GlobalTopbar.svelte` com ícones SVG estilizados, badges de ferramenta e listener de atalhos globais.
   - Teste automatizado: `npx tsx tests/test-topbar-navigation.ts`
   - Documentação: `documentation/ui_design_system/topbar_navigation.md`
