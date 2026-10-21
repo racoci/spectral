@@ -31,11 +31,11 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
 ---
 
 ## Fase 3: Responsividade Adaptativa com `ResizeObserver` e Integração nos 6 Estúdios (TDD)
-- [~] Task 3.1: Escrever testes automatizados para redimensionamento de canvas e clamp de HUD (Red Phase)
+- [x] Task 3.1: Escrever testes automatizados para redimensionamento de canvas e clamp de HUD (Red Phase) [failing test created]
   - Testar sincronização de buffer `width/height` vs `clientWidth/clientHeight` e função de clamp com margens de segurança na viewport.
   - Teste automatizado: `npx tsx tests/test-canvas-responsiveness.ts`
   - Documentação: `documentation/ui_design_system/canvas_responsiveness.md`
-- [ ] Task 3.2: Integrar os componentes atômicos e o `ResizeObserver` nos 6 estúdios (Green Phase)
+- [~] Task 3.2: Integrar os componentes atômicos e o `ResizeObserver` nos 6 estúdios (Green Phase)
   - Refatorar `WebGlEditor`, `DdspStudio`, `StnStudio`, `LeanSynthStudio` e `ScalarFieldStudio` para usar os componentes de `src/lib/ui/`.
   - Teste automatizado: `npm run check && npx tsx tests/test-canvas-responsiveness.ts`
   - Documentação: `documentation/ui_design_system/canvas_responsiveness.md`
