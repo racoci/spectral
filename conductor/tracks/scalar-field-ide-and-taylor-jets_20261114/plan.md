@@ -28,11 +28,11 @@
   - Criar `src/lib/scalar_field/ScalarFieldGlRenderer.ts` com paletas (Cinza, Viridis, Magma, Inferno), controle de zoom/pan e renderização a 60 FPS.
   - Teste automatizado: `npx tsx tests/test-scalar-field-webgl.ts`
   - Documentação: `documentation/scalar_field_ide/webgl_scalar_field_shader.md`
-- [~] Task 2.3: Escrever testes para as alças polares $q_n(\theta)$ e hit-testing do overlay vetorial (Red Phase)
+- [x] Task 2.3: Escrever testes para as alças polares $q_n(\theta)$ e hit-testing do overlay vetorial (Red Phase) [failing test created]
   - Testar conversão de coordenadas tela $\leftrightarrow$ matemática, captura de ponteiro e projeção radial das alças de ordens 0 a 8.
   - Teste automatizado: `npx tsx tests/test-polar-handles-interaction.ts`
   - Documentação: `documentation/scalar_field_ide/polar_handles_specification.md`
-- [ ] Task 2.4: Implementar o canvas overlay vetorial e manipulador de alças interativas (Green Phase)
+- [~] Task 2.4: Implementar o canvas overlay vetorial e manipulador de alças interativas (Green Phase)
   - Criar `src/lib/scalar_field/PolarHandlesOverlay.ts` com desenho de perfis coloridos e alças arrastáveis que despacham alterações cirúrgicas.
   - Teste automatizado: `npx tsx tests/test-polar-handles-interaction.ts`
   - Documentação: `documentation/scalar_field_ide/polar_handles_specification.md`
