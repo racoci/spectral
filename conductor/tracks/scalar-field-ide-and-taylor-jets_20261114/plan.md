@@ -32,14 +32,14 @@
   - Testar conversão de coordenadas tela $\leftrightarrow$ matemática, captura de ponteiro e projeção radial das alças de ordens 0 a 8.
   - Teste automatizado: `npx tsx tests/test-polar-handles-interaction.ts`
   - Documentação: `documentation/scalar_field_ide/polar_handles_specification.md`
-- [~] Task 2.4: Implementar o canvas overlay vetorial e manipulador de alças interativas (Green Phase)
+- [x] Task 2.4: Implementar o canvas overlay vetorial e manipulador de alças interativas (Green Phase) [PolarHandlesOverlay.ts implemented]
   - Criar `src/lib/scalar_field/PolarHandlesOverlay.ts` com desenho de perfis coloridos e alças arrastáveis que despacham alterações cirúrgicas.
   - Teste automatizado: `npx tsx tests/test-polar-handles-interaction.ts`
   - Documentação: `documentation/scalar_field_ide/polar_handles_specification.md`
-- [ ] Task 2.5: Verificação da Fase 2 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 2.5: Verificação da Fase 2 e Checkpoint (Referente ao `workflow.md`) [Phase 2 tests passed 100%]
 
 ## Fase 3: Brushes Espaciais, Trajetórias r(t) e Validação Cinemática
-- [ ] Task 3.1: Escrever testes automatizados para operadores de brush e filtro inercial (Red Phase)
+- [~] Task 3.1: Escrever testes automatizados para operadores de brush e filtro inercial (Red Phase)
   - Testar operadores *Add*, *Sub*, *Smooth* (Laplaciano $\nabla^2 f$) e *Equipotential Snap*, além do amortecimento inercial $p_{t+1} = p_t + \alpha (m_t - p_t)$.
   - Teste automatizado: `npx tsx tests/test-brush-operators.ts`
   - Documentação: `documentation/scalar_field_ide/brush_operators_specification.md`
