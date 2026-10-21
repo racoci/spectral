@@ -47,11 +47,11 @@
   - Criar `src/lib/scalar_field/BrushEngine.ts` com aplicação de deformação em grade e suavização de trajetórias.
   - Teste automatizado: `npx tsx tests/test-brush-operators.ts`
   - Documentação: `documentation/scalar_field_ide/brush_operators_specification.md`
-- [~] Task 3.3: Escrever testes para validação das identidades da regra da cadeia cinemática (Red Phase)
+- [x] Task 3.3: Escrever testes para validação das identidades da regra da cadeia cinemática (Red Phase) [failing test created]
   - Testar cálculo de velocidade $r'(t)$, aceleração $r''(t)$ e jerk $r'''(t)$ e confrontar $\frac{d}{dt}f(r(t))$ e $\frac{d^2}{dt^2}f(r(t))$ contra $\nabla f \cdot r'$ e $r'^T H_f r' + \nabla f \cdot r''$.
   - Teste automatizado: `npx tsx tests/test-kinematic-chain-rule.ts`
   - Documentação: `documentation/scalar_field_ide/kinematic_chain_rule.md`
-- [ ] Task 3.4: Implementar o visualizador de perfil 1D $q(t)$ e conferência cinemática (Green Phase)
+- [~] Task 3.4: Implementar o visualizador de perfil 1D $q(t)$ e conferência cinemática (Green Phase)
   - Criar `src/lib/scalar_field/KinematicProfileViewer.svelte` com gráfico de evolução de $f(r(t))$ e indicadores vetoriais sobrepostos.
   - Teste automatizado: `npx tsx tests/test-kinematic-chain-rule.ts`
   - Documentação: `documentation/scalar_field_ide/kinematic_chain_rule.md`
