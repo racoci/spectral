@@ -58,11 +58,11 @@
 - [x] Task 3.5: Verificação da Fase 3 e Checkpoint (Referente ao `workflow.md`) [Phase 3 tests passed 100%]
 
 ## Fase 4: Síntese Sonora em Modo Duplo, IDE Integrada e Handoff Slang
-- [~] Task 4.1: Escrever testes automatizados para o motor sonoro em modo duplo (Red Phase)
+- [x] Task 4.1: Escrever testes automatizados para o motor sonoro em modo duplo (Red Phase) [failing test created]
   - Testar síntese do Modo A (Órbita de varredura periódica / Wavetable scan) e Modo B (Superfície Espectral DDSP) gerando PCM 48kHz sem clipping.
   - Teste automatizado: `npx tsx tests/test-dual-mode-audio-synthesis.ts`
   - Documentação: `documentation/scalar_field_ide/dual_mode_audio_engine.md`
-- [ ] Task 4.2: Implementar o motor de síntese sonora de campos escalares e exportador WAV (Green Phase)
+- [~] Task 4.2: Implementar o motor de síntese sonora de campos escalares e exportador WAV (Green Phase)
   - Criar `src/lib/scalar_field/ScalarFieldAudioEngine.ts` com reprodução em tempo real e exportação WAV mono/estéreo.
   - Teste automatizado: `npx tsx tests/test-dual-mode-audio-synthesis.ts`
   - Documentação: `documentation/scalar_field_ide/dual_mode_audio_engine.md`
