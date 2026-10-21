@@ -1,11 +1,11 @@
 # Implementation Plan - Scalar Field IDE 2D and Taylor Jets Editor
 
 ## Fase 1: Modelo Matemático, AST Lean 4 e Codec de Campos/Jatos (TDD)
-- [ ] Task 1.1: Escrever testes automatizados que falham para o modelo de dados de `ScalarField2D` e Jatos de Taylor (Ordens 0 a 8) (Red Phase)
+- [x] Task 1.1: Escrever testes automatizados que falham para o modelo de dados de `ScalarField2D` e Jatos de Taylor (Ordens 0 a 8) (Red Phase) [failing test created]
   - Testar representação analítica de funções base (Zero, Sela, Bacia, Ondas, Gaussiana), ponto de expansão $p=(x_0, y_0)$, gradiente $\nabla f$, Hessiana $H_f$ (autovalores e autovetores) e tensores de ordens 3 a 8.
   - Teste automatizado: `npx tsx tests/test-scalar-field-math.ts`
   - Documentação: `documentation/scalar_field_ide/taylor_jet_mathematics.md`
-- [ ] Task 1.2: Implementar o núcleo matemático de jatos de Taylor e funções escalares em TypeScript (Green Phase)
+- [~] Task 1.2: Implementar o núcleo matemático de jatos de Taylor e funções escalares em TypeScript (Green Phase)
   - Implementar cálculo das derivadas de ordens 0 a 8, avaliação direcional $q_n(\theta) = D^n f(p)[u(\theta), \dots, u(\theta)]$, e decomposição espectral de autovalores/autovetores da Hessiana.
   - Teste automatizado: `npx tsx tests/test-scalar-field-math.ts`
   - Documentação: `documentation/scalar_field_ide/taylor_jet_mathematics.md`
