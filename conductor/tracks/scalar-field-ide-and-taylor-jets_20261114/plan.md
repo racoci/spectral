@@ -5,11 +5,11 @@
   - Testar representação analítica de funções base (Zero, Sela, Bacia, Ondas, Gaussiana), ponto de expansão $p=(x_0, y_0)$, gradiente $\nabla f$, Hessiana $H_f$ (autovalores e autovetores) e tensores de ordens 3 a 8.
   - Teste automatizado: `npx tsx tests/test-scalar-field-math.ts`
   - Documentação: `documentation/scalar_field_ide/taylor_jet_mathematics.md`
-- [~] Task 1.2: Implementar o núcleo matemático de jatos de Taylor e funções escalares em TypeScript (Green Phase)
+- [x] Task 1.2: Implementar o núcleo matemático de jatos de Taylor e funções escalares em TypeScript (Green Phase) [taylor_jet_math.ts implemented]
   - Implementar cálculo das derivadas de ordens 0 a 8, avaliação direcional $q_n(\theta) = D^n f(p)[u(\theta), \dots, u(\theta)]$, e decomposição espectral de autovalores/autovetores da Hessiana.
   - Teste automatizado: `npx tsx tests/test-scalar-field-math.ts`
   - Documentação: `documentation/scalar_field_ide/taylor_jet_mathematics.md`
-- [ ] Task 1.3: Escrever testes de ida e volta (Roundtrip) para o codec de serialização da AST Lean 4 de campos escalares (Red Phase)
+- [~] Task 1.3: Escrever testes de ida e volta (Roundtrip) para o codec de serialização da AST Lean 4 de campos escalares (Red Phase)
   - Testar `emitLeanScalarField(field)` e `parseLeanScalarField(code)` garantindo 100% de simetria e localização de limites `[from, to]` para cada parâmetro escalar.
   - Teste automatizado: `npx tsx tests/test-scalar-field-lean-codec.ts`
   - Documentação: `documentation/scalar_field_ide/lean4_scalar_field_grammar.md`
