@@ -5,6 +5,7 @@
   import DdspStudio from './lib/DdspStudio.svelte';
   import StnStudio from './lib/StnStudio.svelte';
   import LeanSynthStudio from './lib/LeanSynthStudio.svelte';
+  import ScalarFieldStudio from './lib/ScalarFieldStudio.svelte';
   import init, { 
     wasm_generate_complex_reassigned_ycbcr_spectrogram,
     wasm_generate_holomorphic_exploration_spectrogram,
@@ -39,8 +40,8 @@
   let refinementProgress = $state<number | null>(null);
   let mirroredDensity = $state<Float32Array | null>(null);
   let sharedDdspConfig = $state<any>(null);
-  let currentView = $derived<'converter' | 'editor' | 'synth' | 'stn' | 'lean'>(
-    currentHash === '#/converter' ? 'converter' : (currentHash === '#/synth' ? 'synth' : (currentHash === '#/stn' ? 'stn' : (currentHash === '#/lean' ? 'lean' : 'editor')))
+  let currentView = $derived<'converter' | 'editor' | 'synth' | 'stn' | 'lean' | 'field'>(
+    currentHash === '#/converter' ? 'converter' : (currentHash === '#/synth' ? 'synth' : (currentHash === '#/stn' ? 'stn' : (currentHash === '#/lean' ? 'lean' : (currentHash === '#/field' ? 'field' : 'editor'))))
   );
 
   // Advanced DSP Configurations (Pure Gaussian-Hermite Pipeline)
@@ -550,9 +551,11 @@
   }
 
   // Switch to route helpers
-  function navigateTo(view: 'converter' | 'editor' | 'synth' | 'stn' | 'lean') {
+  function navigateTo(view: 'converter' | 'editor' | 'synth' | 'stn' | 'lean' | 'field') {
     if (view === 'editor' && !rgbaGrid) return;
-    if (view === 'lean') {
+    if (view === 'field') {
+      window.location.hash = '#/field';
+    } else if (view === 'lean') {
       window.location.hash = '#/lean';
     } else if (view === 'stn') {
       window.location.hash = '#/stn';
@@ -566,7 +569,7 @@
   }
 </script>
 
-<main class="app-container" class:full-screen-layout={currentView === 'editor' || currentView === 'synth' || currentView === 'stn' || currentView === 'lean'}>
+<main class="app-container" class:full-screen-layout={currentView === 'editor' || currentView === 'synth' || currentView === 'stn' || currentView === 'lean' || currentView === 'field'}>
   
   {#if currentView === 'converter'}
     <header class="app-header">
@@ -581,6 +584,7 @@
           <button onclick={() => navigateTo('synth')}>3. DDSP Studio</button>
           <button onclick={() => navigateTo('stn')}>4. STN Synth</button>
           <button onclick={() => navigateTo('lean')}>5. Lean IDE</button>
+          <button onclick={() => navigateTo('field')}>6. Field IDE</button>
         </div>
       </div>
       <p class="tagline">
@@ -669,6 +673,12 @@
   {:else if currentView === 'lean'}
     <!-- Lean 4 Synth IDE: Dual Code & Semantic Widgets Environment -->
     <LeanSynthStudio 
+      onNavigate={navigateTo}
+      onTransportToEditor={(wav) => handleDirectAudioUpload(wav)}
+    />
+  {:else if currentView === 'field'}
+    <!-- Scalar Field 2D, Taylor Jets & Brushes IDE -->
+    <ScalarFieldStudio 
       onNavigate={navigateTo}
       onTransportToEditor={(wav) => handleDirectAudioUpload(wav)}
     />

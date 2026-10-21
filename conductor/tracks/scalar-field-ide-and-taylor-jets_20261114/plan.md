@@ -62,15 +62,15 @@
   - Testar síntese do Modo A (Órbita de varredura periódica / Wavetable scan) e Modo B (Superfície Espectral DDSP) gerando PCM 48kHz sem clipping.
   - Teste automatizado: `npx tsx tests/test-dual-mode-audio-synthesis.ts`
   - Documentação: `documentation/scalar_field_ide/dual_mode_audio_engine.md`
-- [~] Task 4.2: Implementar o motor de síntese sonora de campos escalares e exportador WAV (Green Phase)
+- [x] Task 4.2: Implementar o motor de síntese sonora de campos escalares e exportador WAV (Green Phase) [ScalarFieldAudioEngine.ts implemented]
   - Criar `src/lib/scalar_field/ScalarFieldAudioEngine.ts` com reprodução em tempo real e exportação WAV mono/estéreo.
   - Teste automatizado: `npx tsx tests/test-dual-mode-audio-synthesis.ts`
   - Documentação: `documentation/scalar_field_ide/dual_mode_audio_engine.md`
-- [ ] Task 4.3: Montar o componente completo `ScalarFieldStudio.svelte` e integrar à IDE
+- [x] Task 4.3: Montar o componente completo `ScalarFieldStudio.svelte` e integrar à IDE [ScalarFieldStudio.svelte implemented & App.svelte integrated]
   - Integrar o canvas híbrido WebGL/2D, o painel de ordens de Taylor (0 a 8), o editor CodeMirror 6 com sincronização bidirecional, HUD no cursor e barra de transporte sonoro.
   - Teste automatizado: `npm run build && npm run check`
   - Documentação: `documentation/scalar_field_ide/README.md`
-- [ ] Task 4.4: Mitigação de Riscos de Desempenho e Handoff para Compilador Slang na GPU (Meta-Task Obrigatória)
+- [x] Task 4.4: Mitigação de Riscos de Desempenho e Handoff para Compilador Slang na GPU (Meta-Task Obrigatória) [SLANG_GPU_HANDOFF.md documented]
   - Estruturar o protocolo de compilação de shaders Slang para avaliação de ordens superiores a 60 FPS na GPU e suporte a texturas WebGPU.
   - Documentação: `documentation/scalar_field_ide/SLANG_GPU_HANDOFF.md`
-- [ ] Task 4.5: Verificação da Fase 4 e Checkpoint Final (Referente ao `workflow.md`)
+- [x] Task 4.5: Verificação da Fase 4 e Checkpoint Final (Referente ao `workflow.md`) [All 17 integration test suites passed 100%]
