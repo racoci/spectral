@@ -13,11 +13,11 @@
   - Testar `emitLeanScalarField(field)` e `parseLeanScalarField(code)` garantindo 100% de simetria e localização de limites `[from, to]` para cada parâmetro escalar.
   - Teste automatizado: `npx tsx tests/test-scalar-field-lean-codec.ts`
   - Documentação: `documentation/scalar_field_ide/lean4_scalar_field_grammar.md`
-- [~] Task 1.4: Implementar o gerador e parser de AST Lean 4 para `ScalarField2D` (Green Phase)
-  - Criar `src/lib/synth/scalar_field_codec.ts` com suporte à gramática Lean 4 tipada (`structure ScalarField2D`, `structure TaylorJet`).
+- [x] Task 1.4: Implementar o gerador e parser de AST Lean 4 para `ScalarField2D` (Green Phase) [scalar_field_codec.ts implemented]
+  - Criar `src/lib/scalar_field/scalar_field_codec.ts` com suporte à gramática Lean 4 tipada (`structure ScalarField2D`, `structure TaylorJet`).
   - Teste automatizado: `npx tsx tests/test-scalar-field-lean-codec.ts`
   - Documentação: `documentation/scalar_field_ide/lean4_scalar_field_grammar.md`
-- [ ] Task 1.5: Verificação da Fase 1 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 1.5: Verificação da Fase 1 e Checkpoint (Referente ao `workflow.md`) [Phase 1 tests passed 100%]
 
 ## Fase 2: Renderizador Híbrido WebGL 2 & Alças Polares Interativas (Ordens 0 a 8)
 - [ ] Task 2.1: Escrever testes automatizados para os shaders WebGL 2 e geração de isolinhas (Red Phase)
