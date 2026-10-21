@@ -4,3 +4,4 @@
 - [x] **Track: Phase 5: Canonicalization and Gauges (E39-E41)** *Link: [./tracks/mdl-phase5-canonicalization_20261009/index.md](./tracks/mdl-phase5-canonicalization_20261009/index.md)*
 - [x] **Track: Phase 6: Evolution and Uncertainty (E42-E45)** *Link: [./tracks/mdl-phase6-gaussian-processes_20261010/index.md](./tracks/mdl-phase6-gaussian-processes_20261010/index.md)*
 - [x] **Track: MVP: Lean 4 IDE Validation and DX7 Syx Parser** *Link: [./tracks/lean4-ide-and-syx-parser_20261114/index.md](./tracks/lean4-ide-and-syx-parser_20261114/index.md)*
+- [ ] **Track: Feature: Scalar Field IDE 2D and Taylor Jets Editor** *Link: [./tracks/scalar-field-ide-and-taylor-jets_20261114/index.md](./tracks/scalar-field-ide-and-taylor-jets_20261114/index.md)*
