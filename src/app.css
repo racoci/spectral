@@ -1,11 +1,35 @@
 :root {
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  /* Tipografia */
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
-  font-family: var(--font-sans);
+  /* Superfícies & Backgrounds */
+  --bg-base: #02060b;
+  --bg-surface: #06111d;
+  --bg-elevated: #0b1c2e;
+  --bg-input: #040d16;
+
+  /* Bordas */
+  --border-subtle: #13273c;
+  --border-hover: #1c3b5b;
+  --border-active: #2a5a84;
+
+  /* Texto */
+  --text-primary: #e5f1fb;
+  --text-secondary: #8ca5ba;
+  --text-muted: #536f87;
+
+  /* Acentos Semânticos */
+  --accent-cyan: #38bdf8;
+  --accent-teal: #2dd4bf;
+  --accent-amber: #fbbf24;
+  --accent-violet: #c084fc;
+  --accent-rose: #f43f5e;
+  --accent-green: #22d69a;
+
   color-scheme: dark;
-  background-color: #0b0f19;
-  color: #e2e8f0;
+  background-color: var(--bg-base);
+  color: var(--text-primary);
   
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -15,6 +39,8 @@ body {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  background-color: var(--bg-base);
+  font-family: var(--font-sans);
 }
 
 *, *::before, *::after {
@@ -22,7 +48,7 @@ body {
 }
 
 a {
-  color: #38bdf8;
+  color: var(--accent-cyan);
   text-decoration: none;
 }
 
@@ -31,6 +57,22 @@ a:hover {
 }
 
 h1, h2, h3, h4, h5, h6 {
-  color: #f8fafc;
+  color: var(--text-primary);
   font-weight: 600;
+}
+
+/* Scrollbar Estilizada */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-base);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-hover);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-active);
 }

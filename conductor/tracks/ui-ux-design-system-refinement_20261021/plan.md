@@ -9,16 +9,16 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
   - Testar `Knob`, `PillTabs`, `PanelCard`, `Splitter` e `SmartTooltip` verificando contratos de propriedades, dispatch de eventos de valor e cálculo de limites.
   - Teste automatizado: `npx tsx tests/test-ui-atomic-components.ts`
   - Documentação: `documentation/ui_design_system/atomic_components.md`
-- [~] Task 1.2: Implementar os tokens semânticos em `src/app.css` e os componentes atômicos em `src/lib/ui/` (Green Phase)
+- [x] Task 1.2: Implementar os tokens semânticos em `src/app.css` e os componentes atômicos em `src/lib/ui/` (Green Phase) [Knob, PillTabs, PanelCard, Splitter, SmartTooltip implemented]
   - Criar `Knob.svelte`, `PillTabs.svelte`, `PanelCard.svelte`, `Splitter.svelte` e `SmartTooltip.svelte` com tipagem estrita e reatividade Svelte 5 (Runes).
   - Teste automatizado: `npx tsx tests/test-ui-atomic-components.ts`
   - Documentação: `documentation/ui_design_system/atomic_components.md`
-- [ ] Task 1.3: Verificação da Fase 1 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 1.3: Verificação da Fase 1 e Checkpoint (Referente ao `workflow.md`) [Phase 1 tests passed 100%]
 
 ---
 
 ## Fase 2: Topbar Global Avançada, Atalhos de Teclado e Indicador de Áudio (TDD)
-- [ ] Task 2.1: Escrever testes automatizados que falham para o roteador com atalhos `Alt+1..6` e indicador de áudio (Red Phase)
+- [~] Task 2.1: Escrever testes automatizados que falham para o roteador com atalhos `Alt+1..6` e indicador de áudio (Red Phase)
   - Testar mapeamento de teclas `Alt+1` a `Alt+6` para atualização de hash (`#/converter` até `#/field`) e detecção de nós de áudio ativos.
   - Teste automatizado: `npx tsx tests/test-topbar-navigation.ts`
   - Documentação: `documentation/ui_design_system/topbar_navigation.md`
