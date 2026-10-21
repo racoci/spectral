@@ -14,4 +14,6 @@
 - **WebGL 2.0 (GLSL 3.0 ES)**: Real-time high-performance 2D scalar field shader rendering with screen-space derivative antialiased isolines (`fwidth`).
 - **HTML5 2D Canvas**: Precision vector overlays for interactive polar handles $q_n(\theta)$ (orders 0 to 8) and kinematic trajectory visualizations.
 - **Web Audio API**: Real-time polyphonic 6-operator FM audio engine, wavetable orbit scan synthesis, DDSP spectral surface synthesis, and 16-bit PCM WAV encoding.
+- **Svelte 5 Atomic UI Architecture**: Modular component library (`src/lib/ui/`) with reactive runes, pointer capture rotary knobs, responsive splitters, and WCAG AA contrast compliance.
+- **Puppeteer Headless E2E**: Automated multi-resolution visual testing and screenshot auditing across desktop (1440x960) and laptop (1280x720) viewports.
 - **Slang (Roadmap / GPU Handoff)**: Cross-platform shader language with automatic differentiation for higher-order differential jets and WebGPU compute pipelines.
