@@ -11,3 +11,4 @@ Audio2Image is an advanced audio representation and compression framework based 
 1. **Mathematical Curriculum:** Rigorous synthetic signal laboratory (Phase 1) and mathematical competitor benchmarking (Phase 2).
 2. **Structural Representations:** Comprehensive comparison of continuous, discrete, adaptive, and neural representations (M1 through M12).
 3. **Information-Theoretic Codec:** Minimization of total description length $L(M) + L(R)$ balancing parametric complexity against residual entropy.
+4. **Lean 4 Synth IDE & Dual Representation:** An interactive environment pairing human-readable, plain-text Lean 4 code with inline Svelte 5 widgets (FM routing matrix, draggable envelope stages, knobs), featuring surgical bidirectional synchronization and DX7 `.syx` preset ingestion.
