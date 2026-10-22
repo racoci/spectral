@@ -31,11 +31,11 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
 ---
 
 ## Fase 3: Implementação do Codec em Rust / WASM (`core-wasm`) e Bitstream Binário DRED (TDD)
-- [~] Task 3.1: Escrever testes automatizados de integração WASM e compressão de áudio real (Red Phase)
+- [x] Task 3.1: Escrever testes automatizados de integração WASM e compressão de áudio real (Red Phase) [failing test created]
   - Testar compressão e descompressão de áudio real (`voice.wav`) em WASM no modo duplo (lossy DRED e bit-exact lossless).
   - Teste automatizado: `npx tsx tests/test-wasm-rdo-codec.ts`
   - Documentação: `documentation/rdo_dred_codec/rust_wasm_dred_architecture.md`
-- [ ] Task 3.2: Implementar o módulo `rdo_codec.rs` em Rust no `core-wasm` e exportar bindings WASM (Green Phase)
+- [~] Task 3.2: Implementar o módulo `rdo_codec.rs` em Rust no `core-wasm` e exportar bindings WASM (Green Phase)
   - Criar `core-wasm/src/analysis/rdo_codec.rs`, exportar funções no `lib.rs` e compilar via `wasm-pack`.
   - Teste automatizado: `npx tsx tests/test-wasm-rdo-codec.ts`
   - Documentação: `documentation/rdo_dred_codec/rust_wasm_dred_architecture.md`
