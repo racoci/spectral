@@ -18,11 +18,11 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
 ---
 
 ## Fase 2: Otimização RDO Overcomplete e Quantização Dead-Zone (TDD)
-- [~] Task 2.1: Escrever testes automatizados para colapso de dimensões overcomplete e quantização com dead-zone (Red Phase)
+- [x] Task 2.1: Escrever testes automatizados para colapso de dimensões overcomplete e quantização com dead-zone (Red Phase) [failing test created]
   - Testar poda de 64 dimensões para subespaços esparsos sob variação do multiplicador Lagrangeano $\lambda \in [10^{-4}, 10^{-1}]$ e quantização com dead-zone.
   - Teste automatizado: `npx tsx tests/test-rdo-dimension-collapse.ts`
   - Documentação: `documentation/rdo_dred_codec/rdo_mathematical_foundations.md`
-- [ ] Task 2.2: Implementar o motor de otimização Rate-Distortion em TypeScript (Green Phase)
+- [~] Task 2.2: Implementar o motor de otimização Rate-Distortion em TypeScript (Green Phase)
   - Criar `src/lib/codec/rdo_engine.ts` com decomposição de jatos, cálculo analítico de $D + \lambda H$ e seleção ótima de coeficientes sobreviventes.
   - Teste automatizado: `npx tsx tests/test-rdo-dimension-collapse.ts`
   - Documentação: `documentation/rdo_dred_codec/rdo_mathematical_foundations.md`
