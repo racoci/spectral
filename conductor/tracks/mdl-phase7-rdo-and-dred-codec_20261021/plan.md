@@ -35,16 +35,16 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
   - Testar compressão e descompressão de áudio real (`voice.wav`) em WASM no modo duplo (lossy DRED e bit-exact lossless).
   - Teste automatizado: `npx tsx tests/test-wasm-rdo-codec.ts`
   - Documentação: `documentation/rdo_dred_codec/rust_wasm_dred_architecture.md`
-- [~] Task 3.2: Implementar o módulo `rdo_codec.rs` em Rust no `core-wasm` e exportar bindings WASM (Green Phase)
+- [x] Task 3.2: Implementar o módulo `rdo_codec.rs` em Rust no `core-wasm` e exportar bindings WASM (Green Phase) [rdo_codec.rs implemented & wasm-pack compiled]
   - Criar `core-wasm/src/analysis/rdo_codec.rs`, exportar funções no `lib.rs` e compilar via `wasm-pack`.
   - Teste automatizado: `npx tsx tests/test-wasm-rdo-codec.ts`
   - Documentação: `documentation/rdo_dred_codec/rust_wasm_dred_architecture.md`
-- [ ] Task 3.3: Verificação da Fase 3 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 3.3: Verificação da Fase 3 e Checkpoint (Referente ao `workflow.md`) [Phase 3 tests passed 100%]
 
 ---
 
 ## Fase 4: Painel Interativo de Curva de Pareto RDO e Handoff de Compressão (Meta-Task Obrigatória)
-- [ ] Task 4.1: Integrar o painel interativo de RDO com gráfico da curva de Pareto $D \times R$ na UI
+- [~] Task 4.1: Integrar o painel interativo de RDO com gráfico da curva de Pareto $D \times R$ na UI
   - Criar `src/lib/ui/RdoParetoInspector.svelte` permitindo ao usuário arrastar $\lambda$, alternar modo Lossy/Lossless e inspecionar a taxa em kbps.
   - Teste automatizado: `npm run check && npm run build`
   - Documentação: `documentation/rdo_dred_codec/README.md`

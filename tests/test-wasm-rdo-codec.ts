@@ -12,7 +12,9 @@ import init, {
 console.log('🧪 Iniciando Teste TDD (Red Phase): Codec RDO / DRED em WebAssembly (Rust)...');
 
 async function runTest() {
-  await init();
+  const wasmPath = path.join(process.cwd(), 'src', 'wasm', 'core_wasm_bg.wasm');
+  const wasmBuffer = fs.readFileSync(wasmPath);
+  await init(wasmBuffer);
 
   // 1. Carrega amostra de voz real
   const wavPath = path.resolve('public/voice.wav');

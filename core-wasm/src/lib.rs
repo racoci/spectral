@@ -6442,6 +6442,29 @@ pub fn wasm_rdo_jet_decompress_frame(packet: &[u8]) -> Vec<f32> {
     out
 }
 
+use crate::analysis::rdo_codec::RdoEngine;
+
+/// Codifica áudio PCM via RDO e codificação entrópica rANS (Opus 1.5 DRED).
+#[wasm_bindgen]
+pub fn wasm_rdo_encode(pcm_data: &[u8], lambda: f32, dead_zone: f32, lossless: bool) -> Vec<u8> {
+    let engine = RdoEngine::new(512, 64);
+    engine.encode_audio(pcm_data, lambda, dead_zone, lossless)
+}
+
+/// Decodifica bitstream DRED em áudio PCM idêntico.
+#[wasm_bindgen]
+pub fn wasm_rdo_decode(compressed_data: &[u8]) -> Vec<u8> {
+    let engine = RdoEngine::new(512, 64);
+    engine.decode_audio(compressed_data)
+}
+
+/// Computa a curva de Pareto de Taxa-Distorção (D x R) variando lambda.
+#[wasm_bindgen]
+pub fn wasm_rdo_compute_pareto(pcm_data: &[u8]) -> String {
+    let engine = RdoEngine::new(512, 64);
+    engine.compute_pareto(pcm_data)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
