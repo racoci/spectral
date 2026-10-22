@@ -9,16 +9,16 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
   - Testar codificação e decodificação bit-a-bit de vetores inteiros arbitrários, cálculo da entropia de Shannon e verificação de reversibilidade 100% determinística.
   - Teste automatizado: `npx tsx tests/test-range-coder-entropy.ts`
   - Documentação: `documentation/rdo_dred_codec/range_coder_specification.md`
-- [~] Task 1.2: Implementar o codificador de faixa e o modelo probabilístico DRED em TypeScript (Green Phase)
+- [x] Task 1.2: Implementar o codificador de faixa e o modelo probabilístico DRED em TypeScript (Green Phase) [range_coder.ts implemented]
   - Criar `src/lib/codec/range_coder.ts` com aritmética inteira de 14 bits sem ponto flutuante e modelo geométrico $P(k) \propto r^{|k|}$.
   - Teste automatizado: `npx tsx tests/test-range-coder-entropy.ts`
   - Documentação: `documentation/rdo_dred_codec/range_coder_specification.md`
-- [ ] Task 1.3: Verificação da Fase 1 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 1.3: Verificação da Fase 1 e Checkpoint (Referente ao `workflow.md`) [Phase 1 tests passed 100%]
 
 ---
 
 ## Fase 2: Otimização RDO Overcomplete e Quantização Dead-Zone (TDD)
-- [ ] Task 2.1: Escrever testes automatizados para colapso de dimensões overcomplete e quantização com dead-zone (Red Phase)
+- [~] Task 2.1: Escrever testes automatizados para colapso de dimensões overcomplete e quantização com dead-zone (Red Phase)
   - Testar poda de 64 dimensões para subespaços esparsos sob variação do multiplicador Lagrangeano $\lambda \in [10^{-4}, 10^{-1}]$ e quantização com dead-zone.
   - Teste automatizado: `npx tsx tests/test-rdo-dimension-collapse.ts`
   - Documentação: `documentation/rdo_dred_codec/rdo_mathematical_foundations.md`
