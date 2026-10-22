@@ -22,16 +22,16 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
   - Testar poda de 64 dimensões para subespaços esparsos sob variação do multiplicador Lagrangeano $\lambda \in [10^{-4}, 10^{-1}]$ e quantização com dead-zone.
   - Teste automatizado: `npx tsx tests/test-rdo-dimension-collapse.ts`
   - Documentação: `documentation/rdo_dred_codec/rdo_mathematical_foundations.md`
-- [~] Task 2.2: Implementar o motor de otimização Rate-Distortion em TypeScript (Green Phase)
+- [x] Task 2.2: Implementar o motor de otimização Rate-Distortion em TypeScript (Green Phase) [rdo_engine.ts implemented]
   - Criar `src/lib/codec/rdo_engine.ts` com decomposição de jatos, cálculo analítico de $D + \lambda H$ e seleção ótima de coeficientes sobreviventes.
   - Teste automatizado: `npx tsx tests/test-rdo-dimension-collapse.ts`
   - Documentação: `documentation/rdo_dred_codec/rdo_mathematical_foundations.md`
-- [ ] Task 2.3: Verificação da Fase 2 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 2.3: Verificação da Fase 2 e Checkpoint (Referente ao `workflow.md`) [Phase 2 tests passed 100%]
 
 ---
 
 ## Fase 3: Implementação do Codec em Rust / WASM (`core-wasm`) e Bitstream Binário DRED (TDD)
-- [ ] Task 3.1: Escrever testes automatizados de integração WASM e compressão de áudio real (Red Phase)
+- [~] Task 3.1: Escrever testes automatizados de integração WASM e compressão de áudio real (Red Phase)
   - Testar compressão e descompressão de áudio real (`voice.wav`) em WASM no modo duplo (lossy DRED e bit-exact lossless).
   - Teste automatizado: `npx tsx tests/test-wasm-rdo-codec.ts`
   - Documentação: `documentation/rdo_dred_codec/rust_wasm_dred_architecture.md`
