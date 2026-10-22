@@ -5,11 +5,11 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
 ---
 
 ## Fase 1: Range Coder / rANS Bit-Exact Arithmetic e Modelo Laplaciano (TDD)
-- [ ] Task 1.1: Escrever testes automatizados que falham para o Range Coder e modelo Laplaciano geométrico (Red Phase)
+- [x] Task 1.1: Escrever testes automatizados que falham para o Range Coder e modelo Laplaciano geométrico (Red Phase) [failing test created]
   - Testar codificação e decodificação bit-a-bit de vetores inteiros arbitrários, cálculo da entropia de Shannon e verificação de reversibilidade 100% determinística.
   - Teste automatizado: `npx tsx tests/test-range-coder-entropy.ts`
   - Documentação: `documentation/rdo_dred_codec/range_coder_specification.md`
-- [ ] Task 1.2: Implementar o codificador de faixa e o modelo probabilístico DRED em TypeScript (Green Phase)
+- [~] Task 1.2: Implementar o codificador de faixa e o modelo probabilístico DRED em TypeScript (Green Phase)
   - Criar `src/lib/codec/range_coder.ts` com aritmética inteira de 14 bits sem ponto flutuante e modelo geométrico $P(k) \propto r^{|k|}$.
   - Teste automatizado: `npx tsx tests/test-range-coder-entropy.ts`
   - Documentação: `documentation/rdo_dred_codec/range_coder_specification.md`
