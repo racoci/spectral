@@ -5,11 +5,11 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
 ---
 
 ## Fase 1: Modelo Dinâmico 4D EKF/GP-SDE e Propagação de Covariância (E46) (TDD)
-- [ ] Task 1.1: Escrever testes automatizados que falham para o filtro EKF 4D e teste de calibração de covariância a 95% (Red Phase)
+- [x] Task 1.1: Escrever testes automatizados que falham para o filtro EKF 4D e teste de calibração de covariância a 95% (Red Phase) [failing tests created]
   - Testar propagação do vetor $\mathbf{x} = [f, \dot{f}, \ln A, \dot{A}/A]^T$, predição e atualização com matriz Riccati $\mathbf{P}_t$, e teste qui-quadrado de calibração a 95%.
   - Testes automatizados: `pytest tests/test_probabilistic_ridge_tracking.py -k test_ekf_covariance_calibration` e `npx tsx tests/test-probabilistic-tracker.ts`
   - Documentação: `documentation/probabilistic_tracking/ekf_dynamic_model.md`
-- [ ] Task 1.2: Implementar o núcleo do EKF 4D em Python (`synthnn/analysis/probabilistic_tracker.py`) e TypeScript (`src/lib/tracking/probabilistic_tracker.ts`) (Green Phase)
+- [~] Task 1.2: Implementar o núcleo do EKF 4D em Python (`synthnn/analysis/probabilistic_tracker.py`) e TypeScript (`src/lib/tracking/probabilistic_tracker.ts`) (Green Phase)
   - Implementar classes `RidgeState4D` e `KalmanRidgeFilter` com cálculo analítico de ganho de Kalman $\mathbf{K}_t$ e covariância $\mathbf{P}_t$.
   - Testes automatizados: `pytest tests/test_probabilistic_ridge_tracking.py -k test_ekf_covariance_calibration` e `npx tsx tests/test-probabilistic-tracker.ts`
   - Documentação: `documentation/probabilistic_tracking/ekf_dynamic_model.md`
