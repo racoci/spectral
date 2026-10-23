@@ -284,3 +284,60 @@ let s_h = buffer_h[k_floor] * (1.0 - delta_k) + buffer_h[k_ceil] * delta_k;
 let s_th = buffer_th[k_floor] * (1.0 - delta_k) + buffer_th[k_ceil] * delta_k;
 let s_dh = buffer_dh[k_floor] * (1.0 - delta_k) + buffer_dh[k_ceil] * delta_k;
 ```
+
+---
+
+## 8. Síntese Diferenciável DDSP, Parciais Inarmônicas e Grafo Hierárquico TreeNN
+
+O módulo DDSP (*Differentiable Digital Signal Processing*) modela sinais de áudio harmônicos via síntese aditiva paramétrica estrita:
+$$s[n] = \sum_{k=1}^{K} A_k[n] \sin\left( 2\pi f_k[n] \frac{n}{f_s} + \phi_k[n] \right)$$
+
+### 8.1 Dispersão Acústica e Inarmonicidade (E08)
+Para instrumentos acústicos reais (cordas de piano, barras ressonantes), as frequências parciais sofrem dispersão elástica regida pelo parâmetro de rigidez $B$:
+$$f_k = k f_0 \sqrt{1 + B k^2}$$
+O motor WASM calcula os sobretons com fase acumulada contínua, permitindo ressíntese analítica idêntica com calibração precisa do envelope ADSR e formantes de formatação espectral (F1, F2, F3).
+
+---
+
+## 9. Decomposição Tríplice STN (Senoides + Transientes + Ruído) e Áudio Binaural
+
+O modelo **STN** desconstrói o sinal de áudio em três componentes ontologicamente ortogonais:
+$$x[n] = s[n] + t[n] + n_{\text{stoc}}[n]$$
+1. **Senoides $s[n]$**: Trajetórias determinísticas contínuas de frequência e fase lenta.
+2. **Transientes $t[n]$**: Eventos impulsivos de banda larga com envelopes de decaimento rápido (exponencial, duplo ou ressonante).
+3. **Ruído $n_{\text{stoc}}[n]$**: Excitações coloridas filtradas por modelos AR (LPC de ordem até 64) ou envelopes em terços de oitava.
+
+A espacialização binaural aplica defasagem temporal interaural (ITD) e atenuação de intensidade interaural (ILD) para posicionamento estéreo 3D realista.
+
+---
+
+## 10. Ambiente Dual Lean 4 Synth IDE e Decodificação SysEx DX7
+
+A plataforma implementa uma ponte bidirecional simétrica entre código formal puro em **Lean 4** e widgets semânticos reativos:
+- O editor CodeMirror 6 renderiza a AST formal `structure Dx7Patch` e `structure Operator`.
+- A manipulação de knobs gráficos, curvas de envelope e matrizes de roteamento FM despacha alterações cirúrgicas no texto via `locateLeanParameterRange(code, path)`.
+- O parser SysEx processa bancos de dados de 4096 bytes de sintetizadores Yamaha DX7 históricos, convertendo curvas logarítmicas de envelope EG e operadores em definições analíticas compiláveis.
+
+---
+
+## 11. Geometria de Campos Escalares 2D e Jatos Locais de Taylor (Ordens 0 a 8)
+
+Dado um campo suave $f(x, y)$, a aproximação local em torno do ponto de ancoragem $p = (x_0, y_0)$ é expressa pelo jato de Taylor truncado em ordem $N \in [0, 8]$:
+$$f(p + \delta) \approx \sum_{n=0}^{N} \frac{1}{n!} D^n f(p)[\delta, \dots, \delta]$$
+- Em coordenadas polares $\delta = r \cdot u(\theta)$, o perfil angular direcional $q_n(\theta) = D^n f(p)[u(\theta), \dots, u(\theta)]$ possui exatamente $n + 1$ graus de liberdade independentes amostrados em $\theta_k = \frac{2\pi k}{n+1}$.
+- A matriz Hessiana $H_f$ é decomposta em autovalores $\lambda_1, \lambda_2$ e direções principais de curvatura.
+- Ao longo de trajetórias desenhadas $r(t)$, as identidades da regra da cadeia diferencial são validadas numericamente com erro inferior a $1\%$:
+  $$\frac{d}{dt}f(r(t)) = \nabla f(r(t)) \cdot r'(t) \quad \text{e} \quad \frac{d^2}{dt^2}f(r(t)) = r'(t)^T H_f r'(t) + \nabla f(r(t)) \cdot r''(t)$$
+
+---
+
+## 12. Rate-Distortion Optimization (RDO) e Codificação Entrópica DRED (rANS de 14 Bits)
+
+O codec da Fase 7 minimiza o custo total de informação segundo a teoria do comprimento mínimo de descrição (MDL):
+$$\min_{\lambda} \left[ D(x, \hat{x}) + \lambda \sum_{i=1}^{M} H(z_i) \right]$$
+- **Espaço Latente Overcomplete**: $M = 64$ dimensões com projeção ortogonal DCT-II.
+- **Quantização Suave com Dead-Zone**: $\zeta(z) = z - \delta \tanh(z / (\delta + \epsilon))$, induzindo esparsidade estrita.
+- **Codificador de Faixa rANS**: Aritmética inteira estrita com base de $2^{14} = 16384$ e modelo geométrico Laplaciano $P(k) \propto r^{|k|}$.
+- **Modo Lossy DRED**: Compressão de áudio real com fatores superiores a $34\times$ (< 16 kbps).
+- **Modo Bit-Exact Lossless**: Codificação do resíduo inteiro exato em complemento de dois ($x_{\text{int}} = \text{round}(\hat{x}_{\text{int}}) + r$), garantindo reconstrução $100\%$ idêntica bit-a-bit (0 divergências de bytes).
+

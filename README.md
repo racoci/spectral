@@ -4,197 +4,139 @@
 [![Svelte](https://img.shields.io/badge/Svelte-5-ff3e00?logo=svelte&logoColor=white)](https://svelte.dev/)
 [![Rust](https://img.shields.io/badge/Rust-1.97%2B-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![WebAssembly](https://img.shields.io/badge/WebAssembly-Wasm--Pack-654ff0?logo=webassembly&logoColor=white)](https://rustwasm.github.io/wasm-pack/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-**Spectral** é um laboratório interativo de processamento digital de sinais para conversão de áudio em imagens bidimensionais (e vice-versa) de forma **100% reversível e sem perdas (lossless / bit-perfect)**.
+**Spectral** é uma suíte de engenharia de áudio e síntese baseada em **Geometria Holomorfa**, **Mínimo Comprimento de Descrição (MDL)** e **Processamento de Sinais Bit-Perfect**. A plataforma combina núcleos de alto desempenho compilados em **Rust / WebAssembly** com uma interface reativa moderna construída em **Svelte 5** e aceleração de tela via **WebGL 2.0 (GLSL 3.0 ES)**.
 
-A aplicação é executada inteiramente no lado do cliente (client-side) como uma aplicação SPA de alta performance, projetada para ser hospedada estaticamente no **GitHub Pages**. O motor matemático é implementado em **Rust (WebAssembly)** para garantir precisão e determinismo bit-a-bit, enquanto o visualizador interativo utiliza **HTML5 Canvas / WebGL** para renderização a 60 FPS com controles de zoom e translação.
+A aplicação é executada 100% no cliente (client-side) e é implantada de forma contínua no **GitHub Pages**.
 
 ---
 
-## 🗺️ Visão Geral da Arquitetura
+## 🗺️ As 6 Ferramentas Integradas do Ecossistema
 
-O sistema é baseado em **Validação Cruzada Simétrica (Symmetrical Cross-Validation)**. Qualquer operação de codificação $f(x)$ deve ser perfeitamente invertível por seu decodificador correspondente $f^{-1}(y)$, de modo que o áudio de saída seja binariamente idêntico ao áudio de entrada: $f^{-1}(f(x)) \equiv x$.
-
-### Pipeline Simétrico
+O Spectral disponibiliza uma barra de navegação global unificada com suporte a atalhos de teclado (`Alt + 1` até `Alt + 6`):
 
 ```text
-                                  [ FWD PIPELINE ]
-                                  
-+-------------------+        Codificação WASM        +--------------------+
-|    Áudio WAV      | -----------------------------> |   Matriz Pixels    |
-| (16-bit / Stereo) |                                |    (RGBA bytes)    |
-+-------------------+                                +--------------------+
-          ^                                                     |
-          |                  Decodificação WASM                 |
-          +-----------------------------------------------------+
-                                  [ INV PIPELINE ]
++-----------------------------------------------------------------------------------------------------------------------+
+|  🎨🔊 Spectral [Lossless v0.1]  |  1. Converter  2. WebGL Editor  3. DDSP Studio  4. STN Synth  5. Lean IDE  6. Field IDE  |
++-----------------------------------------------------------------------------------------------------------------------+
 ```
 
 ```mermaid
-graph LR
-    subgraph ForwardPipeline [Forward Pipeline]
-        A[Áudio WAV Stereo 16-bit] -->|Wasm: encode_naive| B[Matriz RGBA de 32-bits]
-        B -->|Svelte: Offscreen Canvas| C[Grade de Pixels Visível]
-    end
-    subgraph InversePipeline [Inverse Pipeline]
-        C -->|Wasm: decode_naive| D[Recuperação de WAV Bruto]
-        D -->|Svelte: Web Audio API| E[Áudio Reconstruído]
-    end
-    E -->|Validação SHA-256| A
-    style A fill:#0369a1,stroke:#334155,stroke-width:2px,color:#fff
-    style C fill:#0f766e,stroke:#334155,stroke-width:2px,color:#fff
-    style E fill:#be185d,stroke:#334155,stroke-width:2px,color:#fff
+graph TD
+    A[Global Topbar: Alt+1..6] --> B1[1. Converter: #/converter]
+    A --> B2[2. WebGL Editor: #/editor]
+    A --> B3[3. DDSP Studio: #/synth]
+    A --> B4[4. STN Synth: #/stn]
+    A --> B5[5. Lean IDE: #/lean]
+    A --> B6[6. Field IDE: #/field]
+
+    B1 -->|Transformada 2D CDF 5/3| C1[Imagens PNG Físicas Reversíveis]
+    B2 -->|Reatribuição Auger-Flandrin| C2[Espectrograma Holomorfo & Inovações Cardinais]
+    B3 -->|Síntese Aditiva Neural| C3[Formantes Acústicos & Grafo TreeNN]
+    B4 -->|Decomposição Tríplice| C4[Senoides + Transientes + Ruído Estocástico]
+    B5 -->|Ambiente Dual Texto/Widgets| C5[AST Lean 4 & Parser SysEx DX7]
+    B6 -->|Jatos de Taylor Ordens 0..8| C6[Shaders WebGL 2 & Alças Polares Interativas]
 ```
 
+### 1. Audio Converter (`#/converter` — `Alt + 1`)
+- Conversão bit-a-bit perfeitamente reversível de áudio WAV para imagens físicas PNG (e vice-versa).
+- 10 algoritmos de empacotamento simétrico (Naive, Bitplane Gray-Code, Dyadic DWT CDF 5/3, Reversible CQT Lifting FIR, M-Band Polyphase).
+
+### 2. WebGL Editor (`#/editor` — `Alt + 2`)
+- Visualizador e editor espectrográfico 2D a 60 FPS com controles de zoom e pan.
+- Transformada de Fourier de Tempo Curto Reatribuída (Auger-Flandrin) e Geometria Holomorfa Conforme (escalas Mel, Bark e Cauchy CQT).
+- Sistema de inovações cardinais em espaço nulo com histórico infinito de **Undo / Redo**.
+- Sonda analítica pontual inspecionando equações de Cauchy-Riemann ($\partial u/\partial x = \partial v/\partial y$).
+
+### 3. DDSP & TreeNN Studio (`#/synth` — `Alt + 3`)
+- Síntese acústica diferenciável aditiva paramétrica (frequência fundamental $f_0$, parciais inarmônicas $B$, formantes vocais F1/F2/F3).
+- Grafo hierárquico causal TreeNN acoplando osciladores de controle e ruído filtrado.
+- Extração analítica do problema inverso a partir de gravações sonoras reais.
+
+### 4. STN Synth Studio (`#/stn` — `Alt + 4`)
+- Decomposição tríplice ortogonal em **Senoides (S)**, **Eventos Transitórios (T)** e **Ruído Estocástico (N)**.
+- Espacialização binaural analítica em tempo real com defasagem temporal interaural (ITD) e diferença de intensidade (ILD).
+- Convolução acústica com respostas impulsivas de sala (IR) e ajuste de RT60.
+
+### 5. Lean 4 Synth IDE (`#/lean` — `Alt + 5`)
+- Ambiente de desenvolvimento dual emparelhando código formal em **Lean 4** com widgets visuais inline do Svelte 5.
+- Edição sincronizada bidirecional: alterações nos knobs, envelopes ou matrizes despacham edições cirúrgicas no texto sem formatar ou corromper o arquivo.
+- Parser e ingestor de bancos e patches originais Yamaha DX7 (`.syx`).
+
+### 6. Scalar Field & Taylor Jets IDE (`#/field` — `Alt + 6`)
+- Exploração de campos escalares contínuos $f(x, y)$ com renderização GPU WebGL 2 e isolinhas antialiased via `fwidth`.
+- Jatos locais de Taylor truncados de ordem 0 a 8 com alças polares interativas $q_n(\theta)$ e decomposição espectral da Hessiana ($\lambda_1, \lambda_2$).
+- Brushes espaciais de deformação contínua com amortecimento inercial e verificação da regra da cadeia diferencial.
+- Síntese de áudio em modo duplo: **Modo A (Wavetable Orbit Scan)** e **Modo B (Superfície Espectral DDSP)**.
+
 ---
 
-## 🛠️ Stack Tecnológica
+## 📉 Phase 7 MDL: Rate-Distortion Optimization & Codec DRED
 
-*   **Linguagem & Matemática**: [Rust](https://www.rust-lang.org/) compilado para **WebAssembly (Wasm)**. Garante determinismo matemático (evitando divergências de ponto flutuante de GPUs entre navegadores) e performance de CPU nativa.
-*   **Interface Reativa**: [Svelte 5](https://svelte.dev/) com TypeScript. Compilação ultra-leve sem sobrecarga de Virtual DOM.
-*   **Visualização Gráfica**: HTML5 Canvas interativo em modo *No-Smoothing* para inspecionar e transladar pixel por pixel de dados de áudio.
-*   **Pipeline de Builds**: [Vite](https://vite.dev/) configurado com roteamento de caminhos relativos para compatibilidade com o GitHub Pages.
-*   **CI/CD**: GitHub Actions para compilação automatizada do Rust/Wasm e publicação dos ativos no branch `gh-pages`.
+O módulo da Fase 7 implementa a teoria de Mínimo Comprimento de Descrição (MDL) minimizando:
+$$\min_{\lambda} \left[ D(x, \hat{x}) + \lambda \sum_{i=1}^{M} H(z_i) \right]$$
+
+- **Codificador Entrópico rANS (14 bits)**: Aritmética inteira estrita ($M=16384$) sem ponto flutuante, baseada no modelo Laplaciano do Opus 1.5 DRED.
+- **Quantização Suave com Dead-Zone**: $\zeta(z) = z - \delta \tanh(z / (\delta + \epsilon))$, induzindo esparsidade estrita em dicionário overcomplete ($M=64$).
+- **Modo Lossy DRED**: Compressão de áudio real de 475 KB para **13.8 KB (fator de 34.35x)** a taxas inferiores a 16 kbps.
+- **Modo Bit-Exact Lossless**: Codificação do resíduo inteiro exato em complemento de dois ($x_{\text{int}} = \text{round}(\hat{x}_{\text{int}}) + r$), garantindo **zero divergências de bytes** na reconstrução.
+- **Painel Interativo de Curva de Pareto**: Componente `RdoParetoInspector.svelte` com plotagem em tempo real da fronteira de Pareto $D \times R$.
 
 ---
 
-## ⚡ Guia de Inicialização Local
+## 🧪 Testes e Validação Automatizada
+
+O projeto conta com uma cobertura exaustiva de testes automatizados com execução no CI:
+
+### Testes de Integração Matemáticos (23 Suítes)
+```bash
+npm run test:integration
+```
+Valida a fidelidade bit-perfect de wavelets, ressíntese analítica, invariantes de Cauchy-Riemann, AST do Lean 4, integridade do Range Coder e compressão em WebAssembly.
+
+### Testes Visuais Ponta a Ponta com Puppeteer (E2E)
+```bash
+npm run test:e2e
+```
+Instancia o Chromium com WebGL 2 ativo em múltiplas resoluções (**Desktop 1440x960** e **Laptop 1280x720**), gerando e auditando 18 screenshots de alta resolução no diretório `tests/screenshots/` com verificação de zero erros no console.
+
+---
+
+## 🛠️ Instalação e Execução Local
 
 ### Pré-requisitos
+* [Rust & Cargo](https://www.rust-lang.org/) (versão 1.80+)
+* [Node.js](https://nodejs.org/) (versão 20 LTS ou superior)
+* `wasm-pack` (incluso via npx)
 
-Certifique-se de ter as ferramentas abaixo instaladas no sistema:
-*   [Rust & Cargo](https://www.rust-lang.org/tools/install) (Edição 2024 ou superior)
-*   [Node.js](https://nodejs.org/) (Versão 20 ou superior)
-*   `wasm-pack` (Incluso automaticamente via npx na execução do build)
-
-### Comandos de Desenvolvimento
-
-Instale as dependências e inicie o servidor local reativo:
-
+### Comandos de Inicialização
 ```bash
-# 1. Instalar as dependências do Node.js
+# 1. Instalar dependências
 npm install
 
-# 2. Executar os testes unitários matemáticos do Rust
-cargo test --manifest-path core-wasm/Cargo.toml
+# 2. Compilar WebAssembly
+npm run build:wasm
 
-# 3. Compilar o Rust para WebAssembly e iniciar o Vite Dev Server
+# 3. Executar servidor de desenvolvimento do Vite
 npm run dev
 ```
 
-Abra o navegador em `http://localhost:5173/`. Qualquer modificação no Rust ou Svelte atualizará a tela automaticamente através de HMR (Hot Module Replacement).
+Acesse no navegador: `http://localhost:5173/`
 
 ---
 
-## 🚀 Como Hospedar no GitHub Pages (Repositório `spectral`)
+## 🚀 Publicação no GitHub Pages
 
-Caso queira hospedar este projeto sob o nome **`spectral`** na sua conta pessoal do GitHub:
-
-### 1. Inicialize e Faça o Push do Código
-
+O deploy é acionado automaticamente a cada push na branch `main` via GitHub Actions (`.github/workflows/deploy.yml`):
 ```bash
-# Inicialize o repositório git local (se ainda não estiver inicializado)
-git init -b master
-
-# Vincule o repositório remoto do GitHub (Substitua <seu-usuario> pelo seu nickname)
-git remote add origin https://github.com/<seu-usuario>/spectral.git
-
-# Adicione todos os arquivos ao controle de versão
-git add .
-
-# Crie o commit inicial das funcionalidades
-git commit -m "feat: initial commit of spectral lossless conversion pipeline"
-
-# Envie as alterações para o GitHub
-git push -u origin master
+git push origin main
 ```
-
-### 2. Configure a Branch do GitHub Pages no GitHub
-Após realizar o primeiro push para o ramo `master`, o fluxo de integração contínua (GitHub Actions) configurado em `.github/workflows/deploy.yml` compilará o Rust/Svelte automaticamente e criará um ramo chamado **`gh-pages`** no seu repositório.
-
-1.  Acesse o repositório no site do GitHub (`https://github.com/<seu-usuario>/spectral`).
-2.  Clique na aba **Settings** no topo.
-3.  No menu lateral, selecione **Pages**.
-4.  Na seção **Build and deployment** $\rightarrow$ **Source**, garanta que esteja selecionado **Deploy from a branch**.
-5.  Em **Branch**, altere de `None` para **`gh-pages`** (mantenha a pasta `/ (root)`).
-6.  Clique em **Save**.
-
-Sua ferramenta estará online no link:
-👉 `https://<seu-usuario>.github.io/spectral/`
+No repositório do GitHub, configure em **Settings -> Pages -> Source** a opção **GitHub Actions**. O aplicativo estará disponível online no endereço:
+`https://<seu-usuario>.github.io/spectral/`
 
 ---
 
-## 📊 Propriedades de Integridade Bit-Perfect
+## 📄 Licença
 
-A integridade do pipeline é comprovada computando-se a hash criptográfica **SHA-256** do arquivo de áudio de entrada e comparando-a de forma síncrona com o áudio decodificado resultante:
-
-$$\text{SHA256}(Audio_{\text{Original}}) \equiv \text{SHA256}(Audio_{\text{Reconstruido}})$$
-
-Se qualquer bit for alterado por arredondamento, truncamento ou quantização errônea, as hashes divergirão imediatamente e a interface acusará erro. O sandbox atual garante **0.00 dB de ruído / 100% de integridade binária**.
-
----
-
-## 🖥️ Spectral CLI (Linha de Comando)
-
-Além da interface gráfica web reativa, o **Spectral** fornece uma ferramenta robusta de linha de comando (CLI) permanente para conversões em lote e integrações automatizadas.
-
-A CLI utiliza o mesmo motor matemático de alta performance compilado em **Rust/WebAssembly**, integrado com um wrapper em **TypeScript/Node.js** para leitura/gravação de arquivos PNG de forma super eficiente e sem perdas.
-
-### ⚙️ Instalação e Compilação
-
-Para configurar e utilizar a CLI localmente:
-
-1.  Certifique-se de que as dependências do projeto estão instaladas e o motor em Rust está compilado para WASM:
-    ```bash
-    npm install
-    npm run build:wasm
-    ```
-2.  Torne o script executável (caso queira usá-lo diretamente):
-    ```bash
-    chmod +x bin/spectral.ts
-    ```
-
-### 🚀 Instruções de Uso
-
-A CLI suporta detecção automática baseada no cabeçalho de bytes (magic bytes) e extensão do arquivo.
-
-```bash
-# Executando via npm run
-npm run spectral -- <arquivo_de_entrada> [arquivo_de_saida]
-
-# Executando diretamente via npx
-npx spectral <arquivo_de_entrada> [arquivo_de_saida]
-```
-
-#### Parâmetros:
-- `<arquivo_de_entrada>`: Caminho para o arquivo que deseja converter (pode ser áudio como `.wav` ou uma imagem `.png`).
-- `[arquivo_de_saida]` (Opcional): Caminho onde o arquivo convertido será salvo. Se omitido, ele salvará no mesmo diretório com a extensão apropriada (.png para áudio ou .wav para imagem).
-
-#### Exemplos Práticos:
-
-1.  **Codificar Áudio para Imagem PNG (Transformada Wavelet 2D CDF 5/3)**:
-    ```bash
-    npm run spectral -- tests/temp-samples/voice.wav tests/temp-samples/voice.png
-    ```
-    *Resultado*: Gera um arquivo PNG sem perdas contendo a representação visual exata dos coeficientes de wavelet.
-
-2.  **Decodificar Imagem PNG para Áudio WAV (Transformada Wavelet Inversa 2D CDF 5/3)**:
-    ```bash
-    npm run spectral -- tests/temp-samples/voice.png tests/temp-samples/voice_reconstructed.wav
-    ```
-    *Resultado*: Recupera perfeitamente o áudio original.
-
-### 🧪 Comprovando o Funcionamento Bit-Perfect
-
-A CLI preserva todos os dados binários do áudio original de forma impecável. Você pode validar a integridade comparando as hashes SHA-256 do arquivo original e do arquivo reconstruído:
-
-```bash
-# 1. Calcule a hash do arquivo original
-sha256sum tests/temp-samples/voice.wav
-
-# 2. Calcule a hash do arquivo reconstruído
-sha256sum tests/temp-samples/voice_reconstructed.wav
-```
-
-As duas hashes serão **idênticas**, provando que o processo de ida e volta (roundtrip) pela imagem física PNG é **100% simétrico, lossless e sem perda de um único bit**.
-
+Distribuído sob a licença MIT. Consulte `LICENSE` para mais detalhes.
