@@ -3,7 +3,10 @@ Bateria de Testes Automatizados para a Fase 7 do Currículo MDL (E46 a E50):
 Rastreamento Probabilístico de Cristas, Associação por Mahalanobis, Cruzamento e Oclusão.
 """
 
-import pytest
+import os
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import numpy as np
 
 # Módulos do rastreador a serem implementados na Green Phase
@@ -178,3 +181,12 @@ def test_occlusion_gp_inpainting():
     max_cents = np.max(cents_error)
     print(f"E50 Erro máximo de inpainting GP no gap: {max_cents:.2f} cents")
     assert max_cents < 5.0, f"Erro de interpolação GP sob oclusão deve ser < 5 cents, obteve {max_cents:.2f}"
+
+if __name__ == '__main__':
+    print("🧪 Executando Bateria de Testes do Rastreador Probabilístico (Python)...")
+    test_ekf_covariance_calibration()
+    test_mahalanobis_association()
+    test_crossing_benchmark()
+    test_birth_death_benchmark()
+    test_occlusion_gp_inpainting()
+    print("\n🎉 TODOS OS TESTES EM PYTHON (E46 A E50) PASSARAM COM SUCESSO!\n")
