@@ -44,11 +44,11 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
 ---
 
 ## Fase 4: Painel Interativo de Curva de Pareto RDO e Handoff de Compressão (Meta-Task Obrigatória)
-- [~] Task 4.1: Integrar o painel interativo de RDO com gráfico da curva de Pareto $D \times R$ na UI
+- [x] Task 4.1: Integrar o painel interativo de RDO com gráfico da curva de Pareto $D \times R$ na UI [RdoParetoInspector.svelte implemented]
   - Criar `src/lib/ui/RdoParetoInspector.svelte` permitindo ao usuário arrastar $\lambda$, alternar modo Lossy/Lossless e inspecionar a taxa em kbps.
   - Teste automatizado: `npm run check && npm run build`
   - Documentação: `documentation/rdo_dred_codec/README.md`
-- [ ] Task 4.2: Mitigação de Riscos de Complexidade Computacional e Handoff de Quantização (Meta-Task Obrigatória)
+- [x] Task 4.2: Mitigação de Riscos de Complexidade Computacional e Handoff de Quantização (Meta-Task Obrigatória) [QUANTIZATION_COMPLEXITY_HANDOFF.md & README.md documented]
   - Documentar estratégias de tabelas lookup pré-computadas (LUT) para descompressão em tempo real e análise de complexidade $O(M)$.
   - Documentação: `documentation/rdo_dred_codec/QUANTIZATION_COMPLEXITY_HANDOFF.md`
-- [ ] Task 4.3: Verificação Final da Fase 4 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 4.3: Verificação Final da Fase 4 e Checkpoint (Referente ao `workflow.md`) [All 23 integration test suites passed 100%]
