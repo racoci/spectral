@@ -6,4 +6,4 @@
 - [x] **Track: MVP: Lean 4 IDE Validation and DX7 Syx Parser** *Link: [./tracks/lean4-ide-and-syx-parser_20261114/index.md](./tracks/lean4-ide-and-syx-parser_20261114/index.md)*
 - [x] **Track: Feature: Scalar Field IDE 2D and Taylor Jets Editor** *Link: [./tracks/scalar-field-ide-and-taylor-jets_20261114/index.md](./tracks/scalar-field-ide-and-taylor-jets_20261114/index.md)*
 - [x] **Track: Feature: UI/UX Design System Refinement & Visual Ergonomics** *Link: [./tracks/ui-ux-design-system-refinement_20261021/index.md](./tracks/ui-ux-design-system-refinement_20261021/index.md)*
-- [~] **Track: Phase 7: Rate-Distortion Optimization (RDO) e Codificação Entrópica DRED** *Link: [./tracks/mdl-phase7-rdo-and-dred-codec_20261021/index.md](./tracks/mdl-phase7-rdo-and-dred-codec_20261021/index.md)*
+- [x] **Track: Phase 7: Rate-Distortion Optimization (RDO) e Codificação Entrópica DRED** *Link: [./tracks/mdl-phase7-rdo-and-dred-codec_20261021/index.md](./tracks/mdl-phase7-rdo-and-dred-codec_20261021/index.md)*
