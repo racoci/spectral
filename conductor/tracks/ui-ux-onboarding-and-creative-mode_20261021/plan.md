@@ -5,11 +5,11 @@ Este plano detalha as fases, tarefas e testes automatizados para democratizar a 
 ---
 
 ## Fase 1: Barra de Demonstrações Rápidas (1-Click Audio Demos) e Carregamento (TDD)
-- [ ] Task 1.1: Escrever testes automatizados que falham para o carregador de amostras curadas (`tests/test-sample-demos-loader.ts`) (Red Phase)
+- [x] Task 1.1: Escrever testes automatizados que falham para o carregador de amostras curadas (`tests/test-sample-demos-loader.ts`) (Red Phase) [failing tests created]
   - Testar disponibilidade das amostras (`voice.wav`, `synth.wav`, `car-horn.wav`), carregamento de buffers binários e decodificação WAV 16-bit.
   - Teste automatizado: `npx tsx tests/test-sample-demos-loader.ts`
   - Documentação: `documentation/ui_design_system/audio_demos_loader.md`
-- [ ] Task 1.2: Implementar o módulo `src/lib/ui/demo_samples.ts` e seletor rápido no Topbar (Green Phase)
+- [~] Task 1.2: Implementar o módulo `src/lib/ui/demo_samples.ts` e seletor rápido no Topbar (Green Phase)
   - Integrar carregamento instantâneo via `fetch` assíncrono conectado aos reprodutores de áudio do Svelte.
   - Teste automatizado: `npx tsx tests/test-sample-demos-loader.ts`
   - Documentação: `documentation/ui_design_system/audio_demos_loader.md`
