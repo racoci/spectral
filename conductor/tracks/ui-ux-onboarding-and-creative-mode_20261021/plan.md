@@ -31,11 +31,11 @@ Este plano detalha as fases, tarefas e testes automatizados para democratizar a 
 ---
 
 ## Fase 3: Player A/B Comparativo e Modal de Onboarding de Boas-Vindas (TDD)
-- [~] Task 3.1: Escrever testes automatizados que falham para comutação A/B e estado do modal (`tests/test-ab-player-onboarding.ts`) (Red Phase)
+- [x] Task 3.1: Escrever testes automatizados que falham para comutação A/B e estado do modal (`tests/test-ab-player-onboarding.ts`) (Red Phase) [failing tests created]
   - Testar alternância síncrona de reprodução A/B sem estalos de clique e persistência de fechamento do modal.
   - Teste automatizado: `npx tsx tests/test-ab-player-onboarding.ts`
   - Documentação: `documentation/ui_design_system/ab_player_and_onboarding.md`
-- [ ] Task 3.2: Implementar componentes `AbComparePlayer.svelte` e `WelcomeModal.svelte` (Green Phase)
+- [~] Task 3.2: Implementar componentes `AbComparePlayer.svelte` e `WelcomeModal.svelte` (Green Phase)
   - Criar interface compacta do player com métricas leigas de compressão e modal acessível com suporte a tecla `ESC`.
   - Teste automatizado: `npx tsx tests/test-ab-player-onboarding.ts`
   - Documentação: `documentation/ui_design_system/ab_player_and_onboarding.md`
