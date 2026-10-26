@@ -22,16 +22,16 @@ Este plano detalha as fases, tarefas e testes automatizados para democratizar a 
   - Testar mapeamento bijetivo entre termos científicos e termos musicais leigos com suporte a fallback.
   - Teste automatizado: `npx tsx tests/test-creative-expert-mode.ts`
   - Documentação: `documentation/ui_design_system/creative_vs_expert_mode.md`
-- [~] Task 2.2: Implementar `src/lib/ui/ui_glossary.ts` e integrar o alternador `[Criativo / Expert]` em `GlobalTopbar.svelte` (Green Phase)
+- [x] Task 2.2: Implementar `src/lib/ui/ui_glossary.ts` e integrar o alternador `[Criativo / Expert]` em `GlobalTopbar.svelte` (Green Phase)
   - Vincular textos reativos através de Runes do Svelte 5 com persistência no `localStorage`.
   - Teste automatizado: `npx tsx tests/test-creative-expert-mode.ts`
   - Documentação: `documentation/ui_design_system/creative_vs_expert_mode.md`
-- [ ] Task 2.3: Verificação da Fase 2 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 2.3: Verificação da Fase 2 e Checkpoint (Referente ao `workflow.md`)
 
 ---
 
 ## Fase 3: Player A/B Comparativo e Modal de Onboarding de Boas-Vindas (TDD)
-- [ ] Task 3.1: Escrever testes automatizados que falham para comutação A/B e estado do modal (`tests/test-ab-player-onboarding.ts`) (Red Phase)
+- [~] Task 3.1: Escrever testes automatizados que falham para comutação A/B e estado do modal (`tests/test-ab-player-onboarding.ts`) (Red Phase)
   - Testar alternância síncrona de reprodução A/B sem estalos de clique e persistência de fechamento do modal.
   - Teste automatizado: `npx tsx tests/test-ab-player-onboarding.ts`
   - Documentação: `documentation/ui_design_system/ab_player_and_onboarding.md`
