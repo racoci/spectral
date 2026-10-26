@@ -77,7 +77,7 @@
             <span class="feat-icon">🗜️</span>
             <div>
               <strong>Super Compressão em Áudio</strong>
-              <p>Reduza o tamanho em até 34x (< 16 kbps) ou guarde o áudio como imagem PNG física 100% sem perdas.</p>
+              <p>Reduza o tamanho em até 34x (&lt; 16 kbps) ou guarde o áudio como imagem PNG física 100% sem perdas.</p>
             </div>
           </div>
 

@@ -7,6 +7,10 @@
   import LeanSynthStudio from './lib/LeanSynthStudio.svelte';
   import ScalarFieldStudio from './lib/ScalarFieldStudio.svelte';
   import GlobalTopbar from './lib/ui/GlobalTopbar.svelte';
+  import WelcomeModal from './lib/ui/WelcomeModal.svelte';
+  import { loadDemoSampleBytes, type DemoSampleId } from './lib/ui/demo_samples';
+  import type { UiMode } from './lib/ui/ui_glossary';
+  import { getOnboardingDismissed } from './lib/ui/ab_player_logic';
   import init, { 
     wasm_generate_complex_reassigned_ycbcr_spectrogram,
     wasm_generate_holomorphic_exploration_spectrogram,
@@ -568,6 +572,31 @@
       window.location.hash = '#/converter';
     }
   }
+
+  // UI Mode (Creative vs Expert) & Onboarding State
+  let uiMode = $state<UiMode>(
+    typeof window !== 'undefined' && window.localStorage.getItem('spectral_user_mode') === 'expert'
+      ? 'expert'
+      : 'creative'
+  );
+  let showWelcomeModal = $state<boolean>(!getOnboardingDismissed());
+
+  function handleToggleUiMode(mode: UiMode) {
+    uiMode = mode;
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('spectral_user_mode', mode);
+    }
+  }
+
+  async function handleSelectDemo(demoId: DemoSampleId) {
+    try {
+      const bytes = await loadDemoSampleBytes(demoId);
+      handleAudioLoaded(bytes, selectedHeight);
+      window.location.hash = '#/editor';
+    } catch (err) {
+      console.error('Falha ao carregar amostra de demonstração:', err);
+    }
+  }
 </script>
 
 <main class="app-container" class:full-screen-layout={currentView === 'editor' || currentView === 'synth' || currentView === 'stn' || currentView === 'lean' || currentView === 'field'}>
@@ -575,7 +604,17 @@
     currentView={currentView}
     isAudioPlaying={isPlaying}
     hasAudioLoaded={!!rgbaGrid}
+    uiMode={uiMode}
     onNavigate={navigateTo}
+    onToggleUiMode={handleToggleUiMode}
+    onSelectDemo={handleSelectDemo}
+    onOpenWelcomeModal={() => showWelcomeModal = true}
+  />
+
+  <WelcomeModal
+    isOpen={showWelcomeModal}
+    onClose={() => showWelcomeModal = false}
+    onSelectDemo={handleSelectDemo}
   />
   
   {#if currentView === 'converter'}

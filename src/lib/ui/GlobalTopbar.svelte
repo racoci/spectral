@@ -1,19 +1,29 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { TOOL_ROUTES, resolveRouteFromShortcut, type NavigationRoute } from './navigation_helpers';
+  import { TOOL_ROUTES, resolveRouteFromShortcut } from './navigation_helpers';
+  import { DEMO_SAMPLES, type DemoSampleId } from './demo_samples';
+  import type { UiMode } from './ui_glossary';
 
   interface Props {
     currentView: 'converter' | 'editor' | 'synth' | 'stn' | 'lean' | 'field';
     isAudioPlaying?: boolean;
     hasAudioLoaded?: boolean;
+    uiMode?: UiMode;
     onNavigate: (view: 'converter' | 'editor' | 'synth' | 'stn' | 'lean' | 'field') => void;
+    onToggleUiMode?: (mode: UiMode) => void;
+    onSelectDemo?: (demoId: DemoSampleId) => void;
+    onOpenWelcomeModal?: () => void;
   }
 
   let {
     currentView,
     isAudioPlaying = false,
     hasAudioLoaded = false,
-    onNavigate
+    uiMode = 'creative',
+    onNavigate,
+    onToggleUiMode,
+    onSelectDemo,
+    onOpenWelcomeModal
   }: Props = $props();
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -71,7 +81,60 @@
     {/each}
   </nav>
 
+  <div class="divider"></div>
+
+  <!-- Barra de Demonstrações Rápidas de 1 Clique -->
+  <div class="quick-demos-wrap" aria-label="Demonstrações de Áudio">
+    <span class="demos-label">Demos:</span>
+    {#each DEMO_SAMPLES as demo}
+      <button
+        type="button"
+        class="demo-chip"
+        onclick={() => onSelectDemo?.(demo.id)}
+        title="Carregar demonstração: {demo.description}"
+      >
+        <span>{demo.icon}</span>
+        <span>{demo.label}</span>
+      </button>
+    {/each}
+  </div>
+
   <div class="grow"></div>
+
+  <!-- Alternador de Modo [Criativo 🎨 / Expert 🔬] -->
+  <div class="mode-toggle-wrap" role="radiogroup" aria-label="Modo de Visualização">
+    <button
+      type="button"
+      class="mode-btn"
+      class:active={uiMode === 'creative'}
+      onclick={() => onToggleUiMode?.('creative')}
+      title="Modo Criativo: terminologia sonora intuitiva para músicos e designers"
+    >
+      🎨 Criativo
+    </button>
+    <button
+      type="button"
+      class="mode-btn"
+      class:active={uiMode === 'expert'}
+      onclick={() => onToggleUiMode?.('expert')}
+      title="Modo Expert: terminologia matemática rigorosa e fórmulas"
+    >
+      🔬 Expert
+    </button>
+  </div>
+
+  <!-- Botão de Ajuda / Onboarding Tour -->
+  {#if onOpenWelcomeModal}
+    <button
+      type="button"
+      class="help-tour-btn"
+      onclick={() => onOpenWelcomeModal()}
+      title="Abrir introdução rápida e atalhos de teclado"
+      aria-label="Abrir introdução"
+    >
+      ❓ Guia
+    </button>
+  {/if}
 
   <!-- Indicador de Áudio Ativo -->
   {#if isAudioPlaying}
@@ -86,19 +149,22 @@
   .global-topbar {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
     height: 48px;
     padding: 0 16px;
     background: var(--bg-surface);
     border-bottom: 1px solid var(--border-subtle);
     user-select: none;
     z-index: 50;
+    flex-wrap: nowrap;
+    overflow-x: auto;
   }
 
   .brand {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-shrink: 0;
   }
 
   .brand-logo {
@@ -133,12 +199,14 @@
     width: 1px;
     height: 22px;
     background: var(--border-subtle);
+    flex-shrink: 0;
   }
 
   .tool-nav {
     display: flex;
     align-items: center;
     gap: 4px;
+    flex-shrink: 0;
   }
 
   .nav-item {
@@ -154,6 +222,7 @@
     font-weight: 500;
     cursor: pointer;
     transition: all 0.15s ease-in-out;
+    white-space: nowrap;
   }
 
   .nav-item:hover:not(:disabled) {
@@ -195,7 +264,94 @@
     border-radius: 2px;
   }
 
-  .grow { flex: 1; }
+  .quick-demos-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .demos-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+  }
+
+  .demo-chip {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--bg-input, #1e293b);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    padding: 3px 7px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+  }
+
+  .demo-chip:hover {
+    border-color: var(--accent-cyan);
+    background: rgba(56, 189, 248, 0.15);
+  }
+
+  .grow { flex: 1; min-width: 8px; }
+
+  .mode-toggle-wrap {
+    display: flex;
+    align-items: center;
+    background: var(--bg-base);
+    border: 1px solid var(--border-subtle);
+    padding: 2px;
+    border-radius: 5px;
+    flex-shrink: 0;
+  }
+
+  .mode-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.15s ease;
+  }
+
+  .mode-btn:hover {
+    color: var(--text-primary);
+  }
+
+  .mode-btn.active {
+    background: var(--bg-surface);
+    color: var(--accent-cyan);
+    font-weight: 600;
+  }
+
+  .help-tour-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+    padding: 3px 8px;
+    border-radius: 5px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+  }
+
+  .help-tour-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--text-muted);
+  }
 
   .audio-active-badge {
     display: flex;
@@ -210,6 +366,7 @@
     padding: 2px 8px;
     border-radius: 4px;
     letter-spacing: 0.05em;
+    flex-shrink: 0;
   }
 
   .pulse-dot {
