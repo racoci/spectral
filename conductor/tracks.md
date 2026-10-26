@@ -8,4 +8,4 @@
 - [x] **Track: Feature: UI/UX Design System Refinement & Visual Ergonomics** *Link: [./tracks/ui-ux-design-system-refinement_20261021/index.md](./tracks/ui-ux-design-system-refinement_20261021/index.md)*
 - [x] **Track: Phase 7: Rate-Distortion Optimization (RDO) e Codificação Entrópica DRED** *Link: [./tracks/mdl-phase7-rdo-and-dred-codec_20261021/index.md](./tracks/mdl-phase7-rdo-and-dred-codec_20261021/index.md)*
 - [x] **Track: MDL Curriculum Phase 7: Probabilistic Multiple Ridge Tracking & Association (E46-E50)** *Link: [./tracks/mdl-phase7-probabilistic-tracking_20261021/index.md](./tracks/mdl-phase7-probabilistic-tracking_20261021/index.md)*
-- [~] **Track: UI/UX Accessibility, 1-Click Demos, and Creative vs Expert Mode** *Link: [./tracks/ui-ux-onboarding-and-creative-mode_20261021/index.md](./tracks/ui-ux-onboarding-and-creative-mode_20261021/index.md)*
+- [x] **Track: UI/UX Accessibility, 1-Click Demos, and Creative vs Expert Mode** *Link: [./tracks/ui-ux-onboarding-and-creative-mode_20261021/index.md](./tracks/ui-ux-onboarding-and-creative-mode_20261021/index.md)*

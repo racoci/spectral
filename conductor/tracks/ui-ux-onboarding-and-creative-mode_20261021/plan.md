@@ -44,11 +44,11 @@ Este plano detalha as fases, tarefas e testes automatizados para democratizar a 
 ---
 
 ## Fase 4: Integração Completa, Verificação de Tipos e Handoff (Meta-Task Obrigatória)
-- [~] Task 4.1: Integrar componentes na interface principal e verificar build
+- [x] Task 4.1: Integrar componentes na interface principal e verificar build
   - Testar montagem na árvore principal do `App.svelte` e verificar conformidade com `svelte-check` e `vite build`.
   - Teste automatizado: `npm run check && npm run build`
   - Documentação: `documentation/ui_design_system/README.md`
-- [ ] Task 4.2: Mitigação de Riscos de Acessibilidade e Handoff de Usabilidade (Meta-Task Obrigatória)
+- [x] Task 4.2: Mitigação de Riscos de Acessibilidade e Handoff de Usabilidade (Meta-Task Obrigatória)
   - Documentar mapeamento de cores de alto contraste, suporte a leitores de tela e atalhos simplificados.
   - Documentação: `documentation/ui_design_system/ACCESSIBILITY_AND_ONBOARDING_HANDOFF.md`
-- [ ] Task 4.3: Verificação Final da Fase 4 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 4.3: Verificação Final da Fase 4 e Checkpoint (Referente ao `workflow.md`)
