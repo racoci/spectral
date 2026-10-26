@@ -18,11 +18,11 @@ Este plano detalha as fases, tarefas e testes automatizados para democratizar a 
 ---
 
 ## Fase 2: Dicionário Semântico e Modo Criativo vs Expert (TDD)
-- [~] Task 2.1: Escrever testes automatizados que falham para a tradução de termos e reatividade do modo (`tests/test-creative-expert-mode.ts`) (Red Phase)
+- [x] Task 2.1: Escrever testes automatizados que falham para a tradução de termos e reatividade do modo (`tests/test-creative-expert-mode.ts`) (Red Phase) [failing tests created]
   - Testar mapeamento bijetivo entre termos científicos e termos musicais leigos com suporte a fallback.
   - Teste automatizado: `npx tsx tests/test-creative-expert-mode.ts`
   - Documentação: `documentation/ui_design_system/creative_vs_expert_mode.md`
-- [ ] Task 2.2: Implementar `src/lib/ui/ui_glossary.ts` e integrar o alternador `[Criativo / Expert]` em `GlobalTopbar.svelte` (Green Phase)
+- [~] Task 2.2: Implementar `src/lib/ui/ui_glossary.ts` e integrar o alternador `[Criativo / Expert]` em `GlobalTopbar.svelte` (Green Phase)
   - Vincular textos reativos através de Runes do Svelte 5 com persistência no `localStorage`.
   - Teste automatizado: `npx tsx tests/test-creative-expert-mode.ts`
   - Documentação: `documentation/ui_design_system/creative_vs_expert_mode.md`
