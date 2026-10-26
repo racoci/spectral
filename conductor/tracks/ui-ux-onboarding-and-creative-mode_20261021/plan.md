@@ -35,16 +35,16 @@ Este plano detalha as fases, tarefas e testes automatizados para democratizar a 
   - Testar alternância síncrona de reprodução A/B sem estalos de clique e persistência de fechamento do modal.
   - Teste automatizado: `npx tsx tests/test-ab-player-onboarding.ts`
   - Documentação: `documentation/ui_design_system/ab_player_and_onboarding.md`
-- [~] Task 3.2: Implementar componentes `AbComparePlayer.svelte` e `WelcomeModal.svelte` (Green Phase)
+- [x] Task 3.2: Implementar componentes `AbComparePlayer.svelte` e `WelcomeModal.svelte` (Green Phase)
   - Criar interface compacta do player com métricas leigas de compressão e modal acessível com suporte a tecla `ESC`.
   - Teste automatizado: `npx tsx tests/test-ab-player-onboarding.ts`
   - Documentação: `documentation/ui_design_system/ab_player_and_onboarding.md`
-- [ ] Task 3.3: Verificação da Fase 3 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 3.3: Verificação da Fase 3 e Checkpoint (Referente ao `workflow.md`)
 
 ---
 
 ## Fase 4: Integração Completa, Verificação de Tipos e Handoff (Meta-Task Obrigatória)
-- [ ] Task 4.1: Integrar componentes na interface principal e verificar build
+- [~] Task 4.1: Integrar componentes na interface principal e verificar build
   - Testar montagem na árvore principal do `App.svelte` e verificar conformidade com `svelte-check` e `vite build`.
   - Teste automatizado: `npm run check && npm run build`
   - Documentação: `documentation/ui_design_system/README.md`
