@@ -5,11 +5,11 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
 ---
 
 ## Fase 1: Dicionário Aprendido de Trajetórias de Cristas (E51) (TDD)
-- [ ] Task 1.1: Escrever testes automatizados que falham para o aprendizado e reconstrução do dicionário de cristas (Red Phase)
+- [x] Task 1.1: Escrever testes automatizados que falham para o aprendizado e reconstrução do dicionário de cristas (Red Phase) [failing tests created]
   - Testar decomposição em componentes principais/SVD sobre blocos de cristas ($L=16$), redução de erro $> 40\%$ em relação a DPCM linear.
   - Testes automatizados: `python3 tests/test_learned_ridge_codec.py` e `npx tsx tests/test-learned-ridge-codec.ts`
   - Documentação: `documentation/mdl_codec_curriculum/learned_ridge_dictionary.md`
-- [ ] Task 1.2: Implementar o módulo `LearnedRidgeDictionary` em Python (`synthnn/analysis/learned_ridge_codec.py`) e TypeScript (`src/lib/codec/learned_ridge_codec.ts`) (Green Phase)
+- [~] Task 1.2: Implementar o módulo `LearnedRidgeDictionary` em Python (`synthnn/analysis/learned_ridge_codec.py`) e TypeScript (`src/lib/codec/learned_ridge_codec.ts`) (Green Phase)
   - Implementar projeção linear $\mathbf{c} = \mathbf{\Phi}^T (\mathbf{f} - \bar{\mathbf{f}})$ e reconstrução $\hat{\mathbf{f}} = \bar{\mathbf{f}} + \mathbf{\Phi} \mathbf{c}$.
   - Testes automatizados: `python3 tests/test_learned_ridge_codec.py` e `npx tsx tests/test-learned-ridge-codec.ts`
   - Documentação: `documentation/mdl_codec_curriculum/learned_ridge_dictionary.md`
