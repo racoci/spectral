@@ -9,16 +9,16 @@ Este plano detalha as fases, tarefas e testes automatizados para democratizar a 
   - Testar disponibilidade das amostras (`voice.wav`, `synth.wav`, `car-horn.wav`), carregamento de buffers binários e decodificação WAV 16-bit.
   - Teste automatizado: `npx tsx tests/test-sample-demos-loader.ts`
   - Documentação: `documentation/ui_design_system/audio_demos_loader.md`
-- [~] Task 1.2: Implementar o módulo `src/lib/ui/demo_samples.ts` e seletor rápido no Topbar (Green Phase)
+- [x] Task 1.2: Implementar o módulo `src/lib/ui/demo_samples.ts` e seletor rápido no Topbar (Green Phase)
   - Integrar carregamento instantâneo via `fetch` assíncrono conectado aos reprodutores de áudio do Svelte.
   - Teste automatizado: `npx tsx tests/test-sample-demos-loader.ts`
   - Documentação: `documentation/ui_design_system/audio_demos_loader.md`
-- [ ] Task 1.3: Verificação da Fase 1 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 1.3: Verificação da Fase 1 e Checkpoint (Referente ao `workflow.md`)
 
 ---
 
 ## Fase 2: Dicionário Semântico e Modo Criativo vs Expert (TDD)
-- [ ] Task 2.1: Escrever testes automatizados que falham para a tradução de termos e reatividade do modo (`tests/test-creative-expert-mode.ts`) (Red Phase)
+- [~] Task 2.1: Escrever testes automatizados que falham para a tradução de termos e reatividade do modo (`tests/test-creative-expert-mode.ts`) (Red Phase)
   - Testar mapeamento bijetivo entre termos científicos e termos musicais leigos com suporte a fallback.
   - Teste automatizado: `npx tsx tests/test-creative-expert-mode.ts`
   - Documentação: `documentation/ui_design_system/creative_vs_expert_mode.md`
