@@ -9,28 +9,28 @@ Este plano detalha as fases, tarefas e testes automatizados para introduzir a co
   - Testar sintaxe Slang diferenciável, cálculo de gradiente e Hessiana via auto-diff e validade do WGSL gerado.
   - Teste automatizado: `npx tsx tests/test-slang-webgpu-pipeline.ts`
   - Documentação: `documentation/scalar_field_ide/slang_autodiff_shaders.md`
-- [~] Task 1.2: Implementar `src/shaders/taylor_field.slang` e transcrição para WGSL com funções `evaluateTaylorJet`, `computeGradient` e `computeHessian` (Green Phase)
+- [x] Task 1.2: Implementar `src/shaders/taylor_field.slang` e transcrição para WGSL com funções `evaluateTaylorJet`, `computeGradient` e `computeHessian` (Green Phase)
   - Teste automatizado: `npx tsx tests/test-slang-webgpu-pipeline.ts`
   - Documentação: `documentation/scalar_field_ide/slang_autodiff_shaders.md`
-- [ ] Task 1.3: Verificação da Fase 1 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 1.3: Verificação da Fase 1 e Checkpoint (Referente ao `workflow.md`)
 
 ---
 
 ## Fase 2: Renderizador WebGPU e Compute Pipeline de Brushes (TDD)
-- [ ] Task 2.1: Escrever testes automatizados que falham para o pipeline WebGPU e fallback gracioso para WebGL 2 (Red Phase)
+- [x] Task 2.1: Escrever testes automatizados que falham para o pipeline WebGPU e fallback gracioso para WebGL 2 (Red Phase) [failing tests created]
   - Testar detecção de suporte a WebGPU (`navigator.gpu`), criação de buffers uniformes e fallback sem quebra para WebGL 2.
   - Teste automatizado: `npx tsx tests/test-slang-webgpu-pipeline.ts`
   - Documentação: `documentation/scalar_field_ide/webgpu_compute_pipeline.md`
-- [ ] Task 2.2: Implementar classe `WebGpuFieldRenderer` em `src/lib/scalar_field/WebGpuFieldRenderer.ts` (Green Phase)
+- [x] Task 2.2: Implementar classe `WebGpuFieldRenderer` em `src/lib/scalar_field/WebGpuFieldRenderer.ts` (Green Phase)
   - Desenvolver pipeline compute para brushes e pipeline render para curvas de nível antialiased.
   - Teste automatizado: `npx tsx tests/test-slang-webgpu-pipeline.ts`
   - Documentação: `documentation/scalar_field_ide/webgpu_compute_pipeline.md`
-- [ ] Task 2.3: Verificação da Fase 2 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 2.3: Verificação da Fase 2 e Checkpoint (Referente ao `workflow.md`)
 
 ---
 
 ## Fase 3: Integração no ScalarFieldStudio e Fallback Dinâmico
-- [ ] Task 3.1: Conectar `WebGpuFieldRenderer` ao `ScalarFieldStudio.svelte` com indicador de backend gráfico ativo (WebGPU / WebGL 2)
+- [~] Task 3.1: Conectar `WebGpuFieldRenderer` ao `ScalarFieldStudio.svelte` com indicador de backend gráfico ativo (WebGPU / WebGL 2)
   - Permitir alternância transparente ou seleção automática de hardware com melhor performance.
   - Testes automatizados: `npm run check` e `npm run test:integration`
   - Documentação: `documentation/scalar_field_ide/webgpu_ui_integration.md`
