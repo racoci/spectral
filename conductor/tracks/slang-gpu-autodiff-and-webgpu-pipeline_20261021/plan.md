@@ -5,11 +5,11 @@ Este plano detalha as fases, tarefas e testes automatizados para introduzir a co
 ---
 
 ## Fase 1: Módulos Slang e Diferenciação Automática de Jatos (TDD)
-- [ ] Task 1.1: Escrever testes automatizados que falham para o shader Slang e compilação para WGSL (`tests/test-slang-webgpu-pipeline.ts`) (Red Phase)
+- [x] Task 1.1: Escrever testes automatizados que falham para o shader Slang e compilação para WGSL (`tests/test-slang-webgpu-pipeline.ts`) (Red Phase) [failing tests created]
   - Testar sintaxe Slang diferenciável, cálculo de gradiente e Hessiana via auto-diff e validade do WGSL gerado.
   - Teste automatizado: `npx tsx tests/test-slang-webgpu-pipeline.ts`
   - Documentação: `documentation/scalar_field_ide/slang_autodiff_shaders.md`
-- [ ] Task 1.2: Implementar `src/shaders/taylor_field.slang` e transcrição para WGSL com funções `evaluateTaylorJet`, `computeGradient` e `computeHessian` (Green Phase)
+- [~] Task 1.2: Implementar `src/shaders/taylor_field.slang` e transcrição para WGSL com funções `evaluateTaylorJet`, `computeGradient` e `computeHessian` (Green Phase)
   - Teste automatizado: `npx tsx tests/test-slang-webgpu-pipeline.ts`
   - Documentação: `documentation/scalar_field_ide/slang_autodiff_shaders.md`
 - [ ] Task 1.3: Verificação da Fase 1 e Checkpoint (Referente ao `workflow.md`)
