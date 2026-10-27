@@ -5,11 +5,11 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
 ---
 
 ## Fase 1: Formato Próprio Compacto de Reconstrução e Serialização de URL (TDD)
-- [ ] Task 1.1: Escrever testes automatizados que falham para serialização e desserialização do pacote compacto (`tests/test-session-sharing-compact.ts`) (Red Phase)
+- [x] Task 1.1: Escrever testes automatizados que falham para serialização e desserialização do pacote compacto (`tests/test-session-sharing-compact.ts`) (Red Phase) [failing tests created]
   - Testar roundtrip exato de presets de todas as ferramentas, validação de integridade de versão e codificação de query string.
   - Teste automatizado: `npx tsx tests/test-session-sharing-compact.ts`
   - Documentação: `documentation/sharing/compact_reconstruction_format.md`
-- [ ] Task 1.2: Implementar módulo `src/lib/sharing/session_serializer.ts` (Green Phase)
+- [~] Task 1.2: Implementar módulo `src/lib/sharing/session_serializer.ts` (Green Phase)
   - Criar funções `encodeSpectralPackage(pkg)`, `decodeSpectralPackage(encoded)` e gerador de URL hash com query string.
   - Teste automatizado: `npx tsx tests/test-session-sharing-compact.ts`
   - Documentação: `documentation/sharing/compact_reconstruction_format.md`
