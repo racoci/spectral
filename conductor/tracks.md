@@ -11,4 +11,4 @@
 - [x] **Track: UI/UX Accessibility, 1-Click Demos, and Creative vs Expert Mode** *Link: [./tracks/ui-ux-onboarding-and-creative-mode_20261021/index.md](./tracks/ui-ux-onboarding-and-creative-mode_20261021/index.md)*
 - [x] **Track: MDL Curriculum Phase 8: Learned Ridge Trajectory Codec & Surprise Encoding (E51-E59)** *Link: [./tracks/mdl-phase8-learned-ridge-codec-surprise_20261021/index.md](./tracks/mdl-phase8-learned-ridge-codec-surprise_20261021/index.md)*
 - [x] **Track: Session Sharing via Compact Reconstruction Format, Offline PWA & Structural Vector Export** *Link: [./tracks/session-sharing-pwa-compact-format_20261021/index.md](./tracks/session-sharing-pwa-compact-format_20261021/index.md)*
-- [ ] **Track: Slang GPU Shaders, Automatic Differentiation & WebGPU Compute Pipeline** *Link: [./tracks/slang-gpu-autodiff-and-webgpu-pipeline_20261021/index.md](./tracks/slang-gpu-autodiff-and-webgpu-pipeline_20261021/index.md)*
+- [~] **Track: Slang GPU Shaders, Automatic Differentiation & WebGPU Compute Pipeline** *Link: [./tracks/slang-gpu-autodiff-and-webgpu-pipeline_20261021/index.md](./tracks/slang-gpu-autodiff-and-webgpu-pipeline_20261021/index.md)*
