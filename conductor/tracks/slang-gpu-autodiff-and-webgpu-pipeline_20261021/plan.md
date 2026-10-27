@@ -30,23 +30,23 @@ Este plano detalha as fases, tarefas e testes automatizados para introduzir a co
 ---
 
 ## Fase 3: Integração no ScalarFieldStudio e Fallback Dinâmico
-- [~] Task 3.1: Conectar `WebGpuFieldRenderer` ao `ScalarFieldStudio.svelte` com indicador de backend gráfico ativo (WebGPU / WebGL 2)
+- [x] Task 3.1: Conectar `WebGpuFieldRenderer` ao `ScalarFieldStudio.svelte` com indicador de backend gráfico ativo (WebGPU / WebGL 2)
   - Permitir alternância transparente ou seleção automática de hardware com melhor performance.
   - Testes automatizados: `npm run check` e `npm run test:integration`
   - Documentação: `documentation/scalar_field_ide/webgpu_ui_integration.md`
-- [ ] Task 3.2: Verificar estabilidade visual e conformidade em 60/120 FPS
+- [x] Task 3.2: Verificar estabilidade visual e conformidade em 60/120 FPS
   - Validar renderização idêntica entre o backend WebGPU e o backend WebGL 2.
   - Testes automatizados: `npm run check` e `npm run build`
   - Documentação: `documentation/scalar_field_ide/webgpu_ui_integration.md`
-- [ ] Task 3.3: Verificação da Fase 3 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 3.3: Verificação da Fase 3 e Checkpoint (Referente ao `workflow.md`)
 
 ---
 
 ## Fase 4: Validação Global, Verificação de Tipos e Handoff (Meta-Task Obrigatória)
-- [ ] Task 4.1: Integrar nova suíte ao `package.json`, executar verificação global e build de produção
+- [x] Task 4.1: Integrar nova suíte ao `package.json`, executar verificação global e build de produção
   - Testes automatizados: `npm run test:integration` e `npm run build`
   - Documentação: `documentation/scalar_field_ide/README.md`
-- [ ] Task 4.2: Mitigação de Riscos de Portabilidade Gráfica e Handoff (Meta-Task Obrigatória)
+- [x] Task 4.2: Mitigação de Riscos de Portabilidade Gráfica e Handoff (Meta-Task Obrigatória)
   - Documentar estratégias de compatibilidade de drivers e pipeline de compilação Slang offline/online.
   - Documentação: `documentation/scalar_field_ide/SLANG_WEBGPU_ARCHITECTURE_HANDOFF.md`
-- [ ] Task 4.3: Verificação Final da Fase 4 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 4.3: Verificação Final da Fase 4 e Checkpoint (Referente ao `workflow.md`)
