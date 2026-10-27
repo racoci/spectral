@@ -18,20 +18,20 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
 ---
 
 ## Fase 2: Botão de Compartilhar, Toast de Feedback e Restauração de Rota (TDD)
-- [~] Task 2.1: Integrar botão `[🔗 Compartilhar]` em `GlobalTopbar.svelte` com notificação visual (Toast) e escuta no `App.svelte` (Green Phase)
+- [x] Task 2.1: Integrar botão `[🔗 Compartilhar]` em `GlobalTopbar.svelte` com notificação visual (Toast) e escuta no `App.svelte` (Green Phase)
   - Permitir copiar o link de compartilhamento para a área de transferência e restaurar o estado na inicialização ao detectar hash com parâmetros.
   - Testes automatizados: `npm run check` e `npm run test:integration`
   - Documentação: `documentation/sharing/url_sharing_interaction.md`
-- [ ] Task 2.2: Testar restauração de estado e ressíntese analítica sem dependência do áudio original
+- [x] Task 2.2: Testar restauração de estado e ressíntese analítica sem dependência do áudio original
   - Validar que a abertura de um link restaura a ferramenta correta e os controles sem requisição de arquivos PCM.
   - Teste automatizado: `npx tsx tests/test-session-sharing-compact.ts`
   - Documentação: `documentation/sharing/url_sharing_interaction.md`
-- [ ] Task 2.3: Verificação da Fase 2 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 2.3: Verificação da Fase 2 e Checkpoint (Referente ao `workflow.md`)
 
 ---
 
 ## Fase 3: Manifesto PWA Offline e Service Worker
-- [ ] Task 3.1: Criar manifesto `public/manifest.webmanifest` e Service Worker `public/sw.js` com cache Stale-While-Revalidate
+- [~] Task 3.1: Criar manifesto `public/manifest.webmanifest` e Service Worker `public/sw.js` com cache Stale-While-Revalidate
   - Configurar cache prioritário de binários WebAssembly (`core_wasm_bg.wasm`), amostras e assets para funcionamento 100% offline.
   - Documentação: `documentation/sharing/pwa_offline_architecture.md`
 - [ ] Task 3.2: Registrar Service Worker no `index.html` e verificar compatibilidade

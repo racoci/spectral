@@ -11,6 +11,7 @@
   import { loadDemoSampleBytes, type DemoSampleId } from './lib/ui/demo_samples';
   import type { UiMode } from './lib/ui/ui_glossary';
   import { getOnboardingDismissed } from './lib/ui/ab_player_logic';
+  import { serializeToHashQuery, parseFromHashQuery, type SpectralPackage } from './lib/sharing/session_serializer';
   import init, { 
     wasm_generate_complex_reassigned_ycbcr_spectrogram,
     wasm_generate_holomorphic_exploration_spectrogram,
@@ -597,6 +598,50 @@
       console.error('Falha ao carregar amostra de demonstração:', err);
     }
   }
+
+  // Toast Notification & Session Sharing
+  let toastMessage = $state<string | null>(null);
+  let toastTimer: any = null;
+
+  function showToast(msg: string) {
+    toastMessage = msg;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toastMessage = null;
+    }, 3500);
+  }
+
+  function handleShareSession() {
+    let pkg: SpectralPackage = {
+      v: 1,
+      tool: currentView,
+      title: `Sessão Spectral - ${currentView.toUpperCase()}`,
+      params: {}
+    };
+
+    if (currentView === 'stn') {
+      pkg.params = { preset: 'custom', gain: 0.0 };
+    } else if (currentView === 'lean') {
+      pkg.params = { patch: 'dx7_tubular_bells' };
+    } else if (currentView === 'field') {
+      pkg.params = { order: 2, scale: 1.0 };
+    } else {
+      pkg.params = { tool: currentView };
+    }
+
+    const hashQuery = serializeToHashQuery(pkg);
+    const fullUrl = `${window.location.origin}${window.location.pathname}${hashQuery}`;
+
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(fullUrl).then(() => {
+        showToast('Link de compartilhamento copiado! 📋');
+      }).catch(() => {
+        showToast('Link gerado: ' + hashQuery);
+      });
+    } else {
+      showToast('Link gerado: ' + hashQuery);
+    }
+  }
 </script>
 
 <main class="app-container" class:full-screen-layout={currentView === 'editor' || currentView === 'synth' || currentView === 'stn' || currentView === 'lean' || currentView === 'field'}>
@@ -609,6 +654,7 @@
     onToggleUiMode={handleToggleUiMode}
     onSelectDemo={handleSelectDemo}
     onOpenWelcomeModal={() => showWelcomeModal = true}
+    onShareSession={handleShareSession}
   />
 
   <WelcomeModal
@@ -616,6 +662,12 @@
     onClose={() => showWelcomeModal = false}
     onSelectDemo={handleSelectDemo}
   />
+
+  {#if toastMessage}
+    <div class="toast-notification" role="status">
+      <span>{toastMessage}</span>
+    </div>
+  {/if}
   
   {#if currentView === 'converter'}
     <header class="app-header">
@@ -832,5 +884,26 @@
   .view-toggles button:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  .toast-notification {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: #0f172a;
+    border: 1px solid var(--accent-cyan, #38bdf8);
+    color: #f8fafc;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    z-index: 10000;
+    animation: toastSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes toastSlideUp {
+    from { transform: translateY(16px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
   }
 </style>

@@ -13,6 +13,7 @@
     onToggleUiMode?: (mode: UiMode) => void;
     onSelectDemo?: (demoId: DemoSampleId) => void;
     onOpenWelcomeModal?: () => void;
+    onShareSession?: () => void;
   }
 
   let {
@@ -23,7 +24,8 @@
     onNavigate,
     onToggleUiMode,
     onSelectDemo,
-    onOpenWelcomeModal
+    onOpenWelcomeModal,
+    onShareSession
   }: Props = $props();
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -133,6 +135,19 @@
       aria-label="Abrir introdução"
     >
       ❓ Guia
+    </button>
+  {/if}
+
+  <!-- Botão de Compartilhar Sessão -->
+  {#if onShareSession}
+    <button
+      type="button"
+      class="share-btn"
+      onclick={() => onShareSession()}
+      title="Compartilhar sessão: copia link com a configuração atual"
+      aria-label="Compartilhar sessão atual"
+    >
+      🔗 Compartilhar
     </button>
   {/if}
 
@@ -351,6 +366,26 @@
   .help-tour-btn:hover {
     color: var(--text-primary);
     border-color: var(--text-muted);
+  }
+
+  .share-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(56, 189, 248, 0.1);
+    border: 1px solid var(--accent-cyan);
+    color: var(--accent-cyan);
+    padding: 3px 8px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+  }
+
+  .share-btn:hover {
+    background: rgba(56, 189, 248, 0.25);
   }
 
   .audio-active-badge {
