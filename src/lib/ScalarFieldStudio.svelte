@@ -26,6 +26,8 @@
     type ColorPaletteType 
   } from './scalar_field/ScalarFieldGlRenderer';
 
+  import { isWebGpuSupported } from './scalar_field/WebGpuFieldRenderer';
+
   import { 
     PolarHandlesManager, 
     type PolarHandle, 
@@ -117,6 +119,7 @@
   let editorContainer = $state<HTMLDivElement | null>(null);
   let editorView: EditorView | null = null;
   let glRenderer: ScalarFieldGlRenderer | null = null;
+  let hasWebGpu = $state<boolean>(isWebGpuSupported());
   let handlesManager: PolarHandlesManager | null = null;
   let resizeObserver: ResizeObserver | null = null;
   let pointerFilter = new InertialPointerFilter();
@@ -522,6 +525,9 @@
     <div class="grow"></div>
 
     <div class="actions">
+      <span class="gpu-badge font-mono" class:webgpu={hasWebGpu}>
+        {hasWebGpu ? '⚡ WebGPU + Slang' : '🌐 WebGL 2 (GLSL)'}
+      </span>
       <button class="copy-btn" onclick={copyPlainText}>{copyFeedback}</button>
       <button class="export-btn" onclick={exportWav}>Exportar WAV</button>
     </div>
@@ -827,6 +833,22 @@
     font-size: 9px;
     padding: 2px 6px;
     border-radius: 4px;
+  }
+
+  .gpu-badge {
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: rgba(56, 189, 248, 0.1);
+    color: var(--accent-cyan, #38bdf8);
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    margin-right: 6px;
+  }
+
+  .gpu-badge.webgpu {
+    background: rgba(16, 185, 129, 0.15);
+    color: #34d399;
+    border-color: rgba(16, 185, 129, 0.3);
   }
 
   .splitter {
