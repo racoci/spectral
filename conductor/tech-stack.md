@@ -18,6 +18,7 @@
 - **RDO Overcomplete Analysis Core**: Lagrangean rate-distortion optimizer with dead-zone quantization and Pareto frontier analysis.
 - **Bayesian Ridge Tracker & GP-SDE Core**: 4D Extended Kalman Filter ($f, \dot{f}, \ln A, \dot{A}/A$), Mahalanobis distance metric with chi-squared gating ($\chi^2_2=9.21$), Hungarian optimal bipartite assignment, and Gaussian Process spectral inpainting for occlusions.
 - **Learned Ridge Trajectory Codec & Surprise Gate Core**: Orthonormal learned basis dictionary ($\mathbf{\Phi} \in \mathbb{R}^{L \times K}$), uniform innovation quantizer, 14-bit rANS entropy stream packaging, and Bayesian surprise gating ($\Delta G > \lambda$) with adaptive lookahead.
+- **PWA & Compact Session Sharing Core**: Stale-While-Revalidate service worker (`sw.js`), standalone manifest (`manifest.webmanifest`), URL-safe Base64 compact state serializer, and standalone scalable vector graphics (`svg_exporter.ts`).
 - **Svelte 5 Atomic UI Architecture**: Modular component library (`src/lib/ui/`) with reactive runes, pointer capture rotary knobs, responsive splitters, and WCAG AA contrast compliance.
 - **Puppeteer Headless E2E**: Automated multi-resolution visual testing and screenshot auditing across desktop (1440x960) and laptop (1280x720) viewports.
 - **Slang (Roadmap / GPU Handoff)**: Cross-platform shader language with automatic differentiation for higher-order differential jets and WebGPU compute pipelines.

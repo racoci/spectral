@@ -31,22 +31,22 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
 ---
 
 ## Fase 3: Manifesto PWA Offline e Service Worker
-- [~] Task 3.1: Criar manifesto `public/manifest.webmanifest` e Service Worker `public/sw.js` com cache Stale-While-Revalidate
+- [x] Task 3.1: Criar manifesto `public/manifest.webmanifest` e Service Worker `public/sw.js` com cache Stale-While-Revalidate
   - Configurar cache prioritário de binários WebAssembly (`core_wasm_bg.wasm`), amostras e assets para funcionamento 100% offline.
   - Documentação: `documentation/sharing/pwa_offline_architecture.md`
-- [ ] Task 3.2: Registrar Service Worker no `index.html` e verificar compatibilidade
+- [x] Task 3.2: Registrar Service Worker no `index.html` e verificar compatibilidade
   - Integrar registro condicional e meta tags para PWA (`theme-color`, `mobile-web-app-capable`).
   - Documentação: `documentation/sharing/pwa_offline_architecture.md`
-- [ ] Task 3.3: Verificação da Fase 3 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 3.3: Verificação da Fase 3 e Checkpoint (Referente ao `workflow.md`)
 
 ---
 
 ## Fase 4: Gerador de Exportação Vetorial SVG e Handoff (Meta-Task Obrigatória)
-- [ ] Task 4.1: Implementar módulo `src/lib/sharing/svg_exporter.ts` para exportação vetorial de cristas e contornos
+- [x] Task 4.1: Implementar módulo `src/lib/sharing/svg_exporter.ts` para exportação vetorial de cristas e contornos
   - Desenhar curvas analíticas de Taylor e trajetórias de cristas como `<path>` e `<polygon>` em SVG escalável.
   - Testes automatizados: `npm run test:integration` e `npm run build`
   - Documentação: `documentation/sharing/README.md`
-- [ ] Task 4.2: Mitigação de Riscos de Portabilidade e Handoff (Meta-Task Obrigatória)
+- [x] Task 4.2: Mitigação de Riscos de Portabilidade e Handoff (Meta-Task Obrigatória)
   - Documentar estratégias de sanitização de links e cache invalidation do Service Worker.
   - Documentação: `documentation/sharing/SESSION_PORTABILITY_HANDOFF.md`
-- [ ] Task 4.3: Verificação Final da Fase 4 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 4.3: Verificação Final da Fase 4 e Checkpoint (Referente ao `workflow.md`)
