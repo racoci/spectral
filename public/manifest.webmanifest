@@ -1,0 +1,19 @@
+{
+  "name": "Spectral - Audio & Holomorphic Geometry",
+  "short_name": "Spectral",
+  "description": "Laboratório de áudio, síntese analítica e geometria holomorfa 100% offline e bit-perfect.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#020617",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

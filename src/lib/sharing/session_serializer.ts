@@ -11,11 +11,12 @@ export interface SpectralPackage {
  * Codifica uma string UTF-8 em Base64 URL-safe compatível com browser e Node.js.
  */
 function toBase64Url(str: string): string {
-  if (typeof Buffer !== 'undefined') {
-    return Buffer.from(str, 'utf-8').toString('base64url');
+  const gBuffer = (globalThis as any).Buffer;
+  if (gBuffer) {
+    return gBuffer.from(str, 'utf-8').toString('base64url');
   }
   // Browser fallback
-  const base64 = window.btoa(unescape(encodeURIComponent(str)));
+  const base64 = typeof window !== 'undefined' && window.btoa ? window.btoa(unescape(encodeURIComponent(str))) : '';
   return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
@@ -23,15 +24,16 @@ function toBase64Url(str: string): string {
  * Decodifica Base64 URL-safe para string UTF-8 compatível com browser e Node.js.
  */
 function fromBase64Url(base64url: string): string {
-  if (typeof Buffer !== 'undefined') {
-    return Buffer.from(base64url, 'base64url').toString('utf-8');
+  const gBuffer = (globalThis as any).Buffer;
+  if (gBuffer) {
+    return gBuffer.from(base64url, 'base64url').toString('utf-8');
   }
   // Browser fallback
   let base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
   while (base64.length % 4) {
     base64 += '=';
   }
-  return decodeURIComponent(escape(window.atob(base64)));
+  return typeof window !== 'undefined' && window.atob ? decodeURIComponent(escape(window.atob(base64))) : '';
 }
 
 /**
