@@ -5,11 +5,11 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
 ---
 
 ## Fase 1: Grafo Causal TreeNN e Matriz Totalmente Conectada (E60, E61) (TDD)
-- [ ] Task 1.1: Escrever testes automatizados que falham para síntese causal com matriz densa e feedback estável (Red Phase)
+- [x] Task 1.1: Escrever testes automatizados que falham para síntese causal com matriz densa e feedback estável (Red Phase) [failing tests created]
   - Testar formulação autorregressiva não-linear com saturação suave, acoplamento cruzado entre $N$ operadores e ausência de explosão de amplitude ($NaN/\infty$).
   - Testes automatizados: `python3 tests/test_treenn_causal_graph.py` e `npx tsx tests/test-treenn-graph-engine.ts`
   - Documentação: `documentation/tree_synth_curriculum/treenn_dense_causal_matrix.md`
-- [ ] Task 1.2: Implementar a classe `TreeNNCausalGraph` em Python (`synthnn/core/tree_nn_graph.py`) e TypeScript (`src/lib/synth/treenn_graph_engine.ts`) (Green Phase)
+- [~] Task 1.2: Implementar a classe `TreeNNCausalGraph` em Python (`synthnn/core/tree_nn_graph.py`) e TypeScript (`src/lib/synth/treenn_graph_engine.ts`) (Green Phase)
   - Implementar síntese recursiva de operadores acoplados com matriz $\mathbf{W} \in \mathbb{R}^{N \times N}$ e pesos de saída master $\mathbf{v} \in \mathbb{R}^N$.
   - Testes automatizados: `python3 tests/test_treenn_causal_graph.py` e `npx tsx tests/test-treenn-graph-engine.ts`
   - Documentação: `documentation/tree_synth_curriculum/treenn_dense_causal_matrix.md`
