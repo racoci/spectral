@@ -9,29 +9,29 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
   - Testar inferência da probabilidade de acoplamento $p_{ij} = \sigma(\text{MLP}([h_i, h_j, h_i \odot h_j, |h_i - h_j|]))$ com acurácia $> 90\%$.
   - Testes automatizados: `python3 tests/test_amortized_inverse_synthesis.py` e `npx tsx tests/test-amortized-synth-inferrer.ts`
   - Documentação: `documentation/tree_synth_curriculum/relational_edge_classifier.md`
-- [~] Task 1.2: Implementar módulo `RelationalEdgeClassifier` em Python (`synthnn/inverse/relational_topology_classifier.py`) e TypeScript (`src/lib/synth/amortized_synth_inferrer.ts`) (Green Phase)
+- [x] Task 1.2: Implementar módulo `RelationalEdgeClassifier` em Python (`synthnn/inverse/relational_topology_classifier.py`) e TypeScript (`src/lib/synth/amortized_synth_inferrer.ts`) (Green Phase)
   - Desenvolver forward pass relacional com combinações bilineares e função sigmoide.
   - Testes automatizados: `python3 tests/test_amortized_inverse_synthesis.py` e `npx tsx tests/test-amortized-synth-inferrer.ts`
   - Documentação: `documentation/tree_synth_curriculum/relational_edge_classifier.md`
-- [ ] Task 1.3: Verificação da Fase 1 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 1.3: Verificação da Fase 1 e Checkpoint (Referente ao `workflow.md`)
 
 ---
 
 ## Fase 2: Encoder Estrutural Amortizado CQT (E65) (TDD)
-- [ ] Task 2.1: Escrever testes automatizados que falham para o encoder amortizado de parâmetros (Red Phase)
+- [x] Task 2.1: Escrever testes automatizados que falham para o encoder amortizado de parâmetros (Red Phase) [failing tests created]
   - Testar recuperação direta de $f_0$, parciais harmônicas e profundidades de modulação em $< 15\text{ ms}$ sem backprop iterativo.
   - Teste automatizado: `python3 tests/test_amortized_inverse_synthesis.py -k test_amortized_cqt_encoder`
   - Documentação: `documentation/tree_synth_curriculum/amortized_cqt_encoder.md`
-- [ ] Task 2.2: Implementar módulo `AmortizedCqtEncoder` em Python (`synthnn/inverse/amortized_cqt_encoder.py`) e TypeScript (Green Phase)
+- [x] Task 2.2: Implementar módulo `AmortizedCqtEncoder` em Python (`synthnn/inverse/amortized_cqt_encoder.py`) e TypeScript (Green Phase)
   - Decomposição analítica de bandas laterais e estimador instantâneo de parâmetros de operadores.
   - Teste automatizado: `python3 tests/test_amortized_inverse_synthesis.py -k test_amortized_cqt_encoder`
   - Documentação: `documentation/tree_synth_curriculum/amortized_cqt_encoder.md`
-- [ ] Task 2.3: Verificação da Fase 2 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 2.3: Verificação da Fase 2 e Checkpoint (Referente ao `workflow.md`)
 
 ---
 
 ## Fase 3: Botão "Descobrir Sintetizador" no DDSP Studio (UI)
-- [ ] Task 3.1: Integrar ação de inferência inversa no `DdspStudio.svelte` gerando grafos TreeNN instantâneos
+- [~] Task 3.1: Integrar ação de inferência inversa no `DdspStudio.svelte` gerando grafos TreeNN instantâneos
   - Adicionar botão `[✨ Descobrir Sintetizador]` que transcreve o áudio carregado ou demo ativa em um grafo modular tocável.
   - Testes automatizados: `npm run check` e `npm run test:integration`
   - Documentação: `documentation/tree_synth_curriculum/ui_inverse_discovery.md`
