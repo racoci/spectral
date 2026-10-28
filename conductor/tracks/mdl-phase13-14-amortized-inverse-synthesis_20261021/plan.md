@@ -5,11 +5,11 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
 ---
 
 ## Fase 1: Classificador Relacional Bilinear de Arestas (E64) (TDD)
-- [ ] Task 1.1: Escrever testes automatizados que falham para o classificador relacional bilinear (Red Phase)
+- [x] Task 1.1: Escrever testes automatizados que falham para o classificador relacional bilinear (Red Phase) [failing tests created]
   - Testar inferência da probabilidade de acoplamento $p_{ij} = \sigma(\text{MLP}([h_i, h_j, h_i \odot h_j, |h_i - h_j|]))$ com acurácia $> 90\%$.
   - Testes automatizados: `python3 tests/test_amortized_inverse_synthesis.py` e `npx tsx tests/test-amortized-synth-inferrer.ts`
   - Documentação: `documentation/tree_synth_curriculum/relational_edge_classifier.md`
-- [ ] Task 1.2: Implementar módulo `RelationalEdgeClassifier` em Python (`synthnn/inverse/relational_topology_classifier.py`) e TypeScript (`src/lib/synth/amortized_synth_inferrer.ts`) (Green Phase)
+- [~] Task 1.2: Implementar módulo `RelationalEdgeClassifier` em Python (`synthnn/inverse/relational_topology_classifier.py`) e TypeScript (`src/lib/synth/amortized_synth_inferrer.ts`) (Green Phase)
   - Desenvolver forward pass relacional com combinações bilineares e função sigmoide.
   - Testes automatizados: `python3 tests/test_amortized_inverse_synthesis.py` e `npx tsx tests/test-amortized-synth-inferrer.ts`
   - Documentação: `documentation/tree_synth_curriculum/relational_edge_classifier.md`
