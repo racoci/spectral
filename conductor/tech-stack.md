@@ -23,3 +23,4 @@
 - **Puppeteer Headless E2E**: Automated multi-resolution visual testing and screenshot auditing across desktop (1440x960) and laptop (1280x720) viewports.
 - **Slang & WebGPU Shaders**: Cross-platform shader language with automatic differentiation for higher-order differential jets (`fwd_diff`/`bwd_diff`) and WebGPU compute pipelines with transparent WebGL 2 fallback.
 - **TreeNN & Neural-Causal Synthesis Core**: Fully connected coupling matrix $\mathbf{W} \in \mathbb{R}^{N \times N}$, smooth $\tanh$ feedback stabilization, MDL structural edge pruner, and isomorphic real-time Web Audio graph engine.
+- **Amortized Inverse Synthesis Core**: Bilinear relational edge classifier, instantaneous Bessel sideband decomposition, and single-pass CQT-to-TreeNN parameter estimator.

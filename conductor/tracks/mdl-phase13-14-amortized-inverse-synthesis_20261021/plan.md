@@ -31,22 +31,22 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
 ---
 
 ## Fase 3: Botão "Descobrir Sintetizador" no DDSP Studio (UI)
-- [~] Task 3.1: Integrar ação de inferência inversa no `DdspStudio.svelte` gerando grafos TreeNN instantâneos
+- [x] Task 3.1: Integrar ação de inferência inversa no `DdspStudio.svelte` gerando grafos TreeNN instantâneos
   - Adicionar botão `[✨ Descobrir Sintetizador]` que transcreve o áudio carregado ou demo ativa em um grafo modular tocável.
   - Testes automatizados: `npm run check` e `npm run test:integration`
   - Documentação: `documentation/tree_synth_curriculum/ui_inverse_discovery.md`
-- [ ] Task 3.2: Validar audição imediata e atualização dos knobs de síntese
+- [x] Task 3.2: Validar audição imediata e atualização dos knobs de síntese
   - Testes automatizados: `npm run check` e `npm run build`
   - Documentação: `documentation/tree_synth_curriculum/ui_inverse_discovery.md`
-- [ ] Task 3.3: Verificação da Fase 3 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 3.3: Verificação da Fase 3 e Checkpoint (Referente ao `workflow.md`)
 
 ---
 
 ## Fase 4: Validação Global, Verificação de Tipos e Handoff (Meta-Task Obrigatória)
-- [ ] Task 4.1: Integrar novas suítes ao `package.json`, executar verificação global e build de produção
+- [x] Task 4.1: Integrar novas suítes ao `package.json`, executar verificação global e build de produção
   - Testes automatizados: `npm run test:integration` e `npm run build`
   - Documentação: `documentation/tree_synth_curriculum/README.md`
-- [ ] Task 4.2: Mitigação de Riscos de Ambiguidade Inversa e Handoff (Meta-Task Obrigatória)
+- [x] Task 4.2: Mitigação de Riscos de Ambiguidade Inversa e Handoff (Meta-Task Obrigatória)
   - Documentar estratégias de desambiguação de fase e decomposição de harmônicos colidentes.
   - Documentação: `documentation/tree_synth_curriculum/INVERSE_SYNTHESIS_HANDOFF.md`
-- [ ] Task 4.3: Verificação Final da Fase 4 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 4.3: Verificação Final da Fase 4 e Checkpoint (Referente ao `workflow.md`)
