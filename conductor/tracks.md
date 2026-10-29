@@ -14,3 +14,4 @@
 - [x] **Track: Slang GPU Shaders, Automatic Differentiation & WebGPU Compute Pipeline** *Link: [./tracks/slang-gpu-autodiff-and-webgpu-pipeline_20261021/index.md](./tracks/slang-gpu-autodiff-and-webgpu-pipeline_20261021/index.md)*
 - [x] **Track: MDL Curriculum Phase 12: SynthNN & TreeNN Hierarchical Causal Graph (E60-E63)** *Link: [./tracks/mdl-phase12-treenn-hierarchical-causal-graph_20261021/index.md](./tracks/mdl-phase12-treenn-hierarchical-causal-graph_20261021/index.md)*
 - [x] **Track: MDL Curriculum Phase 13-14: Amortized Inverse Synthesis & Relational Topology Inference (E64-E72)** *Link: [./tracks/mdl-phase13-14-amortized-inverse-synthesis_20261021/index.md](./tracks/mdl-phase13-14-amortized-inverse-synthesis_20261021/index.md)*
+- [ ] **Track: TreeNN and DX7 Patch Export to Yamaha SysEx (.syx) and SoundFont2 (.sf2)** *Link: [./tracks/treenn-export-dx7-syx-and-soundfont_20261021/index.md](./tracks/treenn-export-dx7-syx-and-soundfont_20261021/index.md)*
