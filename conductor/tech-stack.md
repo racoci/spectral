@@ -24,3 +24,4 @@
 - **Slang & WebGPU Shaders**: Cross-platform shader language with automatic differentiation for higher-order differential jets (`fwd_diff`/`bwd_diff`) and WebGPU compute pipelines with transparent WebGL 2 fallback.
 - **TreeNN & Neural-Causal Synthesis Core**: Fully connected coupling matrix $\mathbf{W} \in \mathbb{R}^{N \times N}$, smooth $\tanh$ feedback stabilization, MDL structural edge pruner, and isomorphic real-time Web Audio graph engine.
 - **Amortized Inverse Synthesis Core**: Bilinear relational edge classifier, instantaneous Bessel sideband decomposition, and single-pass CQT-to-TreeNN parameter estimator.
+- **Instrumental Export Formats Core**: Binary Yamaha DX7 SysEx serializer (155-byte 1-voice / 4104-byte 32-voice bank with 7-bit two's complement checksums) and SoundFont 2.04 (`.sf2`) RIFF binary container generator.

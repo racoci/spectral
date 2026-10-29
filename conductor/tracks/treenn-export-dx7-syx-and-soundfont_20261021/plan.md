@@ -31,22 +31,22 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
 ---
 
 ## Fase 3: Integração na Interface (LeanSynthStudio & DdspStudio)
-- [~] Task 3.1: Adicionar botões `[🎹 Baixar .SYX (DX7)]` e `[🎼 Baixar SoundFont (.sf2)]` nas toolbars
+- [x] Task 3.1: Adicionar botões `[🎹 Baixar .SYX (DX7)]` e `[🎼 Baixar SoundFont (.sf2)]` nas toolbars
   - Integrar disparo de download binário em `LeanSynthStudio.svelte` e `DdspStudio.svelte`.
   - Testes automatizados: `npm run check` e `npm run test:integration`
   - Documentação: `documentation/synth_dsl_jets/ui_hardware_export.md`
-- [ ] Task 3.2: Validar compatibilidade de download de arquivos binários sem corrupção
+- [x] Task 3.2: Validar compatibilidade de download de arquivos binários sem corrupção
   - Testes automatizados: `npm run check` e `npm run build`
   - Documentação: `documentation/synth_dsl_jets/ui_hardware_export.md`
-- [ ] Task 3.3: Verificação da Fase 3 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 3.3: Verificação da Fase 3 e Checkpoint (Referente ao `workflow.md`)
 
 ---
 
 ## Fase 4: Validação Global, Verificação de Tipos e Handoff (Meta-Task Obrigatória)
-- [ ] Task 4.1: Integrar novas suítes ao `tests/run_all_ts_tests.ts`, executar verificação global e build de produção
+- [x] Task 4.1: Integrar novas suítes ao `tests/run_all_ts_tests.ts`, executar verificação global e build de produção
   - Testes automatizados: `npm run test:integration` e `npm run build`
   - Documentação: `documentation/synth_dsl_jets/README.md`
-- [ ] Task 4.2: Mitigação de Riscos de Interoperabilidade e Handoff (Meta-Task Obrigatória)
+- [x] Task 4.2: Mitigação de Riscos de Interoperabilidade e Handoff (Meta-Task Obrigatória)
   - Documentar compatibilidade com sintetizadores de hardware (Yamaha DX7, Korg Volca FM) e samplers VST.
   - Documentação: `documentation/synth_dsl_jets/HARDWARE_INTEROPERABILITY_HANDOFF.md`
-- [ ] Task 4.3: Verificação Final da Fase 4 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 4.3: Verificação Final da Fase 4 e Checkpoint (Referente ao `workflow.md`)
