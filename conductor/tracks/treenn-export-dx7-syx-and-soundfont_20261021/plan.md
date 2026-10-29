@@ -9,16 +9,16 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
   - Testar montagem binária de 128 bytes por voz, cálculo de checksum de 7 bits em complemento de dois e cabeçalhos MIDI padrão.
   - Teste automatizado: `npx tsx tests/test-dx7-sysex-exporter.ts`
   - Documentação: `documentation/synth_dsl_jets/dx7_sysex_export_specification.md`
-- [~] Task 1.2: Implementar módulo `src/lib/export/dx7_sysex_exporter.ts` (Green Phase)
+- [x] Task 1.2: Implementar módulo `src/lib/export/dx7_sysex_exporter.ts` (Green Phase)
   - Funções `exportDx7SingleVoiceSyx(patch)` e `exportDx7BankSyx(patches)` com sanitização de nome ASCII e validação de limites de operador.
   - Teste automatizado: `npx tsx tests/test-dx7-sysex-exporter.ts`
   - Documentação: `documentation/synth_dsl_jets/dx7_sysex_export_specification.md`
-- [ ] Task 1.3: Verificação da Fase 1 e Checkpoint (Referente ao `workflow.md`)
+- [x] Task 1.3: Verificação da Fase 1 e Checkpoint (Referente ao `workflow.md`)
 
 ---
 
 ## Fase 2: Exportador SoundFont 2 (.sf2) (TDD)
-- [ ] Task 2.1: Escrever testes automatizados que falham para o empacotador de SoundFont 2 RIFF/sfbk (Red Phase)
+- [~] Task 2.1: Escrever testes automatizados que falham para o empacotador de SoundFont 2 RIFF/sfbk (Red Phase)
   - Testar integridade dos chunks `RIFF`, `INFO`, `sdta` (dados PCM 16-bit a 48 kHz) e `pdta` (tabelas de cabeçalho v2.04).
   - Teste automatizado: `npx tsx tests/test-soundfont2-exporter.ts`
   - Documentação: `documentation/synth_dsl_jets/soundfont2_export_specification.md`

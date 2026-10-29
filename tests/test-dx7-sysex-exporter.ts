@@ -7,7 +7,8 @@ import {
 } from '../src/lib/export/dx7_sysex_exporter';
 
 // Parser canônico existente no projeto para validação de roundtrip
-import { parseDx7SysEx, DX7_TUB_BELLS } from '../src/lib/lean/dx7_syx_parser';
+import { parseDx7Syx, type Dx7Patch } from '../src/lib/synth/dx7_parser';
+import { DX7_TUB_BELLS } from '../src/lib/synth/dx7_presets';
 
 console.log('🧪 Iniciando Teste TDD (Red Phase): Exportador Yamaha DX7 SysEx (.syx)...');
 
@@ -34,7 +35,7 @@ assert.strictEqual(singleVoiceBytes[153], expectedChecksum, `Checksum de 7 bits 
 console.log('  ✓ Estrutura de voz única (155 bytes) e checksum de 7 bits validados');
 
 // Validar roundtrip através do parser nativo do projeto
-const parsedSingle = parseDx7SysEx(singleVoiceBytes);
+const parsedSingle = parseDx7Syx(singleVoiceBytes);
 assert.strictEqual(parsedSingle.length, 1, 'Parser deve identificar exatamente 1 voz');
 assert.strictEqual(parsedSingle[0].name.trim(), DX7_TUB_BELLS.name.trim(), 'Nome do patch deve ser preservado');
 assert.strictEqual(parsedSingle[0].algorithm, DX7_TUB_BELLS.algorithm, 'Algoritmo FM deve ser idêntico');
@@ -55,7 +56,7 @@ assert.strictEqual(bankBytes[5], 0x00, 'Byte 5 deve ser 0x00 (LSB)');
 assert.strictEqual(bankBytes[4103], 0xF7, 'Último byte deve ser 0xF7');
 
 // Validar roundtrip do banco com o parser
-const parsedBank = parseDx7SysEx(bankBytes);
+const parsedBank = parseDx7Syx(bankBytes);
 assert.strictEqual(parsedBank.length, 32, 'Parser deve extrair exatamente 32 vozes do banco');
 console.log('  ✓ Cartucho de 32 vozes (4104 bytes) validado com sucesso');
 
