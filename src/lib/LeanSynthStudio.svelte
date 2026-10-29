@@ -23,8 +23,11 @@
     synthesizePolyphonicChord, 
     midiToFrequency, 
     encodeWav16Mono,
+    type SynthOptions,
     DX7_ALGORITHMS
   } from './synth/dx7_audio_engine';
+  import { exportDx7SingleVoiceSyx } from './export/dx7_sysex_exporter';
+  import { exportMultisampleSoundFont, triggerBinaryDownload } from './export/soundfont2_exporter';
 
   import OperatorMatrixWidget from './widgets/OperatorMatrixWidget.svelte';
   import EnvelopeStageWidget from './widgets/EnvelopeStageWidget.svelte';
@@ -320,6 +323,38 @@
     }
   }
 
+  function downloadSyx() {
+    try {
+      const syxBytes = exportDx7SingleVoiceSyx(currentPatch);
+      const filename = `${currentPatch.name.trim().toLowerCase().replace(/[^a-z0-9]/g, '_') || 'dx7_voice'}.syx`;
+      triggerBinaryDownload(syxBytes, filename, 'application/x-syx');
+    } catch (e) {
+      console.error('Erro ao exportar SysEx DX7:', e);
+    }
+  }
+
+  function downloadSoundFont() {
+    try {
+      const sf2Bytes = exportMultisampleSoundFont(currentPatch.name.trim() || 'DX7 Synth', (freqHz, durationSec) => {
+        const samples = synthesizeDx7Patch(currentPatch, {
+          sampleRate: 48000,
+          duration: durationSec,
+          fundamentalHz: freqHz,
+          velocity: 0.85
+        });
+        const pcm16 = new Int16Array(samples.length);
+        for (let i = 0; i < samples.length; i++) {
+          pcm16[i] = Math.max(-32768, Math.min(32767, Math.round(samples[i] * 32767)));
+        }
+        return pcm16;
+      });
+      const filename = `${currentPatch.name.trim().toLowerCase().replace(/[^a-z0-9]/g, '_') || 'dx7_instrument'}.sf2`;
+      triggerBinaryDownload(sf2Bytes, filename, 'audio/x-soundfont');
+    } catch (e) {
+      console.error('Erro ao exportar SoundFont 2:', e);
+    }
+  }
+
   function transportToEditor() {
     try {
       const samples = synthesizeDx7Patch(currentPatch, {
@@ -407,6 +442,8 @@
     <div class="actions">
       <button class="copy-btn" onclick={copyPlainText} title="Copia o código Lean 4 desformatado">{copyFeedback}</button>
       <button class="export-btn" onclick={exportWav} title="Sintetizar e baixar WAV">Exportar WAV</button>
+      <button class="syx-btn" onclick={downloadSyx} title="Baixar arquivo SysEx .syx para Yamaha DX7, Volca FM ou Dexed">🎹 .SYX (DX7)</button>
+      <button class="sf2-btn" onclick={downloadSoundFont} title="Baixar SoundFont 2 (.sf2) multisample de 5 oitavas">🎼 .SF2</button>
       <button class="transport-btn" onclick={transportToEditor} title="Transportar áudio gerado para o WebGL Editor">Editor 2D ↗</button>
     </div>
   </header>
@@ -726,6 +763,39 @@
 
   .export-btn:hover, .transport-btn:hover {
     border-color: var(--accent-blue);
+  }
+
+  .syx-btn, .sf2-btn {
+    padding: 6px 10px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .syx-btn {
+    background: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.35);
+  }
+
+  .syx-btn:hover {
+    background: rgba(245, 158, 11, 0.3);
+    color: #ffffff;
+    border-color: #f59e0b;
+  }
+
+  .sf2-btn {
+    background: rgba(168, 85, 247, 0.15);
+    color: #c084fc;
+    border: 1px solid rgba(168, 85, 247, 0.35);
+  }
+
+  .sf2-btn:hover {
+    background: rgba(168, 85, 247, 0.3);
+    color: #ffffff;
+    border-color: #a855f7;
   }
 
   /* Transport & Keyboard Bar */

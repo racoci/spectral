@@ -48,7 +48,9 @@ const TS_TEST_SUITES: TestSuite[] = [
   { title: 'Serialização de Sessão em Formato Compacto', file: 'test-session-sharing-compact.ts' },
   { title: 'Pipeline Slang Auto-Diff e WebGPU Shaders', file: 'test-slang-webgpu-pipeline.ts' },
   { title: 'Motor Causal TreeNN e Grafo de Síntese', file: 'test-treenn-graph-engine.ts' },
-  { title: 'Inferência Amortizada e Classificador Relacional', file: 'test-amortized-synth-inferrer.ts' }
+  { title: 'Inferência Amortizada e Classificador Relacional', file: 'test-amortized-synth-inferrer.ts' },
+  { title: 'Exportador Yamaha DX7 SysEx (.syx)', file: 'test-dx7-sysex-exporter.ts' },
+  { title: 'Exportador SoundFont 2 (.sf2) Multisample', file: 'test-soundfont2-exporter.ts' }
 ];
 
 function runAllTests(): void {

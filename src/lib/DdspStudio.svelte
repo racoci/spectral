@@ -8,6 +8,7 @@
     wasm_ddsp_list_presets
   } from '../wasm/core_wasm.js';
   import { AmortizedSynthInferrer } from './synth/amortized_synth_inferrer';
+  import { exportMultisampleSoundFont, triggerBinaryDownload } from './export/soundfont2_exporter';
 
   let {
     originalBytes = null,
@@ -282,6 +283,28 @@
     }
   }
 
+  function exportSoundFont() {
+    try {
+      statusBanner = `🎼 Sintetizando 5 oitavas e construindo SoundFont 2...`;
+      const sf2Bytes = exportMultisampleSoundFont(selectedPresetId || 'DDSP Synth', (freqHz, durationSec) => {
+        const tempConfig = { ...config, f0: freqHz, duration_s: durationSec };
+        const pcmFloat = wasm_ddsp_synthesize_pcm(JSON.stringify(tempConfig));
+        const pcm16 = new Int16Array(pcmFloat.length);
+        for (let i = 0; i < pcmFloat.length; i++) {
+          pcm16[i] = Math.max(-32768, Math.min(32767, Math.round(pcmFloat[i] * 32767)));
+        }
+        return pcm16;
+      });
+      const filename = `ddsp-${(selectedPresetId || 'synth').toLowerCase().replace(/[^a-z0-9]/g, '_')}.sf2`;
+      triggerBinaryDownload(sf2Bytes, filename, 'audio/x-soundfont');
+      statusBanner = `🎼 Arquivo SoundFont (.sf2) exportado com sucesso!`;
+      setTimeout(() => { if (statusBanner?.startsWith('🎼')) statusBanner = null; }, 3000);
+    } catch (err: any) {
+      console.error('Erro ao exportar SoundFont do DDSP:', err);
+      statusBanner = `❌ Erro ao exportar SoundFont: ${err.message || String(err)}`;
+    }
+  }
+
   function exportJson() {
     const jsonStr = JSON.stringify(config, null, 2);
     const blob = new Blob([jsonStr], { type: 'application/json' });
@@ -482,6 +505,10 @@
 
         <button class="action-btn util-btn" onclick={exportWav} title="Exporta WAV 16-bit">
           📥 WAV
+        </button>
+
+        <button class="action-btn util-btn sf2-btn" onclick={exportSoundFont} title="Exporta SoundFont 2 (.sf2) multisampled de 5 oitavas">
+          🎼 SF2
         </button>
 
         <button class="action-btn util-btn" onclick={exportJson} title="Exporta configuração JSON">
@@ -1238,6 +1265,16 @@
     background: linear-gradient(135deg, rgba(56, 189, 248, 0.25), rgba(168, 85, 247, 0.3));
     border-color: #38bdf8;
     color: #e0f2fe;
+  }
+
+  .action-btn.sf2-btn {
+    border-color: #a855f7;
+    color: #e9d5ff;
+  }
+
+  .action-btn.sf2-btn:hover {
+    background: rgba(168, 85, 247, 0.2);
+    color: #ffffff;
   }
 
   .action-btn.util-btn {
