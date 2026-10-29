@@ -7,6 +7,7 @@
     wasm_ddsp_get_preset,
     wasm_ddsp_list_presets
   } from '../wasm/core_wasm.js';
+  import { AmortizedSynthInferrer } from './synth/amortized_synth_inferrer';
 
   let {
     originalBytes = null,
@@ -247,6 +248,22 @@
     }
   }
 
+  function discoverModularSynthesizer() {
+    try {
+      statusBanner = `⚡ Executando inferência amortizada CQT (Fase 13-14)...`;
+      const pcmData = currentPcm || new Float32Array(24000);
+      const inferrer = new AmortizedSynthInferrer(config.sample_rate);
+      const tree = inferrer.inferSynthesizer(pcmData, 2);
+      config.f0 = tree.operators[0].freq;
+      synthesizeAudio(false);
+      statusBanner = `✨ Sintetizador descoberto! f0=${config.f0.toFixed(1)}Hz com modulação β=${tree.W[0][1].toFixed(2)}`;
+      setTimeout(() => { if (statusBanner?.startsWith('✨')) statusBanner = null; }, 4000);
+    } catch (err: any) {
+      console.error('Erro na descoberta amortizada:', err);
+      statusBanner = `❌ Erro na inferência amortizada: ${err.message || String(err)}`;
+    }
+  }
+
   function exportWav() {
     try {
       const jsonStr = JSON.stringify(config);
@@ -454,6 +471,14 @@
             🪄 Extrair do Áudio
           </button>
         {/if}
+
+        <button
+          class="action-btn discover-btn"
+          onclick={discoverModularSynthesizer}
+          title="Inferência Amortizada (Fase 13-14): Descobre a topologia e parâmetros em tempo real (< 15ms)"
+        >
+          ✨ Descobrir Sintetizador
+        </button>
 
         <button class="action-btn util-btn" onclick={exportWav} title="Exporta WAV 16-bit">
           📥 WAV
@@ -1207,6 +1232,12 @@
     background: linear-gradient(135deg, rgba(168, 85, 247, 0.3), rgba(126, 34, 206, 0.3));
     border-color: #a855f7;
     color: #c084fc;
+  }
+
+  .action-btn.discover-btn {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.25), rgba(168, 85, 247, 0.3));
+    border-color: #38bdf8;
+    color: #e0f2fe;
   }
 
   .action-btn.util-btn {
