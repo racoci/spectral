@@ -5,11 +5,11 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
 ---
 
 ## Fase 1: Exportador Yamaha DX7 SysEx (.syx) (TDD)
-- [ ] Task 1.1: Escrever testes automatizados que falham para o serializador DX7 SysEx de voz única (155 bytes) e banco de 32 vozes (4104 bytes) (Red Phase)
+- [x] Task 1.1: Escrever testes automatizados que falham para o serializador DX7 SysEx de voz única (155 bytes) e banco de 32 vozes (4104 bytes) (Red Phase) [failing tests created]
   - Testar montagem binária de 128 bytes por voz, cálculo de checksum de 7 bits em complemento de dois e cabeçalhos MIDI padrão.
   - Teste automatizado: `npx tsx tests/test-dx7-sysex-exporter.ts`
   - Documentação: `documentation/synth_dsl_jets/dx7_sysex_export_specification.md`
-- [ ] Task 1.2: Implementar módulo `src/lib/export/dx7_sysex_exporter.ts` (Green Phase)
+- [~] Task 1.2: Implementar módulo `src/lib/export/dx7_sysex_exporter.ts` (Green Phase)
   - Funções `exportDx7SingleVoiceSyx(patch)` e `exportDx7BankSyx(patches)` com sanitização de nome ASCII e validação de limites de operador.
   - Teste automatizado: `npx tsx tests/test-dx7-sysex-exporter.ts`
   - Documentação: `documentation/synth_dsl_jets/dx7_sysex_export_specification.md`
