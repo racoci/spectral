@@ -18,11 +18,11 @@ Este plano detalha as fases, tarefas e testes automatizados para a implementaç�
 ---
 
 ## Fase 2: Exportador SoundFont 2 (.sf2) (TDD)
-- [~] Task 2.1: Escrever testes automatizados que falham para o empacotador de SoundFont 2 RIFF/sfbk (Red Phase)
+- [x] Task 2.1: Escrever testes automatizados que falham para o empacotador de SoundFont 2 RIFF/sfbk (Red Phase) [failing tests created]
   - Testar integridade dos chunks `RIFF`, `INFO`, `sdta` (dados PCM 16-bit a 48 kHz) e `pdta` (tabelas de cabeçalho v2.04).
   - Teste automatizado: `npx tsx tests/test-soundfont2-exporter.ts`
   - Documentação: `documentation/synth_dsl_jets/soundfont2_export_specification.md`
-- [ ] Task 2.2: Implementar módulo `src/lib/export/soundfont2_exporter.ts` (Green Phase)
+- [~] Task 2.2: Implementar módulo `src/lib/export/soundfont2_exporter.ts` (Green Phase)
   - Gerador de container binário SF2 com síntese de 5 notas em oitavas (C2 a C6) e mapeamento de zonas de tecla.
   - Teste automatizado: `npx tsx tests/test-soundfont2-exporter.ts`
   - Documentação: `documentation/synth_dsl_jets/soundfont2_export_specification.md`
