@@ -50,7 +50,8 @@ const TS_TEST_SUITES: TestSuite[] = [
   { title: 'Motor Causal TreeNN e Grafo de Síntese', file: 'test-treenn-graph-engine.ts' },
   { title: 'Inferência Amortizada e Classificador Relacional', file: 'test-amortized-synth-inferrer.ts' },
   { title: 'Exportador Yamaha DX7 SysEx (.syx)', file: 'test-dx7-sysex-exporter.ts' },
-  { title: 'Exportador SoundFont 2 (.sf2) Multisample', file: 'test-soundfont2-exporter.ts' }
+  { title: 'Exportador SoundFont 2 (.sf2) Multisample', file: 'test-soundfont2-exporter.ts' },
+  { title: 'Provas Formais em Lean 4 (Lake Build & Kernel)', file: 'test-lean-holomorphic-proofs.ts' }
 ];
 
 function runAllTests(): void {
