@@ -25,3 +25,4 @@
 - **TreeNN & Neural-Causal Synthesis Core**: Fully connected coupling matrix $\mathbf{W} \in \mathbb{R}^{N \times N}$, smooth $\tanh$ feedback stabilization, MDL structural edge pruner, and isomorphic real-time Web Audio graph engine.
 - **Amortized Inverse Synthesis Core**: Bilinear relational edge classifier, instantaneous Bessel sideband decomposition, and single-pass CQT-to-TreeNN parameter estimator.
 - **Instrumental Export Formats Core**: Binary Yamaha DX7 SysEx serializer (155-byte 1-voice / 4104-byte 32-voice bank with 7-bit two's complement checksums) and SoundFont 2.04 (`.sf2`) RIFF binary container generator.
+- **Lean 4 Proof Assistant Core**: Formal axiomatic verification environment (v4.34.1) compiling with Lake to prove Cauchy-Riemann harmonicity, strict ridge curvature, and Bargmann-Fock isometry without Mathlib.
