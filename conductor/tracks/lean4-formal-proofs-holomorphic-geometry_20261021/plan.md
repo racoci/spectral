@@ -5,11 +5,11 @@ Este plano detalha as fases, tarefas e testes automatizados para a formalizaçã
 ---
 
 ## Fase 1: Correção e Formalização dos Teoremas em Lean 4 (TDD)
-- [ ] Task 1.1: Escrever teste automatizado que falha para verificação de compilação do pacote Lean (`tests/test-lean-holomorphic-proofs.ts`) (Red Phase)
+- [x] Task 1.1: Escrever teste automatizado que falham para verificação de compilação do pacote Lean (`tests/test-lean-holomorphic-proofs.ts`) (Red Phase) [failing tests created]
   - Validar invocação de `lake build`, verificação dos teoremas no kernel do Lean 4 e checagem de código de saída 0.
   - Teste automatizado: `npx tsx tests/test-lean-holomorphic-proofs.ts`
   - Documentação: `documentation/holomorphic_geometry/lean4_holomorphic_theorems.md`
-- [ ] Task 1.2: Implementar módulo `vector_audio_geometry/HolomorphicGeometry/Basic.lean` com Teoremas 1, 2 e 3 comprovados sem erros (Green Phase)
+- [~] Task 1.2: Implementar módulo `vector_audio_geometry/HolomorphicGeometry/Basic.lean` com Teoremas 1, 2 e 3 comprovados sem erros (Green Phase)
   - Provas formais para: (1) Cauchy-Riemann implica Laplace, (2) Curvatura espectral estritamente negativa $\Phi''(f) = -(y')^2/\sigma_y^2$, e (3) Preservação do núcleo de Bargmann.
   - Teste automatizado: `npx tsx tests/test-lean-holomorphic-proofs.ts`
   - Documentação: `documentation/holomorphic_geometry/lean4_holomorphic_theorems.md`
